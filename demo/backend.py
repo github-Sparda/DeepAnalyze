@@ -47,6 +47,7 @@ from config import (
     API_PORT,
     API_PUBLIC_BASE,
     DEFAULT_TEMPERATURE,
+    DEEPANALYZE_VLLM_API_KEY,
     HTTP_SERVER_BASE,
     HTTP_SERVER_PORT,
     MAX_NEW_TOKENS,
@@ -142,7 +143,7 @@ def execute_code_safe(
 
 
 # Initialize OpenAI client
-client = openai.OpenAI(base_url=API_BASE, api_key="dummy")
+client = openai.OpenAI(base_url=API_BASE, api_key=DEEPANALYZE_VLLM_API_KEY)
 
 
 def get_session_workspace(session_id: str) -> str:

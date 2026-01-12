@@ -17,7 +17,13 @@ import openai
 from fastapi import APIRouter, Body
 from fastapi.responses import StreamingResponse
 
-from config import API_BASE, DEFAULT_TEMPERATURE, STOP_TOKEN_IDS, MAX_NEW_TOKENS
+from config import (
+    API_BASE,
+    DEFAULT_TEMPERATURE,
+    STOP_TOKEN_IDS,
+    MAX_NEW_TOKENS,
+    DEEPANALYZE_VLLM_API_KEY,
+)
 from models import ChatCompletionRequest, ChatCompletionResponse, ChatCompletionChoice
 from storage import storage
 from utils import (
@@ -28,8 +34,8 @@ from utils import (
 
 
 # Initialize OpenAI clients for vllm
-vllm_client = openai.OpenAI(base_url=API_BASE, api_key="dummy")
-vllm_client_async = openai.AsyncOpenAI(base_url=API_BASE, api_key="dummy")
+vllm_client = openai.OpenAI(base_url=API_BASE, api_key=DEEPANALYZE_VLLM_API_KEY)
+vllm_client_async = openai.AsyncOpenAI(base_url=API_BASE, api_key=DEEPANALYZE_VLLM_API_KEY)
 
 # Create router for chat endpoints
 router = APIRouter(prefix="/v1/chat", tags=["chat"])

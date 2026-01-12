@@ -13,7 +13,7 @@ generator:
   infer_backend: openai_server
   backend_config: 
     model_name: Qwen/Qwen2.5-1.5B-Instruct
-    api_url: http://localhost:8000
+    api_url: http://localhost:48000
   num_trajectories: 1
   max_iterations: 5
   max_prompt_length: 31232

@@ -40,6 +40,7 @@ from config import (
     API_BASE,
     DEFAULT_MODEL,
     DEFAULT_TEMPERATURE,
+    DEEPANALYZE_VLLM_API_KEY,
     JUPYTER_PORT,
     MAX_NEW_TOKENS,
     STOP_TOKEN_IDS,
@@ -49,7 +50,7 @@ from config import (
 # Initialize OpenAI client
 print("Try to connect OpenAI client...")
 client = openai.OpenAI(
-    api_key=os.getenv("OPENAI_API_KEY", "dummy"),
+    api_key=os.getenv("OPENAI_API_KEY", DEEPANALYZE_VLLM_API_KEY),
     base_url=os.getenv("OPENAI_BASE_URL", API_BASE),
 )
 try:
@@ -185,5 +186,4 @@ async def bot_stream(messages):
                 messages.append({"role": "execute", "content": exe_output})
     
     return messages
-
 

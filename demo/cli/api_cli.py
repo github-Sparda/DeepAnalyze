@@ -33,7 +33,7 @@ API_DIR = Path(__file__).resolve().parents[2] / "API"
 if str(API_DIR) not in sys.path:
     sys.path.append(str(API_DIR))
 
-from config import API_PUBLIC_BASE, API_PUBLIC_BASE_V1, DEFAULT_MODEL
+from config import API_PUBLIC_BASE, API_PUBLIC_BASE_V1, DEFAULT_MODEL, DEEPANALYZE_VLLM_API_KEY
 
 console = Console()
 
@@ -81,7 +81,7 @@ class DeepAnalyzeCLI:
         """Initialize OpenAI client"""
         try:
             self.client = openai.OpenAI(
-                api_key="dummy",  # DeepAnalyze API uses dummy key
+                api_key=DEEPANALYZE_VLLM_API_KEY,
                 base_url=self.api_base
             )
             return True
@@ -99,7 +99,7 @@ class DeepAnalyzeCLI:
                 return True
 
             # If health endpoint is unavailable, try to check model list
-            temp_client = openai.OpenAI(api_key="dummy", base_url=self.api_base)
+            temp_client = openai.OpenAI(api_key=DEEPANALYZE_VLLM_API_KEY, base_url=self.api_base)
             models = temp_client.models.list()
             return True
         except:
