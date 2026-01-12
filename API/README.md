@@ -2,12 +2,14 @@
 
 ## 🚀 Quick Start
 
+All addresses/ports below are configured in `API/config.py`. If you change them there, keep the examples in sync.
+
 ### Prerequisites
 
 **Start vLLM Model Server**:
 
 ```bash
-vllm serve DeepAnalyze-8B --host 0.0.0.0 --port 8000
+vllm serve DeepAnalyze-8B --host 0.0.0.0 --port 48000
 ```
 
 ### Starting the Server
@@ -17,9 +19,9 @@ cd API
 python start_server.py
 ```
 
-- **API Server**: `http://localhost:8200` (Main API)
-- **File Server**: `http://localhost:8100` (File downloads)
-- **Health Check**: `http://localhost:8200/health`
+- **API Server**: `http://localhost:48200` (Main API)
+- **File Server**: `http://localhost:48100` (File downloads)
+- **Health Check**: `http://localhost:48200/health`
 
 The API server will create a new `workspace` folder in the current directory as the working directory. For each conversation, it will generate a `thread` subdirectory under this workspace to perform data analysis and generate files.
 
@@ -41,7 +43,7 @@ import requests
 
 with open('data.csv', 'rb') as f:
     files = {'file': ('data.csv', f, 'text/csv')}
-    response = requests.post('http://localhost:8200/v1/files', files=files)
+    response = requests.post('http://localhost:48200/v1/files', files=files)
 
 file_id = response.json()['id']
 print(f"File uploaded: {file_id}")
@@ -52,7 +54,7 @@ print(f"File uploaded: {file_id}")
 import openai
 
 client = openai.OpenAI(
-    base_url="http://localhost:8200/v1",
+    base_url="http://localhost:48200/v1",
     api_key="dummy"
 )
 
@@ -67,7 +69,7 @@ print(f"File uploaded: {file_obj.id}")
 **Requests Example:**
 
 ```python
-response = requests.post('http://localhost:8200/v1/chat/completions', json={
+response = requests.post('http://localhost:48200/v1/chat/completions', json={
     "model": "DeepAnalyze-8B",
     "messages": [
         {"role": "user", "content": "Introduce Python programming language in one sentence"}
@@ -97,7 +99,7 @@ print(response.choices[0].message.content)
 
 **Requests Example:**
 ```python
-response = requests.post('http://localhost:8200/v1/chat/completions', json={
+response = requests.post('http://localhost:48200/v1/chat/completions', json={
     "model": "DeepAnalyze-8B",
     "messages": [
         {
@@ -146,7 +148,7 @@ if hasattr(message, 'files') and message.files:
 **Requests Example:**
 
 ```python
-response = requests.post('http://localhost:8200/v1/chat/completions', json={
+response = requests.post('http://localhost:48200/v1/chat/completions', json={
     "model": "DeepAnalyze-8B",
     "messages": [
         {
@@ -309,7 +311,7 @@ Extended chat completion with file support.
         "files": [                    // New format: files in message
           {
             "name": "chart.png",
-            "url": "http://localhost:8100/thread-123/generated/chart.png"
+            "url": "http://localhost:48100/thread-123/generated/chart.png"
           }
         ]
       },
@@ -319,7 +321,7 @@ Extended chat completion with file support.
   "generated_files": [              // Backward compatibility: generated_files field
     {
       "name": "chart.png",
-      "url": "http://localhost:8100/thread-123/generated/chart.png"
+      "url": "http://localhost:48100/thread-123/generated/chart.png"
     }
   ],
   "attached_files": ["file-abc123"] // Input files
@@ -357,9 +359,9 @@ GET /health
 
 ### Multi-Port Design
 
-- **Port 8000**: vLLM model server (external)
-- **Port 8200**: Main API server (FastAPI)
-- **Port 8100**: File HTTP server for downloads
+- **Port 48000**: vLLM model server (external)
+- **Port 48200**: Main API server (FastAPI)
+- **Port 48100**: File HTTP server for downloads
 
 ## 🔧 Configuration
 
@@ -367,10 +369,10 @@ GET /health
 
 ```python
 # API Configuration
-API_BASE = "http://localhost:8000/v1"  # vLLM endpoint
+API_BASE = "http://localhost:48000/v1"  # vLLM endpoint
 MODEL_PATH = "DeepAnalyze-8B"          # Model name
 WORKSPACE_BASE_DIR = "workspace"       # File storage
-HTTP_SERVER_PORT = 8100               # File server port
+HTTP_SERVER_PORT = 48100              # File server port
 
 # Model Settings
 DEFAULT_TEMPERATURE = 0.4            # Default sampling temperature

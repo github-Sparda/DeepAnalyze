@@ -1,0 +1,47 @@
+<!-- OPENSPEC:START -->
+# OpenSpec Instructions
+
+These instructions are for AI assistants working in this project.
+
+Always open `@/openspec/AGENTS.md` when the request:
+- Mentions planning or proposals (words like proposal, spec, change, plan)
+- Introduces new capabilities, breaking changes, architecture shifts, or big performance/security work
+- Sounds ambiguous and you need the authoritative spec before coding
+
+Use `@/openspec/AGENTS.md` to learn:
+- How to create and apply change proposals
+- Spec format and conventions
+- Project structure and guidelines
+
+Keep this managed block so 'openspec update' can refresh the instructions.
+
+<!-- OPENSPEC:END -->
+
+# Codex Project Guidance
+
+These instructions supplement OpenSpec and apply to all Codex work in this repo.
+
+## Project Context
+- Primary codebase is Python (DeepAnalyze core in `deepanalyze/`, API in `API/`).
+- Demos live under `demo/` (WebUI, JupyterUI, CLI).
+- Training and evaluation stacks are vendored under `deepanalyze/ms-swift/` and `deepanalyze/SkyRL/`.
+- Examples and case studies live under `example/`.
+
+## Programming Guidelines
+- Prefer small, focused changes that align with existing module structure and naming.
+- Keep public interfaces stable; document any behavioral changes in OpenSpec proposals first.
+- Avoid introducing new dependencies without a clear need and a short rationale.
+- Use Python conventions (snake_case, type hints where already used) and keep code readable.
+
+## Testing and Validation
+- No top-level test runner is documented; if you add or change behavior, include a short manual verification plan in the proposal/tasks (CLI/API/UI steps as relevant).
+- If you add tests, keep them minimal and targeted; do not introduce new frameworks unless necessary.
+
+## Git / PR Expectations
+- Keep commits scoped and descriptive; avoid mixing unrelated changes.
+- Note any required model weights or datasets in the PR description if changes depend on them.
+- For UI/demo changes, include a brief run/usage note.
+
+## Documentation
+- Update `README.md` or relevant docs if you add or change user-facing behavior.
+- For new demos or examples, follow the existing folder structure and add a concise README.

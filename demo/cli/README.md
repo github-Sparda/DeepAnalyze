@@ -6,7 +6,7 @@ A command-line interface for DeepAnalyze, powered by the Rich library. Provides 
 
 ### Prerequisites
 
-Please ensure that the vLLM service is running on port 8000 with the DeepAnalyze-8B model loaded.
+Please ensure that the vLLM service is running on the port configured in `API/config.py` (default `48000`) with the DeepAnalyze-8B model loaded.
 
 1. **Start the DeepAnalyze API Server**:
    ```bash
@@ -70,7 +70,7 @@ The CLI automatically streams responses, showing real-time progress as DeepAnaly
 
 ## 🔧 Configuration
 
-The CLI connects to the DeepAnalyze API server at `http://localhost:8200/v1` by default. Ensure the server is running before launching the CLI.
+The CLI connects to the DeepAnalyze API server at `http://localhost:48200/v1` by default. You can change this in `API/config.py` (see `API_PUBLIC_BASE_V1`).
 
 Command history is saved to `~/.deeppanalyze_history_en` (English) or `~/.deeppanalyze_history_zh` (Chinese).
 

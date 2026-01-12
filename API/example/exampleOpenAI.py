@@ -8,8 +8,17 @@ import time
 import re
 from pathlib import Path
 
+import sys
+from pathlib import Path
+
+API_DIR = Path(__file__).resolve().parents[1]
+if str(API_DIR) not in sys.path:
+    sys.path.append(str(API_DIR))
+
+from config import API_PUBLIC_BASE_V1, VLLM_BASE_URL_NO_V1
+
 # Configure OpenAI client for DeepAnalyze
-API_BASE = "http://localhost:8200/v1"
+API_BASE = API_PUBLIC_BASE_V1
 MODEL = "DeepAnalyze-8B"
 
 client = openai.OpenAI(
@@ -137,7 +146,7 @@ def streaming_chat_completion_with_files():
 def main():
     """Interactive example selector"""
     print("🚀 DeepAnalyze API Examples")
-    print("API: localhost:8200 | Model: localhost:8000\n")
+    print(f"API: {API_PUBLIC_BASE_V1} | Model: {VLLM_BASE_URL_NO_V1}\n")
 
     examples = {
         "1": ("File API", file_api_examples),
@@ -181,7 +190,7 @@ def main():
             break
         except Exception as e:
             print(f"❌ Error: {e}")
-            print("Ensure API server (localhost:8200) and model server (localhost:8000) are running")
+            print("Ensure API server and model server are running (see API/config.py)")
             if choice in ["2", "4"]:
                 print("And Simpson.csv exists in current directory")
 

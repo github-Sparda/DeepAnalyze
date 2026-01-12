@@ -37,6 +37,8 @@
 
 ## 🖥 Demo
 
+All ports/addresses are centralized in `API/config.py`. Update that file if you need to change them.
+
 ### WebUI
 
 https://github.com/user-attachments/assets/04184975-7ee7-4ae0-8761-7a7550c5c8fe
@@ -46,7 +48,7 @@ Upload the data, DeepAnalyze can perform data-oriented deep research 🔍 and an
 
 - Clone this repo and download [DeepAnalyze-8B](https://huggingface.co/RUC-DataLab/DeepAnalyze-8B).
 - Deploy DeepAnalyze-8B via vllm: `vllm serve DeepAnalyze-8B`
-- Run these scripts to launch the API and interface, and then interact through the browser (http://localhost:4000):
+- Run these scripts to launch the API and interface, and then interact through the browser (http://localhost:4000 by default; see `API/config.py` `FRONTEND_PORT`):
     ```bash
     cd demo/chat
     npm install
@@ -184,13 +186,13 @@ For training, please refer to [`./deepanalyze/ms-swift/requirements.txt`](./deep
 - API usage :
 
   ```
-  FILE_RESPONSE=$(curl -s -X POST "http://localhost:8200/v1/files" \
+  FILE_RESPONSE=$(curl -s -X POST "http://localhost:48200/v1/files" \
       -F "file=@data.csv" \
       -F "purpose=file-extract")
   
   FILE_ID=$(echo $FILE_RESPONSE | jq -r '.id')
   
-  curl -X POST http://localhost:8200/v1/chat/completions \
+  curl -X POST http://localhost:48200/v1/chat/completions \
        -H "Content-Type: application/json" \
        -d "{
           \"model\": \"DeepAnalyze-8B\",

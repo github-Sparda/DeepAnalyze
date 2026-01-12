@@ -2,12 +2,14 @@
 
 ## 🚀 快速开始
 
+以下地址/端口统一在 `API/config.py` 中配置，修改后请同步更新示例。
+
 ### 前置条件
 
 **启动 vLLM 模型服务器**:
 
 ```bash
-vllm serve DeepAnalyze-8B --host 0.0.0.0 --port 8000
+vllm serve DeepAnalyze-8B --host 0.0.0.0 --port 48000
 ```
 
 ### 启动服务器
@@ -17,9 +19,9 @@ cd API
 python start_server.py
 ```
 
-- **API 服务器**: `http://localhost:8200` (主 API)
-- **文件服务器**: `http://localhost:8100` (文件下载)
-- **健康检查**: `http://localhost:8200/health`
+- **API 服务器**: `http://localhost:48200` (主 API)
+- **文件服务器**: `http://localhost:48100` (文件下载)
+- **健康检查**: `http://localhost:48200/health`
 
 API 服务器将在当前目录下创建一个新的 `workspace` 文件夹作为工作目录。对于每个对话，它将在该工作空间下生成一个 `thread` 子目录来执行数据分析并生成文件。
 
@@ -41,7 +43,7 @@ import requests
 
 with open('data.csv', 'rb') as f:
     files = {'file': ('data.csv', f, 'text/csv')}
-    response = requests.post('http://localhost:8200/v1/files', files=files)
+    response = requests.post('http://localhost:48200/v1/files', files=files)
 
 file_id = response.json()['id']
 print(f"File uploaded: {file_id}")
@@ -52,7 +54,7 @@ print(f"File uploaded: {file_id}")
 import openai
 
 client = openai.OpenAI(
-    base_url="http://localhost:8200/v1",
+    base_url="http://localhost:48200/v1",
     api_key="dummy"
 )
 
@@ -67,7 +69,7 @@ print(f"File uploaded: {file_obj.id}")
 **请求示例:**
 
 ```python
-response = requests.post('http://localhost:8200/v1/chat/completions', json={
+response = requests.post('http://localhost:48200/v1/chat/completions', json={
     "model": "DeepAnalyze-8B",
     "messages": [
         {"role": "user", "content": "用一句话介绍Python编程语言"}
@@ -96,7 +98,7 @@ print(response.choices[0].message.content)
 
 **请求示例:**
 ```python
-response = requests.post('http://localhost:8200/v1/chat/completions', json={
+response = requests.post('http://localhost:48200/v1/chat/completions', json={
     "model": "DeepAnalyze-8B",
     "messages": [
         {
@@ -145,7 +147,7 @@ if hasattr(message, 'files') and message.files:
 **请求示例:**
 
 ```python
-response = requests.post('http://localhost:8200/v1/chat/completions', json={
+response = requests.post('http://localhost:48200/v1/chat/completions', json={
     "model": "DeepAnalyze-8B",
     "messages": [
         {
@@ -310,7 +312,7 @@ DELETE /v1/files/{file_id}
         "files": [                    //消息中的文件
           {
             "name": "chart.png",
-            "url": "http://localhost:8100/thread-123/generated/chart.png"
+            "url": "http://localhost:48100/thread-123/generated/chart.png"
           }
         ]
       },
@@ -320,7 +322,7 @@ DELETE /v1/files/{file_id}
   "generated_files": [              // generated_files 字段
     {
       "name": "chart.png",
-      "url": "http://localhost:8100/thread-123/generated/chart.png"
+      "url": "http://localhost:48100/thread-123/generated/chart.png"
     }
   ],
   "attached_files": ["file-abc123"] // 输入文件
@@ -359,9 +361,9 @@ GET /health
 
 ### 多端口设计
 
-- **端口 8000**: vLLM 模型服务器（外部）
-- **端口 8200**: 主 API 服务器（FastAPI）
-- **端口 8100**: 文件 HTTP 服务器用于下载
+- **端口 48000**: vLLM 模型服务器（外部）
+- **端口 48200**: 主 API 服务器（FastAPI）
+- **端口 48100**: 文件 HTTP 服务器用于下载
 
 ## 🔧 配置
 
@@ -369,10 +371,10 @@ GET /health
 
 ```python
 # API 配置
-API_BASE = "http://localhost:8000/v1"  # vLLM 端点
+API_BASE = "http://localhost:48000/v1"  # vLLM 端点
 MODEL_PATH = "DeepAnalyze-8B"          # 模型名称
 WORKSPACE_BASE_DIR = "workspace"       # 文件存储
-HTTP_SERVER_PORT = 8100               # 文件服务器端口
+HTTP_SERVER_PORT = 48100              # 文件服务器端口
 
 # 模型设置
 DEFAULT_TEMPERATURE = 0.4            # 默认采样温度

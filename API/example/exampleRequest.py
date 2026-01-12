@@ -8,7 +8,16 @@ import requests
 import time
 import json
 
-API_BASE = "http://localhost:8200"
+import sys
+from pathlib import Path
+
+API_DIR = Path(__file__).resolve().parents[1]
+if str(API_DIR) not in sys.path:
+    sys.path.append(str(API_DIR))
+
+from config import API_PUBLIC_BASE, VLLM_BASE_URL_NO_V1
+
+API_BASE = API_PUBLIC_BASE
 MODEL = "DeepAnalyze-8B"
 
 
@@ -173,7 +182,7 @@ def check_server():
 def main():
     """Run examples"""
     print("🚀 DeepAnalyze API Examples")
-    print("API: localhost:8200 | Model: localhost:8000")
+    print(f"API: {API_PUBLIC_BASE} | Model: {VLLM_BASE_URL_NO_V1}")
 
     examples = {
         "1": ("Simple Chat", simple_chat),
@@ -214,7 +223,7 @@ def main():
             break
         except Exception as e:
             print(f"❌ Error: {e}")
-            print("Ensure API server (localhost:8200) and model server (localhost:8000) are running")
+            print("Ensure API server and model server are running (see API/config.py)")
 
 
 if __name__ == "__main__":

@@ -22,7 +22,7 @@ docker pull facdbe/deepanalyze-env:latest
 
 # Run with GPU support
 docker run --gpus all -it --rm \
-  -p 8000:8000 \
+  -p 48000:8000 \
   facdbe/deepanalyze-env:latest
 
 ```
@@ -41,7 +41,7 @@ docker build -t deepanalyze-env:latest .
 
 # Run the container
 docker run --gpus all -it --rm \
-  -p 8000:8000 \
+  -p 48000:8000 \
   deepanalyze-env:latest
 ```
 
@@ -51,7 +51,7 @@ docker run --gpus all -it --rm \
 
 ```bash
 docker run --gpus all -d \
-  -p 8000:8000 \
+  -p 48000:8000 \
   -v /path/to/models:/models \
   --name deepanalyze-vllm \
   deepanalyze-env:latest \
@@ -65,10 +65,10 @@ docker run --gpus all -d \
 
 Once the vLLM server is running, you can access:
 
-- **Base URL**: `http://localhost:8000`
-- **OpenAI-compatible endpoint**: `http://localhost:8000/v1/completions`
-- **Chat endpoint**: `http://localhost:8000/v1/chat/completions`
-- **Models endpoint**: `http://localhost:8000/v1/models`
+- **Base URL**: `http://localhost:48000` (match `API/config.py` `DEEPANALYZE_VLLM_BASE_URL`)
+- **OpenAI-compatible endpoint**: `http://localhost:48000/v1/completions`
+- **Chat endpoint**: `http://localhost:48000/v1/chat/completions`
+- **Models endpoint**: `http://localhost:48000/v1/models`
 
 
 ## 📦 Image Size

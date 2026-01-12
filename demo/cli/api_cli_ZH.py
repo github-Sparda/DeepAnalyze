@@ -27,13 +27,21 @@ from rich.live import Live
 from rich.syntax import Syntax
 from rich.filesize import decimal
 
+from pathlib import Path
+
+API_DIR = Path(__file__).resolve().parents[2] / "API"
+if str(API_DIR) not in sys.path:
+    sys.path.append(str(API_DIR))
+
+from config import API_PUBLIC_BASE, API_PUBLIC_BASE_V1, DEFAULT_MODEL
+
 console = Console()
 
 class DeepAnalyzeCLI:
     def __init__(self):
         """初始化CLI客户端"""
-        self.api_base = "http://localhost:8200/v1"
-        self.model = "DeepAnalyze-8B"
+        self.api_base = API_PUBLIC_BASE_V1
+        self.model = DEFAULT_MODEL
         self.client = None
         self.uploaded_files = []
         self.current_thread_id = None
@@ -86,7 +94,7 @@ class DeepAnalyzeCLI:
         try:
             import requests
             # 首先尝试检查健康端点
-            response = requests.get(f"http://localhost:8200/health", timeout=5)
+            response = requests.get(f"{API_PUBLIC_BASE}/health", timeout=5)
             if response.status_code == 200:
                 return True
 
@@ -99,8 +107,8 @@ class DeepAnalyzeCLI:
 
     def display_header(self):
         """显示程序头部信息"""
-        header_content = """[bold cyan]🚀 DeepAnalyze API 客户端[/bold cyan]
-[dim]API服务器: http://localhost:8200 | 模型: DeepAnalyze-8B[/dim]"""
+        header_content = f"""[bold cyan]🚀 DeepAnalyze API 客户端[/bold cyan]
+[dim]API服务器: {API_PUBLIC_BASE} | 模型: {DEFAULT_MODEL}[/dim]"""
 
         console.print(Panel(header_content, title="DeepAnalyze CLI", border_style="cyan"))
 

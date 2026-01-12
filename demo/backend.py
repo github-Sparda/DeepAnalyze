@@ -35,6 +35,26 @@ from fastapi.responses import StreamingResponse
 
 import re
 
+from pathlib import Path
+
+API_DIR = Path(__file__).resolve().parents[1] / "API"
+if str(API_DIR) not in sys.path:
+    sys.path.append(str(API_DIR))
+
+from config import (
+    API_BASE,
+    API_HOST,
+    API_PORT,
+    API_PUBLIC_BASE,
+    DEFAULT_TEMPERATURE,
+    HTTP_SERVER_BASE,
+    HTTP_SERVER_PORT,
+    MAX_NEW_TOKENS,
+    MODEL_PATH,
+    STOP_TOKEN_IDS,
+    WORKSPACE_BASE_DIR,
+)
+
 os.environ.setdefault("MPLBACKEND", "Agg")
 
 
@@ -121,20 +141,8 @@ def execute_code_safe(
             pass
 
 
-# API endpoint and model path
-API_BASE = "http://localhost:8000/v1"  # this localhost is for vllm api, do not change
-MODEL_PATH = "DeepAnalyze-8B"  # replace to your path to DeepAnalyze-8B
-
-
 # Initialize OpenAI client
 client = openai.OpenAI(base_url=API_BASE, api_key="dummy")
-
-# Workspace directory
-WORKSPACE_BASE_DIR = "workspace"
-HTTP_SERVER_PORT = 8100
-HTTP_SERVER_BASE = (
-    f"http://localhost:{HTTP_SERVER_PORT}"  # you can replace localhost to your local ip
-)
 
 
 def get_session_workspace(session_id: str) -> str:
@@ -670,16 +678,15 @@ def bot_stream(messages, workspace, session_id="default"):
     finished = False
     exe_output = None
     while not finished:
+        extra_body = {"add_generation_prompt": False, "max_new_tokens": MAX_NEW_TOKENS}
+        if STOP_TOKEN_IDS:
+            extra_body["stop_token_ids"] = STOP_TOKEN_IDS
         response = client.chat.completions.create(
             model=MODEL_PATH,
             messages=messages,
-            temperature=0.4,
+            temperature=DEFAULT_TEMPERATURE,
             stream=True,
-            extra_body={
-                "add_generation_prompt": False,
-                "stop_token_ids": [151676, 151645],
-                "max_new_tokens": 32768,
-            },
+            extra_body=extra_body,
         )
         cur_res = ""
         for chunk in response:
@@ -990,6 +997,6 @@ async def export_report(body: dict = Body(...)):
 
 if __name__ == "__main__":
     print("🚀 启动后端服务...")
-    print(f"   - API服务: http://localhost:8200")
-    print(f"   - 文件服务: http://localhost:8100")
-    uvicorn.run(app, host="0.0.0.0", port=8200)
+    print(f"   - API服务: {API_PUBLIC_BASE}")
+    print(f"   - 文件服务: {HTTP_SERVER_BASE}")
+    uvicorn.run(app, host=API_HOST, port=API_PORT)

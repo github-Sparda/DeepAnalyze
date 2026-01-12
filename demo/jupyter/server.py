@@ -1,4 +1,5 @@
 import os
+import sys
 import re
 import time
 import tomllib
@@ -31,12 +32,25 @@ else:
     raise FileNotFoundError(f"config.toml MUST exist in directory {config_path.parent}")
 print("Env and config loaded successfully!")
 
+API_DIR = Path(__file__).resolve().parents[2] / "API"
+if str(API_DIR) not in sys.path:
+    sys.path.append(str(API_DIR))
+
+from config import (
+    API_BASE,
+    DEFAULT_MODEL,
+    DEFAULT_TEMPERATURE,
+    JUPYTER_PORT,
+    MAX_NEW_TOKENS,
+    STOP_TOKEN_IDS,
+)
+
 
 # Initialize OpenAI client
 print("Try to connect OpenAI client...")
 client = openai.OpenAI(
     api_key=os.getenv("OPENAI_API_KEY", "dummy"),
-    base_url=os.getenv("OPENAI_BASE_URL", "http://localhost:8000/v1")
+    base_url=os.getenv("OPENAI_BASE_URL", API_BASE),
 )
 try:
     client.models.list()
@@ -56,7 +70,7 @@ print(f"Workspace successfully initialized in {workspace_dir.as_posix()}")
 
 
 # Initialize Jupyter Process
-jupyter_port = config["JUPYTER"].get("JUPYTER_PORT", 8888)
+jupyter_port = config["JUPYTER"].get("JUPYTER_PORT", JUPYTER_PORT)
 start_jupyter = config["JUPYTER"].get("START_JUPYTER", True)
 jupyter_process = None
 if start_jupyter:
@@ -124,16 +138,15 @@ async def bot_stream(messages):
     
     finished = False
     while not finished:
+        extra_body = {"add_generation_prompt": False, "max_new_tokens": MAX_NEW_TOKENS}
+        if STOP_TOKEN_IDS:
+            extra_body["stop_token_ids"] = STOP_TOKEN_IDS
         response = client.chat.completions.create(
-            model=os.getenv("OPENAI_MODEL", "DeepAnalyze-8B"),
+            model=os.getenv("OPENAI_MODEL", DEFAULT_MODEL),
             messages=messages,
-            temperature=0.4,
+            temperature=DEFAULT_TEMPERATURE,
             stream=False,  # Changed to False for non-streaming
-            extra_body={
-                "add_generation_prompt": False,
-                "stop_token_ids": [151676, 151645],
-                "max_new_tokens": 32768,
-            },
+            extra_body=extra_body,
         )
         
         # Get the complete response
@@ -172,8 +185,5 @@ async def bot_stream(messages):
                 messages.append({"role": "execute", "content": exe_output})
     
     return messages
-
-
-
 
 

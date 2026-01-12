@@ -20,7 +20,7 @@ from datetime import datetime
 from typing import List, Optional, Dict, Any, Tuple
 from functools import partial
 
-from config import WORKSPACE_BASE_DIR, HTTP_SERVER_PORT
+from config import WORKSPACE_BASE_DIR, HTTP_SERVER_BASE
 
 
 def get_thread_workspace(thread_id: str) -> str:
@@ -36,7 +36,7 @@ def build_download_url(thread_id: str, rel_path: str) -> str:
         encoded = quote(f"{thread_id}/{rel_path}", safe="/")
     except Exception:
         encoded = f"{thread_id}/{rel_path}"
-    return f"http://localhost:{HTTP_SERVER_PORT}/{encoded}"
+    return f"{HTTP_SERVER_BASE}/{encoded}"
 
 
 def uniquify_path(target: Path) -> Path:

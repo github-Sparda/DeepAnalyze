@@ -4,20 +4,39 @@ Contains all configuration constants and environment setup
 """
 
 import os
+from urllib.parse import urlparse
 
 # Environment setup
 os.environ.setdefault("MPLBACKEND", "Agg")
 
-# API Configuration
-API_BASE = "http://localhost:8000/v1"  # vLLM API endpoint
-MODEL_PATH = "DeepAnalyze-8B"
-WORKSPACE_BASE_DIR = "workspace"
-HTTP_SERVER_PORT = 8100
-HTTP_SERVER_BASE = f"http://localhost:{HTTP_SERVER_PORT}"
+def _get_int_env(name: str, default: int) -> int:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        return default
+
+
+# API Configuration (model/vLLM backend)
+API_BASE = os.getenv("DEEPANALYZE_VLLM_BASE_URL", "http://localhost:48000/v1")
+VLLM_BASE_URL = API_BASE
+VLLM_BASE_URL_NO_V1 = API_BASE[:-3] if API_BASE.endswith("/v1") else API_BASE
+MODEL_PATH = os.getenv("DEEPANALYZE_MODEL_PATH", "DeepAnalyze-8B")
+
+# Workspace and file server
+WORKSPACE_BASE_DIR = os.getenv("DEEPANALYZE_WORKSPACE_DIR", "workspace")
+FILE_SERVER_HOST = os.getenv("DEEPANALYZE_FILE_SERVER_HOST", "localhost")
+HTTP_SERVER_PORT = _get_int_env("DEEPANALYZE_FILE_SERVER_PORT", 48100)
+HTTP_SERVER_BASE = f"http://{FILE_SERVER_HOST}:{HTTP_SERVER_PORT}"
 
 # API Server Configuration
-API_HOST = "0.0.0.0"
-API_PORT = 8200
+API_HOST = os.getenv("DEEPANALYZE_API_HOST", "0.0.0.0")
+API_PORT = _get_int_env("DEEPANALYZE_API_PORT", 48200)
+API_PUBLIC_HOST = os.getenv("DEEPANALYZE_API_PUBLIC_HOST", "localhost")
+API_PUBLIC_BASE = f"http://{API_PUBLIC_HOST}:{API_PORT}"
+API_PUBLIC_BASE_V1 = f"{API_PUBLIC_BASE}/v1"
 API_TITLE = "DeepAnalyze OpenAI-Compatible API"
 API_VERSION = "1.0.0"
 
@@ -38,7 +57,31 @@ DEFAULT_TEMPERATURE = 0.4
 DEFAULT_MODEL = "DeepAnalyze-8B"
 
 # Stop token IDs for DeepAnalyze model
-STOP_TOKEN_IDS = [151676, 151645]
+# [151676, 151645] for DeepAnalyze-8B
+STOP_TOKEN_IDS = []
 
 # Supported tools
 SUPPORTED_TOOLS = ["code_interpreter"]
+
+# Demo/Frontend settings
+FRONTEND_HOST = os.getenv("DEEPANALYZE_FRONTEND_HOST", "localhost")
+FRONTEND_PORT = _get_int_env("DEEPANALYZE_FRONTEND_PORT", 4000)
+FRONTEND_BASE = f"http://{FRONTEND_HOST}:{FRONTEND_PORT}"
+
+WEBSOCKET_HOST = os.getenv("DEEPANALYZE_WEBSOCKET_HOST", "localhost")
+WEBSOCKET_PORT = _get_int_env("DEEPANALYZE_WEBSOCKET_PORT", 8001)
+WEBSOCKET_URL = f"ws://{WEBSOCKET_HOST}:{WEBSOCKET_PORT}"
+
+# Jupyter demo settings
+JUPYTER_PORT = _get_int_env("DEEPANALYZE_JUPYTER_PORT", 8888)
+
+
+def get_vllm_port() -> int | None:
+    parsed = urlparse(API_BASE)
+    if parsed.port:
+        return parsed.port
+    if parsed.scheme == "https":
+        return 443
+    if parsed.scheme == "http":
+        return 80
+    return None

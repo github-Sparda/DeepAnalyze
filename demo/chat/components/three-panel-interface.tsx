@@ -1138,23 +1138,23 @@ export function ThreePanelInterface() {
 
   const normalizeToLocalFileUrl = (rawUrl: string): string => {
     const base =
-      (API_CONFIG as any).FILE_SERVER_BASE || "http://localhost:8100";
+      (API_CONFIG as any).FILE_SERVER_BASE || "http://localhost:48100";
     const safeBase = base.replace(/\/$/, "");
+    const baseUrl = new URL(safeBase + "/");
 
     if (!rawUrl) return safeBase;
     const trimmed = String(rawUrl).trim();
 
-    // 绝对 http/https 链接：若是 localhost/127.* 或端口为 8100，则重写到 FILE_SERVER_BASE
+    // 绝对 http/https 链接：若是本机地址或端口与文件服务一致，则重写到 FILE_SERVER_BASE
     if (/^https?:\/\//i.test(trimmed)) {
       try {
         const u = new URL(trimmed);
         const needRewrite =
-          u.hostname === "localhost" ||
+          u.hostname === baseUrl.hostname ||
           u.hostname.startsWith("127.") ||
-          u.port === "8100";
+          u.port === baseUrl.port;
         if (needRewrite) {
-          const b = new URL(safeBase + "/");
-          return `${b.origin}${b.pathname.replace(/\/$/, "")}${u.pathname}${
+          return `${baseUrl.origin}${baseUrl.pathname.replace(/\/$/, "")}${u.pathname}${
             u.search
           }${u.hash}`;
         }
@@ -1186,8 +1186,14 @@ export function ThreePanelInterface() {
   const ensureGeneratedInUrl = (url: string): string => {
     try {
       const u = new URL(url);
-      // 仅处理指向文件服务器(8100)的链接
-      if (!(u.hostname === "localhost" || u.hostname.startsWith("127."))) {
+      // 仅处理指向文件服务器的链接
+      if (
+        !(
+          u.hostname === baseUrl.hostname ||
+          u.hostname.startsWith("127.") ||
+          u.port === baseUrl.port
+        )
+      ) {
         return url;
       }
       // 路径形如 /session_xxx/xxx.png，则插入 /generated

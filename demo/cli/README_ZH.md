@@ -6,7 +6,7 @@
 
 ### 先决条件
 
-请保证vLLM在8000端口正在运行DeepAnalyze-8B
+请保证 vLLM 在 `API/config.py` 配置的端口（默认 `48000`）运行 DeepAnalyze-8B
 
 1. **启动 DeepAnalyze API 服务器**：
 
@@ -75,6 +75,6 @@ CLI 会自动以流式方式显示响应，在 DeepAnalyze 分析数据并生成
 
 ## 🔧 配置说明
 
-CLI 默认连接到 `http://localhost:8200/v1` 的 DeepAnalyze API 服务器。启动 CLI 前请确保服务器正在运行。
+CLI 默认连接到 `http://localhost:48200/v1` 的 DeepAnalyze API 服务器。端口可在 `API/config.py` 中调整（见 `API_PUBLIC_BASE_V1`）。
 
 命令历史将分别保存至 `~/.deeppanalyze_history_en`（英文版）或 `~/.deeppanalyze_history_zh`（中文版）。

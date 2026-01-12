@@ -5,6 +5,14 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 import uvicorn
+import sys
+from pathlib import Path
+
+API_DIR = Path(__file__).resolve().parents[3] / "API"
+if str(API_DIR) not in sys.path:
+    sys.path.append(str(API_DIR))
+
+from config import get_vllm_port
 
 # Test data
 TEST_RESPONSES = [
@@ -103,6 +111,7 @@ async def root():
     return {"message": "Mock OpenAI API Server is running"}
 
 if __name__ == "__main__":
-    print("Starting Mock OpenAI API Server on http://localhost:8000")
+    port = get_vllm_port() or 48000
+    print(f"Starting Mock OpenAI API Server on http://localhost:{port}")
     print("This server provides test responses for DeepAnalyze testing")
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=port)

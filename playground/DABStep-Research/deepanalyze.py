@@ -5,6 +5,13 @@ import contextlib
 import os
 import requests
 from pathlib import Path
+import sys
+
+API_DIR = Path(__file__).resolve().parents[2] / "API"
+if str(API_DIR) not in sys.path:
+    sys.path.append(str(API_DIR))
+
+from config import API_BASE
 
 
 def collect_file_info(directory: str) -> str:
@@ -43,11 +50,11 @@ class DeepAnalyzeVLLM:
     def __init__(
         self,
         model_name: str,
-        api_url: str = "http://localhost:8000/v1/chat/completions",
+        api_url: str | None = None,
         max_rounds: int = 30,
     ):
         self.model_name = model_name
-        self.api_url = api_url
+        self.api_url = api_url or f"{API_BASE}/chat/completions"
         self.max_rounds = max_rounds
 
     def execute_code(self, code_str: str) -> str:

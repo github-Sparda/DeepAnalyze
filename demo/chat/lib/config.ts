@@ -2,19 +2,20 @@
 export const API_CONFIG = {
   // 后端API基础地址
   BACKEND_BASE_URL:
-    process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8200",
+    process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:48200",
 
   // 静态文件服务基础地址（前端可配置下载/预览所使用的文件基址）
-  // 例如：http://<server-ip>:8100 或 https://cdn.example.com
+  // 例如：http://<server-ip>:48100 或 https://cdn.example.com
   FILE_SERVER_BASE:
-    process.env.NEXT_PUBLIC_FILE_SERVER_BASE || "http://localhost:8100",
+    process.env.NEXT_PUBLIC_FILE_SERVER_BASE || "http://localhost:48100",
 
   // 模拟AI API地址
   AI_API_BASE_URL:
-    process.env.NEXT_PUBLIC_AI_API_URL || "http://localhost:8000",
+    process.env.NEXT_PUBLIC_AI_API_URL || "http://localhost:48000",
 
   // WebSocket地址
-  WEBSOCKET_URL: process.env.NEXT_PUBLIC_WEBSOCKET_URL || "ws://localhost:8001",
+  WEBSOCKET_URL:
+    process.env.NEXT_PUBLIC_WEBSOCKET_URL || "ws://localhost:8001",
 
   // API端点
   ENDPOINTS: {

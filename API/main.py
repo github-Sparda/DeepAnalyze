@@ -12,7 +12,15 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
-from config import API_HOST, API_PORT, API_TITLE, API_VERSION, HTTP_SERVER_PORT, CLEANUP_INTERVAL_MINUTES
+from config import (
+    API_HOST,
+    API_PORT,
+    API_TITLE,
+    API_VERSION,
+    API_PUBLIC_BASE,
+    HTTP_SERVER_BASE,
+    CLEANUP_INTERVAL_MINUTES,
+)
 from models import HealthResponse
 from utils import start_http_server
 from storage import storage
@@ -62,8 +70,8 @@ def create_app() -> FastAPI:
 def main():
     """Main entry point to start the API server"""
     print("🚀 Starting DeepAnalyze OpenAI-Compatible API Server...")
-    print(f"   - API Server: http://{API_HOST}:{API_PORT}")
-    print(f"   - File Server: http://localhost:{HTTP_SERVER_PORT}")
+    print(f"   - API Server: {API_PUBLIC_BASE}")
+    print(f"   - File Server: {HTTP_SERVER_BASE}")
     print(f"   - Workspace: workspace")
     print("\n📖 API Endpoints:")
     print("   - Models API: /v1/models")

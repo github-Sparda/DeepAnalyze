@@ -23,7 +23,7 @@ services:
     
     # Port mapping
     ports:
-      - "8000:8000"
+      - "48000:8000"
     
     # Volume mounts
     volumes:
