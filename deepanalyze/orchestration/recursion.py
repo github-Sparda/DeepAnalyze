@@ -15,6 +15,7 @@ class DepthRecursionController:
         execution_retry_requested: bool,
         execution_retry_exhausted: bool,
         user_decision: str,
+        execution_retry_count: int = 0,
     ) -> dict[str, Any]:
         followups = followups or []
         decision = {"should_recurse": False, "continuation_required": False, "depth_prompt": ""}
@@ -39,6 +40,22 @@ class DepthRecursionController:
                 "depth_prompt": "初次分析已完成。\n回复 'continue' 以开始更深一层的分析，否则输入 'stop' 结束。",
             }
 
-        if depth < self.max_depth and (followups or execution_retry_exhausted):
-            return {"should_recurse": True, "continuation_required": False, "depth_prompt": ""}
-        return {"should_recurse": False, "continuation_required": False, "depth_prompt": ""}
+        if depth < self.max_depth:
+            if followups:
+                return {"should_recurse": True, "continuation_required": False, "depth_prompt": ""}
+            if execution_retry_exhausted:
+                return {"should_recurse": True, "continuation_required": False, "depth_prompt": ""}
+            return decision
+        if followups:
+            preview = "; ".join(followups[:3])
+            prompt = (
+                f"Reached depth limit ({self.max_depth}) with pending follow-ups"
+                f"{f' (retries: {execution_retry_count})' if execution_retry_count else ''}: "
+                f"{preview}. Reply 'continue' to dig deeper or 'stop' to finish."
+            )
+            return {
+                "should_recurse": False,
+                "continuation_required": True,
+                "depth_prompt": prompt,
+            }
+        return decision

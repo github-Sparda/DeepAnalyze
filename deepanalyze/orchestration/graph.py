@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import shutil
 import time
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -73,17 +75,83 @@ def _artifact_context(registry: ArtifactRegistry, plan_id: str) -> str:
     return "\n".join(lines)
 
 
-def _telemetry_context(state: OrchestrationState) -> str:
+def _extract_visualization_goals(plan_json: dict[str, Any] | None) -> list[str]:
+    goals: list[str] = []
+    if not isinstance(plan_json, dict):
+        return goals
+    for hypothesis in plan_json.get("hypotheses", []):
+        artifacts = hypothesis.get("artifacts", [])
+        if not isinstance(artifacts, list):
+            continue
+        for artifact in artifacts:
+            if not isinstance(artifact, dict):
+                continue
+            for key in ("goal", "description", "type"):
+                value = artifact.get(key)
+                if isinstance(value, str):
+                    goals.append(value)
+    return goals
+
+
+def _telemetry_context(
+    state: OrchestrationState,
+    registry: ArtifactRegistry | None = None,
+    plan_id: str | None = None,
+) -> str:
     telemetry = state.get("telemetry", [])
-    if not telemetry:
+    lines: list[str] = []
+    if telemetry:
+        lines.append("Telemetry summary:")
+        for entry in telemetry[-5:]:
+            node = entry.get("node", "unknown")
+            status = entry.get("status", "unknown")
+            duration = entry.get("duration_sec", 0)
+            lines.append(f"- {node}: {status} ({duration:.2f}s)")
+    if registry and plan_id:
+        entries = registry.list(plan_id)
+        if entries:
+            counts = Counter(entry.get("kind", "unknown") for entry in entries)
+            summary = ", ".join(f"{kind}:{count}" for kind, count in counts.items())
+            lines.append(f"Artifact counts: {summary}")
+    retries = int(state.get("execution_retry_count", 0))
+    requested = bool(state.get("execution_retry_requested"))
+    exhausted = bool(state.get("execution_retry_exhausted"))
+    lines.append(
+        f"Execution retries: {retries} requested={requested} exhausted={exhausted}"
+    )
+    errors = state.get("execution_errors", []) or []
+    if errors:
+        lines.append("Execution errors:")
+        for error in errors[-3:]:
+            step = error.get("step", "unknown")
+            output = error.get("output", "")
+            lines.append(f"- {step}: {output}")
+    if state.get("rollback_performed"):
+        lines.append("Rollback performed for previous failures.")
+    if not lines:
         return "Telemetry: none"
-    lines = ["Telemetry summary:"]
-    for entry in telemetry[-5:]:
-        node = entry.get("node", "unknown")
-        status = entry.get("status", "unknown")
-        duration = entry.get("duration_sec", 0)
-        lines.append(f"- {node}: {status} ({duration:.2f}s)")
     return "\n".join(lines)
+
+
+def _cleanup_dir_contents(directory: Path) -> None:
+    if not directory.exists():
+        return
+    for child in directory.iterdir():
+        try:
+            if child.is_dir():
+                shutil.rmtree(child)
+            else:
+                child.unlink()
+        except Exception:
+            continue
+
+
+def _rollback_plan_outputs(workspace_dir: Path, plan_id: str) -> None:
+    if not plan_id:
+        return
+    _cleanup_dir_contents(workspace_dir / "result")
+    _cleanup_dir_contents(workspace_dir / "artifacts" / plan_id / "result")
+    _cleanup_dir_contents(workspace_dir / "generated")
 
 
 def _run_node(name: str, func, config: dict[str, Any]):
@@ -191,7 +259,9 @@ def build_graph(llm: LLMClient, config: dict[str, Any]):
         planner = VisualizationPlanner(
             workspace_dir, max_items=int(config.get("visualization_max_items", 6))
         )
-        instructions = planner.plan(datasets)
+        plan_json = state.get("plan_json", {})
+        goal_hints = _extract_visualization_goals(plan_json)
+        instructions = planner.plan(datasets, goals=goal_hints)
         plan_path = workspace_dir / "plan" / "visualization_plan.json"
         write_json(plan_path, instructions)
         record_artifact(workspace_dir, plan_path, "plan", "plan_visualizations")
@@ -204,8 +274,12 @@ def build_graph(llm: LLMClient, config: dict[str, Any]):
         planner = HypothesisPlanner(llm, language)
         plan_id_hint = state.get("plan_id", "")
         artifact_registry = ArtifactRegistry(Path(state.get("workspace_dir", "")))
-        artifact_context = _artifact_context(artifact_registry, plan_id_hint) if plan_id_hint else ""
-        telemetry_context = _telemetry_context(state)
+        artifact_context = _artifact_context(
+            artifact_registry, plan_id_hint
+        ) if plan_id_hint else ""
+        telemetry_context = _telemetry_context(
+            state, artifact_registry, plan_id_hint
+        )
         plan = planner.plan(
             summary,
             state.get("analysis_history", []),
@@ -266,7 +340,7 @@ def build_graph(llm: LLMClient, config: dict[str, Any]):
         retries = int(config.get("execution_max_retries", EXECUTION_MAX_RETRIES))
         workspace_dir = Path(state.get("workspace_dir", ""))
         artifact_registry = ArtifactRegistry(workspace_dir)
-        telemetry_context = _telemetry_context(state)
+        telemetry_context = _telemetry_context(state, artifact_registry, plan_id)
         artifact_context = _artifact_context(artifact_registry, plan_id) if plan_id else ""
 
         steps: list[dict[str, Any]] = []
@@ -343,6 +417,8 @@ def build_graph(llm: LLMClient, config: dict[str, Any]):
         exec_results = state.get("exec_results", [])
         retry_count = int(state.get("execution_retry_count", 0))
         failures: list[dict[str, Any]] = []
+        workspace_dir = Path(state.get("workspace_dir", ""))
+        plan_id = state.get("plan_id", "")
         for result in exec_results:
             statuses = result.get("statuses", [])
             if statuses and statuses[-1] == "error":
@@ -361,11 +437,14 @@ def build_graph(llm: LLMClient, config: dict[str, Any]):
             next_retry += 1
             requested = next_retry <= max_retries
             exhausted = next_retry > max_retries
+            if requested:
+                _rollback_plan_outputs(workspace_dir, plan_id)
         return {
             "execution_retry_requested": requested,
             "execution_retry_count": next_retry,
             "execution_retry_exhausted": exhausted,
             "execution_errors": failures,
+            "rollback_performed": requested,
         }
 
     def analyze_results(state: OrchestrationState) -> OrchestrationState:
@@ -378,7 +457,7 @@ def build_graph(llm: LLMClient, config: dict[str, Any]):
         artifact_registry = ArtifactRegistry(Path(state.get("workspace_dir", "")))
         artifact_context = _artifact_context(artifact_registry, plan_id) if plan_id else ""
         prompt = get_prompt("analysis", language)
-        telemetry_context = _telemetry_context(state)
+        telemetry_context = _telemetry_context(state, artifact_registry, plan_id)
         messages = render_role_prompt(
             "analysis",
             language,
@@ -511,7 +590,7 @@ def build_graph(llm: LLMClient, config: dict[str, Any]):
         plan_id = state.get("plan_id", "")
         artifact_registry = ArtifactRegistry(Path(state.get("workspace_dir", "")))
         artifact_context = _artifact_context(artifact_registry, plan_id) if plan_id else ""
-        telemetry_context = _telemetry_context(state)
+        telemetry_context = _telemetry_context(state, artifact_registry, plan_id)
         messages = [
             {"role": "system", "content": get_system(language)},
             {
@@ -543,6 +622,7 @@ def build_graph(llm: LLMClient, config: dict[str, Any]):
             state.get("execution_retry_requested", False),
             state.get("execution_retry_exhausted", False),
             depth_decision,
+            int(state.get("execution_retry_count", 0)),
         )
 
     def advance_depth(state: OrchestrationState) -> OrchestrationState:
@@ -561,7 +641,7 @@ def build_graph(llm: LLMClient, config: dict[str, Any]):
         plan_summary = plan_text or json.dumps(plan_json, ensure_ascii=False)
         artifact_context = _artifact_context(artifact_registry, plan_id) if plan_id else ""
         prompt = get_prompt("report_outline", language)
-        telemetry_context = _telemetry_context(state)
+        telemetry_context = _telemetry_context(state, artifact_registry, plan_id)
         messages = render_role_prompt(
             "report_outline",
             language,
@@ -599,7 +679,7 @@ def build_graph(llm: LLMClient, config: dict[str, Any]):
         plan_id = state.get("plan_id", "")
         artifact_registry = ArtifactRegistry(Path(state.get("workspace_dir", "")))
         artifact_context = _artifact_context(artifact_registry, plan_id) if plan_id else ""
-        telemetry_context = _telemetry_context(state)
+        telemetry_context = _telemetry_context(state, artifact_registry, plan_id)
         messages = render_role_prompt(
             "report",
             language,
