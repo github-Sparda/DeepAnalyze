@@ -47,7 +47,6 @@ Upload the data, DeepAnalyze can perform data-oriented deep research 🔍 and an
 </p>
 
 - Clone this repo and download [DeepAnalyze-8B](https://huggingface.co/RUC-DataLab/DeepAnalyze-8B).
-- Deploy DeepAnalyze-8B via vllm: `vllm serve DeepAnalyze-8B`
 - Run these scripts to launch the API and interface, and then interact through the browser (http://localhost:4000 by default; see `API/config.py` `FRONTEND_PORT`):
     ```bash
     cd demo/chat
@@ -78,7 +77,6 @@ https://github.com/user-attachments/assets/018acae5-b979-4143-ae1e-5b74da453c1d
 Try DeepAnalyze through the command-line interface
 </p>
 
-- Deploy DeepAnalyze-8B via vllm: `vllm serve DeepAnalyze-8B`
 
 - Start the API server and launch the CLI interface:
     ```bash
@@ -120,6 +118,15 @@ Stop services:
 ./scripts/stop_services.sh
 ```
 
+## Report Output Options
+
+You can control report format and export mode via `.env`:
+
+- `DEEPANALYZE_REPORT_FORMAT` (default: `html`, options: `html`, `markdown`, `pdf`, `docx`)
+- `DEEPANALYZE_REPORT_EXPORT_MODE` (default: `html_convert`, options: `academic_redraw`, `html_convert`, `html_print`)
+- `DEEPANALYZE_REPORT_LANGUAGE` (default: `zh`)
+- `DEEPANALYZE_MAX_DEPTH` (default: `1`, max `3`)
+
 Check status:
 
 ```bash
@@ -128,23 +135,18 @@ Check status:
 
 ### Requirements
 
-- Install packages: `torch`, `transformers`, `vllm>=0.8.5`
     ```bash
     conda create -n deepanalyze python=3.12 -y
     conda activate deepanalyze
     pip install -r requirements.txt
     
     # For training
-    (cd ./deepanalyze/ms-swift/ && pip install -e .)
-    (cd ./deepanalyze/SkyRL/ && pip install -e .)
     ```
 - [`requirements.txt`](requirements.txt) lists the minimal dependencies required for DeepAnalyze inference.
-For training, please refer to [`./deepanalyze/ms-swift/requirements.txt`](./deepanalyze/ms-swift/requirements.txt) and [`./deepanalyze/SkyRL/pyproject.toml`](./deepanalyze/SkyRL/pyproject.toml)
 - We recommend separating the inference and training environments to avoid dependency conflicts.
 
 ### Command Interaction
 
-- Deploy DeepAnalyze-8B via vllm: `vllm serve DeepAnalyze-8B`
 
 - Run these scripts for any data science tasks:
   - You can specify **any data science tasks**, including specific data tasks and open-ended data research.
@@ -152,7 +154,6 @@ For training, please refer to [`./deepanalyze/ms-swift/requirements.txt`](./deep
   - You can specify **any type of data sources**, e.g., structured data (Databases, CSV, Excel), semi-structured data (JSON, XML, YAML), and unstructured data (TXT, Markdown)
 
   ```python
-  from deepanalyze import DeepAnalyzeVLLM
   
   prompt = """# Instruction
   Generate a data science report.
@@ -171,7 +172,6 @@ For training, please refer to [`./deepanalyze/ms-swift/requirements.txt`](./deep
   
   workspace = "/home/u2023000922/zhangshaolei/deepanalyze_public/DeepAnalyze/example/analysis_on_student_loan/"
   
-  deepanalyze = DeepAnalyzeVLLM(
       "/fs/fast/u2023000922/zhangshaolei/checkpoints/deepanalyze-8b/"
   )
   answer = deepanalyze.generate(prompt, workspace=workspace)
@@ -197,7 +197,6 @@ For training, please refer to [`./deepanalyze/ms-swift/requirements.txt`](./deep
   > For more examples and task completion details, please refer to [DeepAnalyze's homepage](https://ruc-deepanalyze.github.io/).
 
 ### API
-- You can build an OpenAI-Style API, using this script (note to change `MODEL_PATH = "DeepAnalyze-8B"` in [API/config.py](API/config.py) to your vllm model name):
 
   ```
   python API/start_server.py
@@ -258,7 +257,6 @@ For training, please refer to [`./deepanalyze/ms-swift/requirements.txt`](./deep
 - Multi-ability Agentic Training (RL): [./scripts/multi_rl.sh](./scripts/multi_rl.sh)
 
 ### 3. Evaluation
-- We have unified the evaluation of most existing data science benchmarks using vLLM (with more being continuously added...). You can directly follow the introduction in [./playground](./playground) to quickly evaluate DeepAnalyze or your own agent.
 
 
 ## 👏 Contribution
@@ -278,7 +276,6 @@ For training, please refer to [`./deepanalyze/ms-swift/requirements.txt`](./deep
 - DeepAnalyze only has 8B parameters, so we also welcome examples where DeepAnalyze performs slightly worse than the closed-source LLMs — this will help us improve DeepAnalyze.
 
 ## 🤝 Acknowledgement
-- Training framework: [ms-swift](https://github.com/modelscope/ms-swift), [SkyRL](https://github.com/NovaSky-AI/SkyRL)
 - Source of Training Data: [Reasoning-Table](https://github.com/MJinXiang/Reasoning-Table), [Spider](https://yale-lily.github.io/spider), [BIRD](https://bird-bench.github.io/), [DABStep](https://huggingface.co/blog/dabstep)
 
 ## 🖋 Citation

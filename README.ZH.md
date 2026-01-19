@@ -17,9 +17,9 @@ DeepAnalyze/
 ├─ API/          # OpenAI 风格 API 服务
 ├─ demo/         # Web/Jupyter/CLI 界面
 ├─ example/      # API 调用示例脚本
-├─ deepanalyze/  # 核心库与训练/推理相关代码
+├─ deepanalyze/  # 核心库
 ├─ assets/       # 文档图示
-├─ scripts/      # 训练/评测脚本
+├─ scripts/      # 启动/停止服务脚本
 └─ playground/   # 评测与实验入口
 ```
 
@@ -47,6 +47,15 @@ DeepAnalyze/
 ./scripts/status_services.sh
 ```
 
+## 报告导出配置
+
+可在 `.env` 中设置：
+
+- `DEEPANALYZE_REPORT_FORMAT`（默认 `html`，可选 `html`/`markdown`/`pdf`/`docx`）
+- `DEEPANALYZE_REPORT_EXPORT_MODE`（默认 `html_convert`，可选 `academic_redraw`/`html_convert`/`html_print`）
+- `DEEPANALYZE_REPORT_LANGUAGE`（默认 `zh`）
+- `DEEPANALYZE_MAX_DEPTH`（默认 `1`，最大 `3`）
+
 ### 1) 安装依赖
 
 建议使用独立环境：
@@ -57,10 +66,8 @@ conda activate deepanalyze
 pip install -r requirements.txt
 ```
 
-### 2) 启动模型（vLLM）
 
 ```bash
-vllm serve DeepAnalyze-8B --host 0.0.0.0 --port 48000
 ```
 
 ### 3) 启动 API 服务
@@ -72,7 +79,6 @@ python start_server.py
 
 默认端口（可在 `API/config.py` 中统一调整）：
 
-- vLLM：`http://localhost:48000`
 - API：`http://localhost:48200`
 - 文件服务：`http://localhost:48100`
 
@@ -145,7 +151,6 @@ curl -X POST http://localhost:48200/v1/chat/completions \
 ## Python 调用示例
 
 ```python
-from deepanalyze import DeepAnalyzeVLLM
 
 prompt = \"\"\"# Instruction
 生成一份数据分析报告。
@@ -155,7 +160,6 @@ File 1: {\"name\": \"person.csv\", \"size\": \"10.6KB\"}
 File 2: {\"name\": \"enrolled.csv\", \"size\": \"20.4KB\"}\"\"\"
 
 workspace = \"/path/to/your/data_dir\"
-deepanalyze = DeepAnalyzeVLLM(\"/path/to/DeepAnalyze-8B\")
 answer = deepanalyze.generate(prompt, workspace=workspace)
 print(answer[\"reasoning\"])
 ```
@@ -167,8 +171,6 @@ print(answer[\"reasoning\"])
 
 ## 常见问题
 
-**Q: 是否必须使用 vLLM？**  
-A: 目前 API 形态默认依赖 vLLM 作为模型服务。
 
 **Q: 是否支持文件上传与结果文件下载？**  
 A: 支持。文件上传 `/v1/files`，生成文件通过文件服务端口下载。

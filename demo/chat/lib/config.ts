@@ -37,6 +37,14 @@ export const API_CONFIG = {
     // 导出报告
     EXPORT_REPORT: "/export/report",
   },
+  ANALYSIS_DEPTH: Number(process.env.NEXT_PUBLIC_ANALYSIS_DEPTH || "1"),
+  REPORT_FORMAT: process.env.NEXT_PUBLIC_REPORT_FORMAT || "html",
+  REPORT_LANGUAGE: process.env.NEXT_PUBLIC_REPORT_LANGUAGE || "zh",
+  REPORT_EXPORT_MODE:
+    process.env.NEXT_PUBLIC_REPORT_EXPORT_MODE || "html_convert",
+  VISUAL_STYLE: process.env.NEXT_PUBLIC_VISUAL_STYLE || "academic",
+  VISUAL_INTERACTIVE:
+    String(process.env.NEXT_PUBLIC_VISUAL_INTERACTIVE || "0") === "1",
 };
 
 // 构建完整的API URL

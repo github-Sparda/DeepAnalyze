@@ -6,10 +6,8 @@ All addresses/ports below are configured in `API/config.py`. If you change them 
 
 ### Prerequisites
 
-**Start vLLM Model Server**:
 
 ```bash
-vllm serve DeepAnalyze-8B --host 0.0.0.0 --port 48000
 ```
 
 ### Starting the Server
@@ -359,7 +357,6 @@ GET /health
 
 ### Multi-Port Design
 
-- **Port 48000**: vLLM model server (external)
 - **Port 48200**: Main API server (FastAPI)
 - **Port 48100**: File HTTP server for downloads
 
@@ -369,7 +366,6 @@ GET /health
 
 ```python
 # API Configuration
-API_BASE = "http://localhost:48000/v1"  # vLLM endpoint
 MODEL_PATH = "DeepAnalyze-8B"          # Model name
 WORKSPACE_BASE_DIR = "workspace"       # File storage
 HTTP_SERVER_PORT = 48100              # File server port

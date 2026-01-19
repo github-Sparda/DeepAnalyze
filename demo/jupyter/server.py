@@ -32,7 +32,11 @@ else:
     raise FileNotFoundError(f"config.toml MUST exist in directory {config_path.parent}")
 print("Env and config loaded successfully!")
 
-API_DIR = Path(__file__).resolve().parents[2] / "API"
+ROOT_DIR = Path(__file__).resolve().parents[2]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.append(str(ROOT_DIR))
+
+API_DIR = ROOT_DIR / "API"
 if str(API_DIR) not in sys.path:
     sys.path.append(str(API_DIR))
 
@@ -44,7 +48,15 @@ from config import (
     JUPYTER_PORT,
     MAX_NEW_TOKENS,
     STOP_TOKEN_IDS,
+    MAX_RECURSION_DEPTH,
+    REPORT_EXPORT_MODE,
+    REPORT_FORMAT,
+    REPORT_LANGUAGE,
+    USE_ORCHESTRATOR,
+    VISUAL_INTERACTIVE,
+    VISUAL_STYLE,
 )
+from deepanalyze.orchestration.runner import run_orchestrated_analysis
 
 
 # Initialize OpenAI client
@@ -119,6 +131,28 @@ async def bot_stream(messages):
     This is adapted from demo/backend.py but modified to work with Jupyter notebook.
     Returns the complete response in OpenAI format as a dictionary array.
     """
+    if USE_ORCHESTRATOR:
+        state = run_orchestrated_analysis(
+            session_id="jupyter",
+            config={
+                "max_depth": MAX_RECURSION_DEPTH,
+                "report_format": REPORT_FORMAT,
+                "report_language": REPORT_LANGUAGE,
+                "report_export_mode": REPORT_EXPORT_MODE,
+                "visual_style": VISUAL_STYLE,
+                "visual_interactive": VISUAL_INTERACTIVE,
+            },
+        )
+        return [
+            {
+                "role": "assistant",
+                "content": state.get("report")
+                or state.get("analysis_results")
+                or state.get("plan")
+                or "",
+            }
+        ]
+
     # Connect to notebook
     mcp_client = await connect_notebook(jupyter_port)
     
@@ -186,4 +220,3 @@ async def bot_stream(messages):
                 messages.append({"role": "execute", "content": exe_output})
     
     return messages
-

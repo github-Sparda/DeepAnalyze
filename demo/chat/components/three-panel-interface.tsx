@@ -1532,6 +1532,18 @@ export function ThreePanelInterface() {
     options?: { withinSection?: boolean }
   ) => {
     const withinSection = options?.withinSection ?? false;
+    const trimmed = content.trim();
+    if (/^<!doctype html/i.test(trimmed) || /<html[\s>]/i.test(trimmed)) {
+      return (
+        <div className="w-full min-h-[400px] border border-gray-200 dark:border-gray-800 rounded-lg overflow-hidden">
+          <iframe
+            title="report-preview"
+            srcDoc={content}
+            className="w-full h-[600px]"
+          />
+        </div>
+      );
+    }
     // 先处理代码块，将其分离出来
     const parts = content.split(/(```[\w]*\n[\s\S]*?```)/g);
 
@@ -2231,6 +2243,12 @@ export function ThreePanelInterface() {
           ],
           stream: false,
           session_id: sessionId,
+          analysis_depth: API_CONFIG.ANALYSIS_DEPTH,
+          report_format: API_CONFIG.REPORT_FORMAT,
+          report_language: API_CONFIG.REPORT_LANGUAGE,
+          report_export_mode: API_CONFIG.REPORT_EXPORT_MODE,
+          visual_style: API_CONFIG.VISUAL_STYLE,
+          visual_interactive: API_CONFIG.VISUAL_INTERACTIVE,
         }),
       });
 

@@ -1,4 +1,3 @@
-vllm>=0.8.5
 numpy
 pandas
 scikit-learn
@@ -14,3 +13,9 @@ python-multipart
 uvicorn
 fastapi
 openai
+langgraph
+langchain-core
+markdown
+python-docx
+plotly
+weasyprint

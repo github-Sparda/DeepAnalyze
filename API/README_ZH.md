@@ -6,10 +6,8 @@
 
 ### 前置条件
 
-**启动 vLLM 模型服务器**:
 
 ```bash
-vllm serve DeepAnalyze-8B --host 0.0.0.0 --port 48000
 ```
 
 ### 启动服务器
@@ -361,7 +359,6 @@ GET /health
 
 ### 多端口设计
 
-- **端口 48000**: vLLM 模型服务器（外部）
 - **端口 48200**: 主 API 服务器（FastAPI）
 - **端口 48100**: 文件 HTTP 服务器用于下载
 
@@ -371,7 +368,6 @@ GET /health
 
 ```python
 # API 配置
-API_BASE = "http://localhost:48000/v1"  # vLLM 端点
 MODEL_PATH = "DeepAnalyze-8B"          # 模型名称
 WORKSPACE_BASE_DIR = "workspace"       # 文件存储
 HTTP_SERVER_PORT = 48100              # 文件服务器端口

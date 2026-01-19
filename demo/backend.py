@@ -38,7 +38,13 @@ import re
 
 from pathlib import Path
 
-API_DIR = Path(__file__).resolve().parents[1] / "API"
+from deepanalyze.orchestration.runner import run_orchestrated_analysis
+
+ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.append(str(ROOT_DIR))
+
+API_DIR = ROOT_DIR / "API"
 if str(API_DIR) not in sys.path:
     sys.path.append(str(API_DIR))
 
@@ -55,6 +61,13 @@ from config import (
     MODEL_PATH,
     STOP_TOKEN_IDS,
     WORKSPACE_BASE_DIR,
+    MAX_RECURSION_DEPTH,
+    REPORT_EXPORT_MODE,
+    REPORT_FORMAT,
+    REPORT_LANGUAGE,
+    USE_ORCHESTRATOR,
+    VISUAL_INTERACTIVE,
+    VISUAL_STYLE,
 )
 
 os.environ.setdefault("MPLBACKEND", "Agg")
@@ -903,6 +916,56 @@ async def chat(body: dict = Body(...)):
     session_id = body.get("session_id", "default")
 
     def generate():
+        if USE_ORCHESTRATOR:
+            max_depth = body.get("analysis_depth", MAX_RECURSION_DEPTH)
+            try:
+                max_depth = int(max_depth)
+            except Exception:
+                max_depth = MAX_RECURSION_DEPTH
+            if max_depth > 3:
+                max_depth = 3
+            if max_depth < 1:
+                max_depth = 1
+
+            state = run_orchestrated_analysis(
+                session_id=session_id,
+                config={
+                    "max_depth": max_depth,
+                    "report_format": body.get("report_format", REPORT_FORMAT),
+                    "report_language": body.get("report_language", REPORT_LANGUAGE),
+                    "report_export_mode": body.get(
+                        "report_export_mode", REPORT_EXPORT_MODE
+                    ),
+                    "visual_style": body.get("visual_style", VISUAL_STYLE),
+                    "visual_interactive": body.get(
+                        "visual_interactive", VISUAL_INTERACTIVE
+                    ),
+                },
+            )
+            content = (
+                state.get("report")
+                or state.get("analysis_results")
+                or state.get("plan")
+                or ""
+            )
+            result = {
+                "id": "chatcmpl-123",
+                "object": "chat.completion",
+                "created": 1677652288,
+                "model": "deepanalyze-orchestrator",
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {
+                            "role": "assistant",
+                            "content": content,
+                        },
+                        "finish_reason": "stop",
+                    }
+                ],
+            }
+            yield json.dumps(result)
+            return
         for reply in bot_stream(messages, workspace, session_id):
             # result=reply + "\n"
             result = {

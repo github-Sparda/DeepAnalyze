@@ -24,7 +24,6 @@ DeepAnalyze/
 
 - `API/`  
   提供 OpenAI 风格的 `/v1/chat/completions`、`/v1/files` 等接口。  
-  默认依赖外部 vLLM 服务（见 `API/README.md`）。
 
 - `demo/`  
 - `demo/chat`：Web UI（浏览器交互，默认端口 4000，见 `API/config.py` `FRONTEND_PORT`）  
@@ -51,7 +50,6 @@ DeepAnalyze/
 
 DeepAnalyze 的默认推理路径是：
 
-1) 先启动 vLLM 模型服务（例如 DeepAnalyze-8B）  
 2) 再启动 API 服务（`API/start_server.py`）  
 3) UI 或 CLI 通过 API 调用模型能力
 
@@ -61,9 +59,17 @@ DeepAnalyze 的默认推理路径是：
 
 API 服务默认端口（见 `API/README.md`）：
 
-- vLLM：`http://localhost:48000`
 - API：`http://localhost:48200`
 - 文件下载：`http://localhost:48100`
+
+## 4.1 报告导出与递归深度
+
+可在 `.env` 中设置以下参数：
+
+- `DEEPANALYZE_REPORT_FORMAT`：`html`/`markdown`/`pdf`/`docx`，默认 `html`
+- `DEEPANALYZE_REPORT_EXPORT_MODE`：`academic_redraw`/`html_convert`/`html_print`
+- `DEEPANALYZE_REPORT_LANGUAGE`：报告语言（默认 `zh`）
+- `DEEPANALYZE_MAX_DEPTH`：递归深度（默认 `1`，最大 `3`）
 
 ## 5. 常见使用入口
 

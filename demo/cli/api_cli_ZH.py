@@ -33,7 +33,18 @@ API_DIR = Path(__file__).resolve().parents[2] / "API"
 if str(API_DIR) not in sys.path:
     sys.path.append(str(API_DIR))
 
-from config import API_PUBLIC_BASE, API_PUBLIC_BASE_V1, DEFAULT_MODEL, DEEPANALYZE_VLLM_API_KEY
+from config import (
+    API_PUBLIC_BASE,
+    API_PUBLIC_BASE_V1,
+    DEFAULT_MODEL,
+    DEEPANALYZE_VLLM_API_KEY,
+    MAX_RECURSION_DEPTH,
+    REPORT_EXPORT_MODE,
+    REPORT_FORMAT,
+    REPORT_LANGUAGE,
+    VISUAL_INTERACTIVE,
+    VISUAL_STYLE,
+)
 
 console = Console()
 
@@ -431,7 +442,15 @@ class DeepAnalyzeCLI:
                 model=self.model,
                 messages=messages,
                 temperature=0.3,
-                stream=True
+                stream=True,
+                extra_body={
+                    "analysis_depth": MAX_RECURSION_DEPTH,
+                    "report_format": REPORT_FORMAT,
+                    "report_language": REPORT_LANGUAGE,
+                    "report_export_mode": REPORT_EXPORT_MODE,
+                    "visual_style": VISUAL_STYLE,
+                    "visual_interactive": VISUAL_INTERACTIVE,
+                },
             )
 
             for chunk in stream_response:

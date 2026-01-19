@@ -24,7 +24,6 @@ These instructions supplement OpenSpec and apply to all Codex work in this repo.
 ## Project Context
 - Primary codebase is Python (DeepAnalyze core in `deepanalyze/`, API in `API/`).
 - Demos live under `demo/` (WebUI, JupyterUI, CLI).
-- Training and evaluation stacks are vendored under `deepanalyze/ms-swift/` and `deepanalyze/SkyRL/`.
 - Examples and case studies live under `example/`.
 
 ## Programming Guidelines
