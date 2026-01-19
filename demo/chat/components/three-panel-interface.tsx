@@ -7,7 +7,7 @@ import {
   oneLight,
 } from "react-syntax-highlighter/dist/esm/styles/prism";
 import Editor from "@monaco-editor/react";
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -111,6 +111,77 @@ interface AnalysisSection {
   content: string;
   icon: string;
   color: string;
+}
+
+type PreviewType = "text" | "image" | "pdf" | "binary" | "html";
+
+interface DocumentEntry {
+  path: string;
+  kind: string;
+  metadata: Record<string, any>;
+  timestamp?: number;
+  relative_path?: string;
+}
+
+interface DocumentPlanSummary {
+  plan_id: string;
+  summary: Record<string, number>;
+  entries: DocumentEntry[];
+  plan_meta: Record<string, any>;
+}
+
+interface DocumentReport {
+  name: string;
+  relative_path: string;
+  is_html: boolean;
+  size: number;
+  updated_at: number;
+}
+
+interface DocumentTable {
+  name: string;
+  relative_path: string;
+  type: string;
+  size: number;
+  updated_at: number;
+}
+
+interface DocumentVisualization {
+  plan_id: string;
+  path: string;
+  relative_path: string;
+  metadata: Record<string, any>;
+  timestamp?: number;
+}
+
+interface DocumentManifest {
+  updated_at: number;
+  plans: DocumentPlanSummary[];
+  reports: DocumentReport[];
+  tables: DocumentTable[];
+  artifact_counts: Record<string, number>;
+  visualizations: DocumentVisualization[];
+}
+
+interface DocumentPreview {
+  file: WorkspaceFile;
+  type: PreviewType;
+  url?: string;
+  content?: string;
+  loading: boolean;
+  error?: string;
+  downloadUrl?: string;
+  metadata?: Record<string, any>;
+  kind?: string;
+  planId?: string;
+  origin?: "workspace" | "manifest";
+}
+
+interface DocumentPreviewOptions {
+  metadata?: Record<string, any>;
+  kind?: string;
+  planId?: string;
+  origin?: DocumentPreview["origin"];
 }
 
 export function ThreePanelInterface() {
@@ -344,16 +415,12 @@ export function ThreePanelInterface() {
   const [isExecutingCode, setIsExecutingCode] = useState(false);
   const [codeExecutionResult, setCodeExecutionResult] = useState("");
 
-  // 预览弹窗状态
-  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
-  const [previewTitle, setPreviewTitle] = useState<string>("");
-  const [previewContent, setPreviewContent] = useState<string>("");
-  const [previewType, setPreviewType] = useState<
-    "text" | "image" | "pdf" | "binary"
-  >("text");
-  const [previewLoading, setPreviewLoading] = useState(false);
-  const [previewDownloadUrl, setPreviewDownloadUrl] = useState<string>("");
-  const previewScrollRef = useRef<HTMLDivElement>(null);
+  const [documentManifest, setDocumentManifest] =
+    useState<DocumentManifest | null>(null);
+  const [documentPreview, setDocumentPreview] =
+    useState<DocumentPreview | null>(null);
+  const [depthPrompt, setDepthPrompt] = useState("");
+  const [continuationRequired, setContinuationRequired] = useState(false);
   const [deleteConfirmPath, setDeleteConfirmPath] = useState<string | null>(
     null
   );
@@ -523,6 +590,7 @@ export function ThreePanelInterface() {
     if (sessionId) {
       loadWorkspaceFiles();
       loadWorkspaceTree();
+      loadDocumentManifest();
     }
   }, [sessionId]);
 
@@ -531,6 +599,7 @@ export function ThreePanelInterface() {
       if (!isUploading) {
         loadWorkspaceTree();
         loadWorkspaceFiles();
+        loadDocumentManifest();
       }
     }, 4000);
     return () => clearInterval(id);
@@ -607,9 +676,25 @@ export function ThreePanelInterface() {
           });
         }
         setExpanded(init);
+        void loadDocumentManifest();
       }
     } catch (e) {
       console.error("load tree error", e);
+    }
+  };
+
+  const loadDocumentManifest = async () => {
+    if (!sessionId) return;
+    try {
+      const res = await fetch(
+        `${API_URLS.DOCUMENTS_SUMMARY}?session_id=${sessionId}`
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setDocumentManifest(data);
+      }
+    } catch (err) {
+      console.error("load document manifest error", err);
     }
   };
 
@@ -691,9 +776,8 @@ export function ThreePanelInterface() {
   const openNode = async (node: WorkspaceNode) => {
     if (node.is_dir) return;
     const ext = (node.extension || "").replace(/^\./, "").toLowerCase();
-    // 修正 URL，确保包含 generated 路径
     const correctedUrl = ensureGeneratedInUrl(node.download_url || "");
-    const mapped: WorkspaceFile = {
+    const file: WorkspaceFile = {
       name: node.name,
       size: node.size || 0,
       extension: ext,
@@ -701,7 +785,7 @@ export function ThreePanelInterface() {
       download_url: correctedUrl,
       preview_url: correctedUrl,
     };
-    openPreview(mapped);
+    previewDocument(file);
   };
 
   const onContextMenu = (e: React.MouseEvent, node: WorkspaceNode) => {
@@ -1195,8 +1279,24 @@ export function ThreePanelInterface() {
     if (/^\/workspace\//.test(rel)) return `${safeBase}${rel}`;
     if (/^workspace\//.test(rel)) return `${safeBase}/${rel}`;
 
-    // 其它相对路径或文件名，也认为位于文件服务器根目录
-    return `${safeBase}/${rel.replace(/^\//, "")}`;
+  // 其它相对路径或文件名，也认为位于文件服务器根目录
+  return `${safeBase}/${rel.replace(/^\//, "")}`;
+  };
+
+  const buildWorkspaceDownloadUrl = (relativePath: string): string => {
+    if (!sessionId || !relativePath) return "";
+    const base =
+      (API_CONFIG as any).FILE_SERVER_BASE || "http://localhost:48100";
+    const safeBase = base.replace(/\/$/, "");
+    const trimmed = relativePath.replace(/^\/+/, "");
+    const encoded = encodeURI(`${sessionId}/${trimmed}`);
+    return `${safeBase}/${encoded}`;
+  };
+
+  const buildProxyUrl = (rawUrl: string): string => {
+    return `${API_CONFIG.BACKEND_BASE_URL}/proxy?url=${encodeURIComponent(
+      rawUrl
+    )}`;
   };
 
   // 若 URL 缺少 generated 目录，则在 session 段后注入 /generated
@@ -1229,13 +1329,15 @@ export function ThreePanelInterface() {
     }
   };
 
-  const openPreview = async (file: WorkspaceFile) => {
-    setPreviewTitle(file.name);
-    setPreviewDownloadUrl(file.download_url);
-    setIsPreviewOpen(true);
-    setPreviewLoading(true);
-
-    const ext = (file.extension || "").toLowerCase();
+  const previewDocument = async (
+    file: WorkspaceFile,
+    options?: DocumentPreviewOptions
+  ) => {
+    const normalized = normalizeToLocalFileUrl(
+      file.preview_url || file.download_url || ""
+    );
+    const target = ensureGeneratedInUrl(normalized);
+    const proxyUrl = buildProxyUrl(target);
     const textExts = new Set([
       "txt",
       "md",
@@ -1256,126 +1358,190 @@ export function ThreePanelInterface() {
       "css",
       "sh",
     ]);
-    const binaryExts = new Set([
-      "xlsx",
-      "xls",
-      "xlsm",
-      "parquet",
-      "feather",
-      "npy",
-      "npz",
-      "pkl",
-      "pickle",
-      "zip",
-    ]);
-    if (["png", "jpg", "jpeg", "gif", "svg", "webp"].includes(ext)) {
-      setPreviewType("image");
-      // 修正 URL
-      const correctedUrl = ensureGeneratedInUrl(
-        file.preview_url || file.download_url
-      );
-      setPreviewContent(correctedUrl);
-      setPreviewLoading(false);
-      return;
-    }
-    if (ext === "pdf") {
-      setPreviewType("pdf");
-      // 修正 URL
-      const correctedUrl = ensureGeneratedInUrl(
-        file.preview_url || file.download_url
-      );
-      setPreviewContent(correctedUrl);
-      setPreviewLoading(false);
-      return;
-    }
-    if (binaryExts.has(ext)) {
-      setPreviewType("binary");
-      setPreviewContent(file.download_url);
-      setPreviewLoading(false);
+    const imageExts = new Set(["png", "jpg", "jpeg", "gif", "svg", "webp"]);
+    const pdfExts = new Set(["pdf"]);
+    const ext = (file.extension || file.name.split(".").pop() || "").toLowerCase();
+
+    const basePreview: DocumentPreview = {
+      file,
+      type: "text",
+      url: proxyUrl,
+      downloadUrl: target,
+      loading: true,
+      metadata: options?.metadata,
+      kind: options?.kind,
+      planId: options?.planId,
+      origin: options?.origin ?? "workspace",
+    };
+    setDocumentPreview(basePreview);
+
+    if (ext === "html" || ext === "htm") {
+      setDocumentPreview({ ...basePreview, type: "html", loading: false });
       return;
     }
 
-    try {
-      const normalized = normalizeToLocalFileUrl(
-        file.preview_url || file.download_url
-      );
-      const target = ensureGeneratedInUrl(normalized);
-      // 通过后端代理以避免 CORS
-      const controller = new AbortController();
-      const timeoutId = window.setTimeout(() => controller.abort(), 8000);
-      const res = await fetch(
-        `${API_CONFIG.BACKEND_BASE_URL}/proxy?url=${encodeURIComponent(target)}`,
-        { signal: controller.signal }
-      );
-      window.clearTimeout(timeoutId);
-      const contentType = res.headers.get("content-type") || "";
-      if (!res.ok) throw new Error("failed to fetch preview");
-      if (
-        textExts.has(ext) ||
-        contentType.startsWith("text/") ||
-        contentType.includes("json") ||
-        contentType.includes("xml")
-      ) {
-        const text = await res.text();
-        setPreviewType("text");
-        setPreviewContent(text);
-      } else {
-        // 非文本直接提示下载/打开
-        setPreviewType("binary");
-        setPreviewContent(file.download_url);
+    if (imageExts.has(ext)) {
+      setDocumentPreview({ ...basePreview, type: "image", loading: false });
+      return;
+    }
+
+    if (pdfExts.has(ext)) {
+      setDocumentPreview({ ...basePreview, type: "pdf", loading: false });
+      return;
+    }
+
+    if (textExts.has(ext)) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = window.setTimeout(() => controller.abort(), 8000);
+        const res = await fetch(proxyUrl, { signal: controller.signal });
+        window.clearTimeout(timeoutId);
+        if (!res.ok) throw new Error("failed to fetch preview");
+        const contentType = res.headers.get("content-type") || "";
+        if (
+          contentType.includes("text") ||
+          contentType.includes("json") ||
+          contentType.includes("xml")
+        ) {
+          const text = await res.text();
+      setDocumentPreview({
+        ...basePreview,
+        type: "text",
+        loading: false,
+        content: text,
+      });
+      return;
+    }
+        throw new Error("unsupported text type");
+      } catch (err) {
+        setDocumentPreview({
+          ...basePreview,
+          type: "binary",
+          loading: false,
+          error: "无法预览该文本",
+        });
+        return;
       }
-    } catch (e) {
-      setPreviewType("binary");
-      setPreviewContent(file.download_url);
-    } finally {
-      setPreviewLoading(false);
+    }
+
+    setDocumentPreview({
+      ...basePreview,
+      type: "binary",
+      loading: false,
+      error: "该文件类型暂不支持预览",
+    });
+  };
+
+  const previewWorkspacePath = (
+    relativePath: string,
+    options?: {
+      name?: string;
+      metadata?: Record<string, any>;
+      kind?: string;
+      planId?: string;
+    }
+  ) => {
+    if (!relativePath) return;
+    const url = buildWorkspaceDownloadUrl(relativePath);
+    if (!url) return;
+    const name =
+      options?.name || relativePath.split("/").pop() || "document-preview";
+    const extension = name.split(".").pop() || "";
+    const file: WorkspaceFile = {
+      name,
+      size: 0,
+      extension,
+      icon: "",
+      download_url: url,
+      preview_url: url,
+    };
+    previewDocument(file, {
+      metadata: options?.metadata || {},
+      kind: options?.kind,
+      planId: options?.planId,
+      origin: "manifest",
+    });
+  };
+
+  const previewManifestEntry = (
+    entry: DocumentEntry,
+    planId?: string
+  ) => {
+    const targetPath = entry.relative_path || entry.path;
+    previewWorkspacePath(targetPath, {
+      metadata: entry.metadata,
+      kind: entry.kind,
+      planId,
+      name: targetPath.split("/").pop() || entry.kind,
+    });
+  };
+
+  const renderDocumentPreviewContent = () => {
+    if (!documentPreview) return null;
+    if (documentPreview.loading) {
+      return (
+        <div className="flex min-h-[200px] items-center justify-center text-sm text-gray-500">
+          Loading preview...
+        </div>
+      );
+    }
+    if (documentPreview.error) {
+      return (
+        <div className="text-sm text-red-500">
+          {documentPreview.error}
+        </div>
+      );
+    }
+    switch (documentPreview.type) {
+      case "image":
+        return (
+          <img
+            src={documentPreview.url}
+            alt={documentPreview.file.name}
+            className="w-full min-h-[200px] rounded border border-gray-200 object-contain dark:border-gray-800"
+          />
+        );
+      case "pdf":
+      case "html":
+        return (
+          <iframe
+            title={documentPreview.file.name}
+            src={documentPreview.url}
+            className="w-full min-h-[360px] rounded border border-gray-200 dark:border-gray-800"
+          />
+        );
+      case "text":
+        return (
+          <div className="min-h-[200px] w-full rounded border border-gray-200 dark:border-gray-800 bg-white dark:bg-black p-3 text-sm text-gray-800 dark:text-gray-200 overflow-auto">
+            <pre className="whitespace-pre-wrap">{documentPreview.content || "No content available."}</pre>
+          </div>
+        );
+      default:
+        return (
+          <div className="text-sm text-gray-500">
+            Unable to render this file type.
+          </div>
+        );
     }
   };
 
-  useEffect(() => {
-    if (isPreviewOpen && !previewLoading && previewScrollRef.current) {
-      previewScrollRef.current.scrollTop = 0;
-    }
-  }, [isPreviewOpen, previewLoading, previewType, previewContent]);
+  const handleDownload = () => {
+    if (!documentPreview) return;
+    const downloadUrl = documentPreview.downloadUrl || documentPreview.url;
+    if (!downloadUrl) return;
+    const a = document.createElement("a");
+    a.href = downloadUrl;
+    a.download = documentPreview.file.name || "download";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
 
-  const handleDownload = async () => {
-    try {
-      if (previewType === "text" && typeof previewContent === "string") {
-        const blob = new Blob([previewContent], {
-          type: "text/plain;charset=utf-8",
-        });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = previewTitle || "file.txt";
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        URL.revokeObjectURL(url);
-        return;
-      }
-
-      const normalized = normalizeToLocalFileUrl(
-        previewDownloadUrl || previewContent
-      );
-      const target = ensureGeneratedInUrl(normalized);
-      const res = await fetch(
-        `${API_CONFIG.BACKEND_BASE_URL}/proxy?url=${encodeURIComponent(target)}`
-      );
-      if (!res.ok) throw new Error("download failed");
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = previewTitle || "download";
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-    } catch (e) {
-      const url = ensureGeneratedInUrl(previewDownloadUrl || previewContent);
-      window.open(url, "_blank");
-    }
+  const openPreviewInNewTab = () => {
+    if (!documentPreview) return;
+    const downloadUrl = documentPreview.downloadUrl || documentPreview.url;
+    if (!downloadUrl) return;
+    window.open(downloadUrl, "_blank");
   };
 
   const downloadFileByUrl = async (fileName: string, rawUrl: string) => {
@@ -2196,16 +2362,27 @@ export function ThreePanelInterface() {
     [autoCollapseEnabled, manualLocks]
   );
 
-  const handleSendMessage = async () => {
-    if (!inputValue.trim() && attachments.length === 0) return;
+  const applyDepthResponse = (prompt?: string, required?: boolean) => {
+    setDepthPrompt(prompt || "");
+    setContinuationRequired(Boolean(required));
+  };
+
+  const handleSendMessage = async (
+    options?: { overrideContent?: string; depthDecision?: string }
+  ) => {
+    const outgoingContent = options?.overrideContent ?? inputValue;
+    const trimmedContent = outgoingContent.trim();
+    if (!trimmedContent && attachments.length === 0) return;
     if (isTyping) return;
 
+    const attachmentsToSend = options?.overrideContent ? [] : attachments;
     const newMessage: Message = {
       id: Date.now().toString(),
-      content: inputValue,
+      content: outgoingContent,
       sender: "user",
       timestamp: new Date(),
-      attachments: attachments.length > 0 ? [...attachments] : undefined,
+      attachments:
+        attachmentsToSend.length > 0 ? [...attachmentsToSend] : undefined,
     };
 
     setMessages((prev) => [...prev, newMessage]);
@@ -2219,6 +2396,13 @@ export function ThreePanelInterface() {
     }
     const controller = new AbortController();
     abortControllerRef.current = controller;
+
+    const trimmedDecision = trimmedContent.toLowerCase();
+    const depthDecisionValue =
+      options?.depthDecision ??
+      (trimmedDecision === "continue" || trimmedDecision === "stop"
+        ? trimmedDecision
+        : "");
 
     try {
       const response = await fetch(API_URLS.CHAT_COMPLETIONS, {
@@ -2249,6 +2433,7 @@ export function ThreePanelInterface() {
           report_export_mode: API_CONFIG.REPORT_EXPORT_MODE,
           visual_style: API_CONFIG.VISUAL_STYLE,
           visual_interactive: API_CONFIG.VISUAL_INTERACTIVE,
+          depth_decision: depthDecisionValue,
         }),
       });
 
@@ -2274,11 +2459,13 @@ export function ThreePanelInterface() {
             timestamp: new Date(),
           },
         ]);
+        applyDepthResponse(data?.depth_prompt, data?.continuation_required);
         autoCollapseForContent(content);
         // 若包含 <File> 标签，立即刷新工作区
         if (content.includes("<File>")) {
           await loadWorkspaceTree();
           await loadWorkspaceFiles();
+          await loadDocumentManifest();
         }
         setIsTyping(false); // 设置为 false 会自动触发滚动
         setStreamStatus("");
@@ -2333,6 +2520,7 @@ export function ThreePanelInterface() {
           fileRefreshTimerRef.current = window.setTimeout(async () => {
             await loadWorkspaceTree();
             await loadWorkspaceFiles();
+            await loadDocumentManifest();
             fileRefreshTimerRef.current = null;
           }, 300);
         }
@@ -2412,6 +2600,9 @@ export function ThreePanelInterface() {
         const { objects, rest } = extractJsonObjects(buffer);
         buffer = rest;
         for (const obj of objects) {
+          if (obj?.depth_prompt || typeof obj?.continuation_required === "boolean") {
+            applyDepthResponse(obj?.depth_prompt, obj?.continuation_required);
+          }
           const extracted = obj?.choices?.[0]?.message?.content as
             | string
             | undefined;
@@ -2430,6 +2621,7 @@ export function ThreePanelInterface() {
       // 流结束后忽略残余不完整 JSON
 
       await loadWorkspaceFiles();
+      await loadDocumentManifest();
       setIsTyping(false); // 设置为 false 会自动触发平滑滚动
       setStreamStatus("");
     } catch (error) {
@@ -2446,6 +2638,10 @@ export function ThreePanelInterface() {
         abortControllerRef.current = null;
       }
     }
+  };
+
+  const sendDepthDecision = (decision: "continue" | "stop") => {
+    void handleSendMessage({ overrideContent: decision, depthDecision: decision });
   };
 
   const stopCurrentTask = () => {
@@ -2478,6 +2674,8 @@ export function ThreePanelInterface() {
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
   };
+
+  const showRightPanel = Boolean(documentPreview) || showCodeEditor;
 
   return (
     <>
@@ -2564,6 +2762,180 @@ export function ThreePanelInterface() {
                     </AlertDialogContent>
                   </AlertDialog>
                 </div>
+              </div>
+
+              <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-800 space-y-3">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                      Document Manager
+                    </p>
+                    <p className="text-[10px] text-gray-500 dark:text-gray-400">
+                      Plans, code, tables, visuals, and reports in one manifest.
+                    </p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="xs"
+                    onClick={loadDocumentManifest}
+                    className="h-7 px-2 text-xs"
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                    <span className="ml-1 hidden sm:inline">Refresh</span>
+                  </Button>
+                </div>
+                {documentManifest ? (
+                  <>
+                    <div className="flex flex-wrap gap-1 text-[11px] text-gray-500">
+                      {["plan", "code", "result", "visualization", "report"].map(
+                        (kind) => (
+                          <span
+                            key={kind}
+                            className="rounded-full border border-gray-200 dark:border-gray-700 px-2 py-0.5 bg-gray-100 dark:bg-gray-900/60"
+                          >
+                            {kind}: {documentManifest.artifact_counts[kind] ?? 0}
+                          </span>
+                        )
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-[11px]">
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase text-gray-500">
+                          Reports & Tables
+                        </p>
+                        <div className="mt-1 space-y-1">
+                          {documentManifest.reports.slice(0, 3).map((report) => (
+                            <button
+                              key={report.relative_path}
+                              className="w-full flex items-center justify-between rounded border border-gray-200 dark:border-gray-700 px-2 py-1 text-left text-[10px] text-gray-600 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800"
+                              onClick={() =>
+                                previewWorkspacePath(report.relative_path, {
+                                  name: report.name,
+                                  kind: "report",
+                                })
+                              }
+                            >
+                              <span className="truncate">{report.name}</span>
+                              <span className="text-[9px] text-gray-400">
+                                HTML
+                              </span>
+                            </button>
+                          ))}
+                          {documentManifest.tables.slice(0, 2).map((table) => (
+                            <button
+                              key={table.relative_path}
+                              className="w-full flex items-center justify-between rounded border border-gray-200 dark:border-gray-700 px-2 py-1 text-left text-[10px] text-gray-600 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800"
+                              onClick={() =>
+                                previewWorkspacePath(table.relative_path, {
+                                  name: table.name,
+                                  kind: table.type,
+                                })
+                              }
+                            >
+                              <span className="truncate">{table.name}</span>
+                              <span className="text-[9px] text-gray-400">
+                                {table.type}
+                              </span>
+                            </button>
+                          ))}
+                          {documentManifest.reports.length === 0 &&
+                            documentManifest.tables.length === 0 && (
+                              <p className="text-[10px] text-gray-400">
+                                Waiting for artifacts...
+                              </p>
+                            )}
+                        </div>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase text-gray-500">
+                          Visualizations
+                        </p>
+                        <div className="mt-1 grid grid-cols-2 gap-1 text-[10px]">
+                          {documentManifest.visualizations.length === 0 && (
+                            <p className="text-[10px] text-gray-400">
+                              No visuals yet.
+                            </p>
+                          )}
+                          {documentManifest.visualizations
+                            .slice(0, 4)
+                            .map((viz, index) => (
+                              <button
+                                key={`${viz.path}-${index}`}
+                                className="flex flex-col gap-1 rounded border border-gray-200 dark:border-gray-700 px-2 py-1 text-gray-600 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800"
+                                onClick={() =>
+                                  previewWorkspacePath(viz.relative_path, {
+                                    metadata: viz.metadata,
+                                    kind: "visualization",
+                                    planId: viz.plan_id,
+                                  })
+                                }
+                              >
+                                <span className="truncate">
+                                  {viz.metadata?.name ||
+                                    viz.relative_path.split("/").pop()}
+                                </span>
+                                <span className="text-[9px] text-gray-400">
+                                  {viz.metadata?.format || "visual"}
+                                </span>
+                              </button>
+                            ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2 text-[11px]">
+                      {documentManifest.plans.length === 0 ? (
+                        <p className="text-gray-400">No plans captured yet.</p>
+                      ) : (
+                        documentManifest.plans.slice(0, 2).map((plan) => (
+                          <div
+                            key={plan.plan_id}
+                            className="rounded border border-dashed border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 p-2"
+                          >
+                            <div className="flex items-center justify-between text-[10px] text-gray-500">
+                              <span>Plan {plan.plan_id}</span>
+                              <span>
+                                {plan.plan_meta?.created_at
+                                  ? new Date(
+                                      plan.plan_meta.created_at * 1000
+                                    ).toLocaleTimeString()
+                                  : ""}
+                              </span>
+                            </div>
+                            <div className="mt-1 flex flex-wrap gap-1 text-[10px] text-gray-500">
+                              {Object.entries(plan.summary).map(([kind, count]) => (
+                                <span
+                                  key={`${plan.plan_id}-${kind}`}
+                                  className="rounded-full border border-gray-200 dark:border-gray-700 px-2 py-0.5"
+                                >
+                                  {kind}: {count}
+                                </span>
+                              ))}
+                            </div>
+                            <div className="mt-2 flex flex-wrap gap-1">
+                              {plan.entries.slice(0, 3).map((entry) => (
+                                <button
+                                  key={entry.path}
+                                  className="rounded border border-gray-200 dark:border-gray-700 px-2 py-0.5 text-[10px] text-gray-600 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800"
+                                  onClick={() =>
+                                    previewManifestEntry(entry, plan.plan_id)
+                                  }
+                                >
+                                  {entry.kind}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-[11px] text-gray-500">
+                    Loading document manifest...
+                  </div>
+                )}
               </div>
 
               <div
@@ -2969,6 +3341,30 @@ export function ThreePanelInterface() {
 
               {/* Input Area */}
               <div className="p-4 border-t border-gray-200 dark:border-gray-800 shrink-0">
+                {continuationRequired && depthPrompt && (
+                  <div className="mb-2 rounded border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-900 flex items-center justify-between gap-2 dark:bg-blue-900/60 dark:border-blue-800 dark:text-blue-200">
+                    <span className="flex-1 text-left">{depthPrompt}</span>
+                    <div className="flex gap-1">
+                      <Button
+                        variant="outline"
+                        size="xs"
+                        onClick={() => sendDepthDecision("stop")}
+                        disabled={isTyping}
+                        className="text-xs h-7 px-2"
+                      >
+                        Stop
+                      </Button>
+                      <Button
+                        size="xs"
+                        onClick={() => sendDepthDecision("continue")}
+                        disabled={isTyping}
+                        className="text-xs h-7 px-2"
+                      >
+                        Continue
+                      </Button>
+                    </div>
+                  </div>
+                )}
                 <div className="flex gap-3 items-end">
                   <input
                     ref={fileInputRef}
@@ -3055,153 +3451,208 @@ export function ThreePanelInterface() {
             </div>
           </ResizablePanel>
 
-          <ResizableHandle withHandle />
-
-          {/* Right Panel - Code Editor */}
-          <ResizablePanel defaultSize={35} minSize={20}>
-            <div className="flex flex-col bg-gray-50 dark:bg-gray-900 min-h-0 h-full">
-              <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-800 h-12 shrink-0">
-                <h2 className="text-sm font-medium text-gray-600 dark:text-gray-400">
-                  Code
-                </h2>
-                {showCodeEditor && (
-                  <div className="flex gap-2">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => {
-                        setShowCodeEditor(false);
-                        setCodeEditorContent("");
-                        setSelectedCodeSection("");
-                      }}
-                      className="h-6 px-2 text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-                    >
-                      Close
-                    </Button>
-                    <Button
-                      size="sm"
-                      onClick={executeCode}
-                      disabled={!codeEditorContent || isExecutingCode}
-                      className="h-6 px-3 text-xs bg-black text-white dark:bg-white dark:text-black"
-                    >
-                      {isExecutingCode ? "Running..." : "Run"}
-                    </Button>
-                  </div>
-                )}
-              </div>
-
-              {!showCodeEditor ? (
-                <div className="flex-1 flex items-center justify-center text-gray-400">
-                  <div className="text-center select-none">
-                    <p className="text-sm">Click a code block to edit</p>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex-1 min-h-0 flex flex-col p-4 editor-container overflow-hidden">
-                  {/* Code Editor */}
-                  <div
-                    className="min-h-0 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden bg-white dark:bg-black flex flex-col"
-                    style={{ height: `${editorHeight}%` }}
-                  >
-                    <div className="bg-gray-50 dark:bg-gray-800 px-3 py-2 border-b border-gray-200 dark:border-gray-700 shrink-0">
-                      <span className="text-xs text-gray-500 font-mono">
-                        python
-                      </span>
-                    </div>
-                    <div className="flex-1 min-h-0">
-                      <Editor
-                        height="100%"
-                        defaultLanguage="python"
-                        value={codeEditorContent}
-                        onChange={(value) => setCodeEditorContent(value || "")}
-                        theme={isDarkMode ? "vs-dark" : "light"}
-                        options={{
-                          fontSize: 14,
-                          fontFamily:
-                            "var(--font-mono), 'Courier New', monospace",
-                          lineNumbers: "on",
-                          minimap: { enabled: false },
-                          scrollBeyondLastLine: false,
-                          automaticLayout: true,
-                          tabSize: 4,
-                          insertSpaces: true,
-                          wordWrap: "on",
-                          folding: true,
-                          lineDecorationsWidth: 10,
-                          lineNumbersMinChars: 3,
-                          glyphMargin: false,
-                          selectOnLineNumbers: true,
-                          roundedSelection: false,
-                          readOnly: false,
-                          cursorStyle: "line",
-                          smoothScrolling: true,
-                          formatOnPaste: true,
-                          formatOnType: true,
-                          suggestOnTriggerCharacters: true,
-                          acceptSuggestionOnEnter: "on",
-                          tabCompletion: "on",
-                          scrollbar: {
-                            vertical: "visible",
-                            verticalScrollbarSize: 10,
-                          },
-                        }}
-                        loading={
-                          <div className="flex items-center justify-center h-full">
-                            <div className="flex items-center gap-2 text-muted-foreground">
-                              <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-                              <span className="text-sm">加载编辑器...</span>
-                            </div>
-                          </div>
-                        }
-                      />
-                    </div>
-                  </div>
-
-                  {/* Resizer */}
-                  <div
-                    className="h-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 cursor-row-resize flex items-center justify-center group"
-                    onMouseDown={handleMouseDown}
-                  >
-                    <div className="w-8 h-1 bg-gray-300 dark:bg-gray-600 rounded group-hover:bg-gray-400 dark:group-hover:bg-gray-500"></div>
-                  </div>
-
-                  {/* Terminal Output */}
-                  <div
-                    className="min-h-0 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden bg-white dark:bg-gray-900 flex flex-col"
-                    style={{ height: `${100 - editorHeight}%` }}
-                  >
-                    <div className="bg-gray-50 dark:bg-gray-800 px-3 py-2 border-b border-gray-200 dark:border-gray-700 shrink-0">
-                      <span className="text-xs text-gray-500 dark:text-gray-400 font-mono">
-                        Output
-                      </span>
-                    </div>
-                    <div className="flex-1 min-h-0 p-3 overflow-auto font-mono text-sm bg-white dark:bg-black text-gray-800 dark:text-gray-200">
-                      {codeExecutionResult ? (
+          {showRightPanel && (
+            <>
+              <ResizableHandle withHandle />
+              <ResizablePanel defaultSize={35} minSize={20}>
+                <div className="flex flex-col bg-gray-50 dark:bg-gray-900 min-h-0 h-full">
+                  {documentPreview ? (
+                    <div className="flex flex-col min-h-0 overflow-hidden border-b border-gray-200 dark:border-gray-800">
+                      <div className="flex items-start justify-between px-4 py-3">
                         <div>
-                          <div className="text-gray-500 dark:text-gray-400 mb-1">
-                            $ python main.py
-                          </div>
-                          <pre className="whitespace-pre-wrap text-gray-800 dark:text-gray-200">
-                            {codeExecutionResult}
-                          </pre>
-                          <div className="flex items-center mt-2">
-                            <span className="text-gray-500 dark:text-gray-400">
-                              $
-                            </span>
-                            <span className="w-2 h-4 bg-gray-400 dark:bg-gray-500 ml-1 animate-pulse"></span>
-                          </div>
+                          <p className="text-sm font-medium text-gray-600 dark:text-gray-400">
+                            {documentPreview.file.name}
+                          </p>
+                          <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                            {documentPreview.kind || "Document"}
+                            {documentPreview.planId
+                              ? ` · Plan ${documentPreview.planId}`
+                              : ""}
+                            {documentPreview.metadata?.phase
+                              ? ` · ${documentPreview.metadata.phase}`
+                              : ""}
+                            {documentPreview.metadata?.timestamp
+                              ? ` · ${new Date(
+                                  documentPreview.metadata.timestamp * 1000
+                                ).toLocaleTimeString()}`
+                              : ""}
+                          </p>
                         </div>
-                      ) : (
-                        <div className="text-gray-400 dark:text-gray-500 italic">
-                          Run code to see output...
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={handleDownload}
+                            className="h-8 w-8 p-0"
+                            title="Download"
+                          >
+                            <Download className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={openPreviewInNewTab}
+                            className="h-8 px-3 text-xs"
+                          >
+                            Open
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setDocumentPreview(null)}
+                            className="h-8 w-8 p-0"
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
                         </div>
-                      )}
+                      </div>
+                      <div className="flex-1 min-h-0 overflow-auto px-4 py-3">
+                        {renderDocumentPreviewContent()}
+                      </div>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="flex flex-1 min-h-0 items-center justify-center text-sm text-gray-500">
+                      Select a document to preview.
+                    </div>
+                  )}
+                  {showCodeEditor && (
+                    <div className="flex flex-col min-h-0 border-t border-gray-200 dark:border-gray-800 p-4">
+                      <div className="flex items-center justify-between px-0 py-0 border-b border-gray-200 dark:border-gray-700 h-12 shrink-0">
+                        <h2 className="text-sm font-medium text-gray-600 dark:text-gray-400">
+                          Code
+                        </h2>
+                        <div className="flex gap-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setShowCodeEditor(false);
+                              setCodeEditorContent("");
+                              setSelectedCodeSection("");
+                            }}
+                            className="h-6 px-2 text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                          >
+                            Close
+                          </Button>
+                          <Button
+                            size="sm"
+                            onClick={executeCode}
+                            disabled={!codeEditorContent || isExecutingCode}
+                            className="h-6 px-3 text-xs bg-black text-white dark:bg-white dark:text-black"
+                          >
+                            {isExecutingCode ? "Running..." : "Run"}
+                          </Button>
+                        </div>
+                      </div>
+                      <div className="flex-1 min-h-0 flex flex-col p-4 editor-container overflow-hidden">
+                        <div
+                          className="min-h-0 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden bg-white dark:bg-black flex flex-col"
+                          style={{ height: `${editorHeight}%` }}
+                        >
+                          <div className="bg-gray-50 dark:bg-gray-800 px-3 py-2 border-b border-gray-200 dark:border-gray-700 shrink-0">
+                            <span className="text-xs text-gray-500 font-mono">
+                              python
+                            </span>
+                          </div>
+                          <div className="flex-1 min-h-0">
+                            <Editor
+                              height="100%"
+                              defaultLanguage="python"
+                              value={codeEditorContent}
+                              onChange={(value) =>
+                                setCodeEditorContent(value || "")
+                              }
+                              theme={isDarkMode ? "vs-dark" : "light"}
+                              options={{
+                                fontSize: 14,
+                                fontFamily:
+                                  "var(--font-mono), 'Courier New', monospace",
+                                lineNumbers: "on",
+                                minimap: { enabled: false },
+                                scrollBeyondLastLine: false,
+                                automaticLayout: true,
+                                tabSize: 4,
+                                insertSpaces: true,
+                                wordWrap: "on",
+                                folding: true,
+                                lineDecorationsWidth: 10,
+                                lineNumbersMinChars: 3,
+                                glyphMargin: false,
+                                selectOnLineNumbers: true,
+                                roundedSelection: false,
+                                readOnly: false,
+                                cursorStyle: "line",
+                                smoothScrolling: true,
+                                formatOnPaste: true,
+                                formatOnType: true,
+                                suggestOnTriggerCharacters: true,
+                                acceptSuggestionOnEnter: "on",
+                                tabCompletion: "on",
+                                scrollbar: {
+                                  vertical: "visible",
+                                  verticalScrollbarSize: 10,
+                                },
+                              }}
+                              loading={
+                                <div className="flex items-center justify-center h-full">
+                                  <div className="flex items-center gap-2 text-muted-foreground">
+                                    <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                                    <span className="text-sm">
+                                      加载编辑器...
+                                    </span>
+                                  </div>
+                                </div>
+                              }
+                            />
+                          </div>
+                        </div>
+
+                        <div
+                          className="h-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 cursor-row-resize flex items-center justify-center group"
+                          onMouseDown={handleMouseDown}
+                        >
+                          <div className="w-8 h-1 bg-gray-300 dark:bg-gray-600 rounded group-hover:bg-gray-400 dark:group-hover:bg-gray-500"></div>
+                        </div>
+
+                        <div
+                          className="min-h-0 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden bg-white dark:bg-gray-900 flex flex-col"
+                          style={{ height: `${100 - editorHeight}%` }}
+                        >
+                          <div className="bg-gray-50 dark:bg-gray-800 px-3 py-2 border-b border-gray-200 dark:border-gray-700 shrink-0">
+                            <span className="text-xs text-gray-500 dark:text-gray-400 font-mono">
+                              Output
+                            </span>
+                          </div>
+                          <div className="flex-1 min-h-0 p-3 overflow-auto font-mono text-sm bg-white dark:bg-black text-gray-800 dark:text-gray-200">
+                            {codeExecutionResult ? (
+                              <div>
+                                <div className="text-gray-500 dark:text-gray-400 mb-1">
+                                  $ python main.py
+                                </div>
+                                <pre className="whitespace-pre-wrap text-gray-800 dark:text-gray-200">
+                                  {codeExecutionResult}
+                                </pre>
+                                <div className="flex items-center mt-2">
+                                  <span className="text-gray-500 dark:text-gray-400">
+                                    $
+                                  </span>
+                                  <span className="w-2 h-4 bg-gray-400 dark:bg-gray-500 ml-1 animate-pulse"></span>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="text-gray-400 dark:text-gray-500 italic">
+                                Run code to see output...
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-          </ResizablePanel>
+              </ResizablePanel>
+            </>
+          )}
         </ResizablePanelGroup>
       </div>
       {contextPos && contextTarget && (
@@ -3328,113 +3779,7 @@ export function ThreePanelInterface() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      {/* 文件预览弹窗 */}
-      <Dialog open={isPreviewOpen} onOpenChange={setIsPreviewOpen}>
-        <DialogContent
-          style={{
-            width: "90vw",
-            height: "90vh",
-            maxWidth: "90vw",
-            maxHeight: "90vh",
-          }}
-          className=" p-0 overflow-hidden flex flex-col"
-        >
-          <DialogHeader className="px-4 py-3 border-b border-gray-200 dark:border-gray-800">
-            <DialogTitle className="text-sm font-medium truncate">
-              {previewTitle}
-            </DialogTitle>
-          </DialogHeader>
-          <div
-            ref={previewScrollRef}
-            className="w-full flex-1 min-h-0 overflow-auto"
-          >
-            {previewLoading ? (
-              <div className="h-full flex items-center justify-center text-sm text-gray-500">
-                Loading...
-              </div>
-            ) : previewType === "image" ? (
-              <div className="p-4 h-full flex items-center justify-center">
-                <img
-                  src={previewContent}
-                  alt={previewTitle}
-                  className="max-w-full max-h-full object-contain"
-                />
-              </div>
-            ) : previewType === "pdf" ? (
-              <iframe src={previewContent} className="w-full h-full" />
-            ) : previewType === "text" ? (
-              <div className="h-full min-h-0 p-2">
-                <div className="h-full min-h-0 border border-gray-200 dark:border-gray-800 rounded-lg overflow-hidden">
-                  <div className="h-full min-h-0">
-                    <Editor
-                      height="100%"
-                      defaultLanguage={guessLanguageByExtension(
-                        previewTitle.split(".").pop() || "text"
-                      )}
-                      language={guessLanguageByExtension(
-                        previewTitle.split(".").pop() || "text"
-                      )}
-                      value={previewContent}
-                      theme={isDarkMode ? "vs-dark" : "light"}
-                      options={{
-                        readOnly: true,
-                        wordWrap: "on",
-                        minimap: { enabled: false },
-                        scrollBeyondLastLine: false,
-                        fontFamily:
-                          "var(--font-mono), 'Courier New', monospace",
-                        fontSize: 14,
-                        lineNumbers: "on",
-                        automaticLayout: true,
-                      }}
-                    />
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div className="p-4">
-                <div className="text-xs text-gray-500 mb-2">
-                  无法识别类型，尝试以文本方式预览：
-                </div>
-                <div className="border border-gray-200 dark:border-gray-800 rounded-lg overflow-hidden">
-                  <SyntaxHighlighter
-                    language={guessLanguageByExtension(
-                      previewTitle.split(".").pop() || "text"
-                    )}
-                    style={isDarkMode ? oneDark : oneLight}
-                    customStyle={{ margin: 0 }}
-                    codeTagProps={{
-                      style: {
-                        fontFamily: "var(--font-mono)",
-                        fontSize: "0.875rem",
-                      },
-                    }}
-                  >
-                    {previewContent}
-                  </SyntaxHighlighter>
-                </div>
-                <div className="mt-3 text-xs text-gray-500">
-                  如显示异常，
-                  <a
-                    className="underline"
-                    href={previewDownloadUrl || previewContent}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    点击下载/打开
-                  </a>
-                </div>
-              </div>
-            )}
-          </div>
-          <div className="absolute bottom-4 right-4">
-            <Button onClick={handleDownload} size="sm" variant="outline">
-              <Download className="h-4 w-4" />
-              下载
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      {/* 文档直接在右侧面板中展示 */}
     </>
   );
 }

@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Body
+from fastapi import FastAPI, Body, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pathlib import Path
@@ -11,7 +11,9 @@ from API.config import (
     VISUAL_STYLE,
     VISUAL_INTERACTIVE,
     USE_ORCHESTRATOR,
+    WORKSPACE_BASE_DIR,
 )
+from deepanalyze.orchestration.document_manager import DocumentManager
 from deepanalyze.orchestration.runner import run_orchestrated_analysis
 
 app = FastAPI(title="DeepAnalyze Orchestrator")
@@ -71,3 +73,11 @@ async def orchestrated_chat(body: dict = Body(...)):
         "depth_prompt": state.get("depth_prompt", ""),
         "continuation_required": state.get("continuation_required", False),
     }
+
+
+@app.get("/documents/summary")
+async def documents_summary(session_id: str = Query("default")):
+    workspace_dir = Path(WORKSPACE_BASE_DIR) / session_id
+    manager = DocumentManager(workspace_dir)
+    manifest = manager.manifest()
+    return manifest

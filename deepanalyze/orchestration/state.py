@@ -42,4 +42,5 @@ class OrchestrationState(TypedDict, total=False):
      run_summary: dict[str, Any]
      errors: list[str]
      telemetry: list[dict[str, Any]]
+     document_manifest: dict[str, Any]
      config: dict[str, Any]

@@ -39,6 +39,7 @@ from deepanalyze.visualization.writer import visualization_writer
 from deepanalyze.reporting.exporter import export_report
 from deepanalyze.reporting.templates import template_from_config
 from .state import OrchestrationState
+from .document_manager import DocumentManager
 
 
 def _safe_json_load(raw: str) -> dict[str, Any]:
@@ -655,8 +656,18 @@ def build_graph(llm: LLMClient, config: dict[str, Any]):
             "followup_hypotheses": state.get("followup_hypotheses", []),
             "continuation_required": state.get("continuation_required", False),
         }
-        record_run_summary(state.get("workspace_dir", ""), summary)
-        return {"run_summary": summary}
+        workspace_dir = Path(state.get("workspace_dir", ""))
+        doc_manager = DocumentManager(workspace_dir)
+        document_manifest = doc_manager.manifest()
+        record_artifact(
+            workspace_dir,
+            doc_manager.manifest_path,
+            "meta",
+            "document_manifest",
+        )
+        summary["documents"] = document_manifest
+        record_run_summary(workspace_dir, summary)
+        return {"run_summary": summary, "document_manifest": document_manifest}
 
     graph.add_node("understand_files", _run_node("understand_files", understand_files, config))
     graph.add_node("data_quality", _run_node("data_quality", data_quality, config))
