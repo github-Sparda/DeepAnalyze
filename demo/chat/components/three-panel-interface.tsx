@@ -326,6 +326,7 @@ export function ThreePanelInterface() {
   ]);
   const [inputValue, setInputValue] = useState("");
   const [isTyping, setIsTyping] = useState(false);
+  const [streamStatus, setStreamStatus] = useState("");
   const [attachments, setAttachments] = useState<FileAttachment[]>([]);
   const [workspaceFiles, setWorkspaceFiles] = useState<WorkspaceFile[]>([]);
   const [workspaceTree, setWorkspaceTree] = useState<WorkspaceNode | null>(
@@ -358,6 +359,7 @@ export function ThreePanelInterface() {
   );
   const [deleteIsDir, setDeleteIsDir] = useState<boolean>(false);
   const fileRefreshTimerRef = useRef<number | null>(null);
+  const lastChunkRef = useRef(0);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -376,6 +378,7 @@ export function ThreePanelInterface() {
 
   const lastScrollTimeRef = useRef(0);
   const scrollRafRef = useRef<number | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // 节流滚动到底部
   const scrollToBottom = useCallback(() => {
@@ -428,6 +431,20 @@ export function ThreePanelInterface() {
       }, 100);
     }
   }, [isTyping]);
+
+  useEffect(() => {
+    if (!isTyping) {
+      setStreamStatus("");
+      return;
+    }
+    const timer = setInterval(() => {
+      const elapsed = Date.now() - lastChunkRef.current;
+      if (elapsed > 15000 && (!streamStatus || streamStatus === "模型响应中…")) {
+        setStreamStatus("等待模型响应中…");
+      }
+    }, 3000);
+    return () => clearInterval(timer);
+  }, [isTyping, streamStatus]);
 
   // 监听消息变化
   useEffect(() => {
@@ -1219,6 +1236,38 @@ export function ThreePanelInterface() {
     setPreviewLoading(true);
 
     const ext = (file.extension || "").toLowerCase();
+    const textExts = new Set([
+      "txt",
+      "md",
+      "csv",
+      "tsv",
+      "json",
+      "yaml",
+      "yml",
+      "xml",
+      "log",
+      "py",
+      "js",
+      "ts",
+      "tsx",
+      "jsx",
+      "sql",
+      "html",
+      "css",
+      "sh",
+    ]);
+    const binaryExts = new Set([
+      "xlsx",
+      "xls",
+      "xlsm",
+      "parquet",
+      "feather",
+      "npy",
+      "npz",
+      "pkl",
+      "pickle",
+      "zip",
+    ]);
     if (["png", "jpg", "jpeg", "gif", "svg", "webp"].includes(ext)) {
       setPreviewType("image");
       // 修正 URL
@@ -1239,6 +1288,12 @@ export function ThreePanelInterface() {
       setPreviewLoading(false);
       return;
     }
+    if (binaryExts.has(ext)) {
+      setPreviewType("binary");
+      setPreviewContent(file.download_url);
+      setPreviewLoading(false);
+      return;
+    }
 
     try {
       const normalized = normalizeToLocalFileUrl(
@@ -1246,12 +1301,17 @@ export function ThreePanelInterface() {
       );
       const target = ensureGeneratedInUrl(normalized);
       // 通过后端代理以避免 CORS
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), 8000);
       const res = await fetch(
-        `${API_CONFIG.BACKEND_BASE_URL}/proxy?url=${encodeURIComponent(target)}`
+        `${API_CONFIG.BACKEND_BASE_URL}/proxy?url=${encodeURIComponent(target)}`,
+        { signal: controller.signal }
       );
+      window.clearTimeout(timeoutId);
       const contentType = res.headers.get("content-type") || "";
       if (!res.ok) throw new Error("failed to fetch preview");
       if (
+        textExts.has(ext) ||
         contentType.startsWith("text/") ||
         contentType.includes("json") ||
         contentType.includes("xml")
@@ -2126,6 +2186,7 @@ export function ThreePanelInterface() {
 
   const handleSendMessage = async () => {
     if (!inputValue.trim() && attachments.length === 0) return;
+    if (isTyping) return;
 
     const newMessage: Message = {
       id: Date.now().toString(),
@@ -2139,6 +2200,13 @@ export function ThreePanelInterface() {
     setInputValue("");
     setAttachments([]);
     setIsTyping(true);
+    setStreamStatus("模型响应中…");
+    lastChunkRef.current = Date.now();
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
 
     try {
       const response = await fetch(API_URLS.CHAT_COMPLETIONS, {
@@ -2146,6 +2214,7 @@ export function ThreePanelInterface() {
         headers: {
           "Content-Type": "application/json",
         },
+        signal: controller.signal,
         body: JSON.stringify({
           model: "grok-beta",
           messages: [
@@ -2194,6 +2263,7 @@ export function ThreePanelInterface() {
           await loadWorkspaceFiles();
         }
         setIsTyping(false); // 设置为 false 会自动触发滚动
+        setStreamStatus("");
         return;
       }
 
@@ -2203,6 +2273,7 @@ export function ThreePanelInterface() {
       if (!reader) {
         // 没有可读流，直接结束加载动画
         setIsTyping(false);
+        setStreamStatus("");
         return;
       }
 
@@ -2219,6 +2290,13 @@ export function ThreePanelInterface() {
       ]);
 
       const updateAiMessage = (text: string) => {
+        if (text.includes("<Code>") && !text.includes("</Code>")) {
+          setStreamStatus("生成代码中…");
+        } else if (text.includes("</Code>") && !text.includes("<Execute>")) {
+          setStreamStatus("正在执行代码…");
+        } else if (text.includes("<Execute>")) {
+          setStreamStatus("返回执行结果中…");
+        }
         setMessages((prev) => {
           const next = [...prev];
           const idx = next.findIndex((m) => m.id === aiMsgId);
@@ -2312,6 +2390,7 @@ export function ThreePanelInterface() {
         const { done, value } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
+        lastChunkRef.current = Date.now();
         const { objects, rest } = extractJsonObjects(buffer);
         buffer = rest;
         for (const obj of objects) {
@@ -2323,6 +2402,7 @@ export function ThreePanelInterface() {
             updateAiMessage(extracted);
             if (extracted.includes("</Answer>")) {
               setIsTyping(false);
+              setStreamStatus("");
               autoCollapseForContent(extracted);
             }
           }
@@ -2333,10 +2413,31 @@ export function ThreePanelInterface() {
 
       await loadWorkspaceFiles();
       setIsTyping(false); // 设置为 false 会自动触发平滑滚动
+      setStreamStatus("");
     } catch (error) {
+      if ((error as Error).name === "AbortError") {
+        setIsTyping(false);
+        setStreamStatus("");
+        return;
+      }
       console.error("Error sending message:", error);
       setIsTyping(false); // 设置为 false 会自动触发平滑滚动
+      setStreamStatus("");
+    } finally {
+      if (abortControllerRef.current === controller) {
+        abortControllerRef.current = null;
+      }
     }
+  };
+
+  const stopCurrentTask = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+      toast({ description: "已停止当前任务" });
+    }
+    setIsTyping(false);
+    setStreamStatus("");
   };
 
   const handleFileUpload = async (
@@ -2522,7 +2623,7 @@ export function ThreePanelInterface() {
                     {isTyping && (
                       <div className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
                         <div className="w-3 h-3 border-2 border-gray-400 border-t-transparent rounded-full animate-spin"></div>
-                        <span>执行中…</span>
+                        <span>{streamStatus || "执行中…"}</span>
                       </div>
                     )}
                   </div>
@@ -2915,11 +3016,11 @@ export function ThreePanelInterface() {
                   {isTyping ? (
                     <Button
                       size="sm"
-                      className="h-9 w-9 p-0 rounded-full bg-white text-black border border-blue-400/50 dark:bg-white dark:text-black"
-                      title="正在生成…"
-                      disabled
+                      className="h-9 w-9 p-0 rounded-full bg-white text-red-600 border border-red-300/70 dark:bg-white dark:text-red-600"
+                      title="停止任务"
+                      onClick={stopCurrentTask}
                     >
-                      <RefreshCw className="h-4 w-4 animate-spin" />
+                      <Square className="h-4 w-4" />
                     </Button>
                   ) : (
                     <Button

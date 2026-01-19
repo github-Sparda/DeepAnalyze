@@ -106,6 +106,26 @@ Try DeepAnalyze through the command-line interface
 
 ## 🚀 Quick Start
 
+### Service scripts (no LLM startup)
+
+If you already have an external LLM endpoint configured in `.env`, you can start the demo backend + frontend:
+
+```bash
+./scripts/start_services.sh
+```
+
+Stop services:
+
+```bash
+./scripts/stop_services.sh
+```
+
+Check status:
+
+```bash
+./scripts/status_services.sh
+```
+
 ### Requirements
 
 - Install packages: `torch`, `transformers`, `vllm>=0.8.5`

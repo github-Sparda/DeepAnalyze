@@ -27,6 +27,26 @@ DeepAnalyze/
 
 ## 快速开始（推理）
 
+### 服务脚本（不启动 LLM）
+
+如果你已在 `.env` 中配置外部模型服务，只需启动 demo 后端和前端：
+
+```bash
+./scripts/start_services.sh
+```
+
+停止服务：
+
+```bash
+./scripts/stop_services.sh
+```
+
+查看状态：
+
+```bash
+./scripts/status_services.sh
+```
+
 ### 1) 安装依赖
 
 建议使用独立环境：

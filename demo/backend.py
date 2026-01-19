@@ -13,6 +13,7 @@ import sys
 import tempfile
 import requests
 import threading
+import time
 import http.server
 from functools import partial
 import socketserver
@@ -57,6 +58,27 @@ from config import (
 )
 
 os.environ.setdefault("MPLBACKEND", "Agg")
+
+LOG_DIR = Path(__file__).resolve().parents[1] / "logs"
+DEBUG_STREAM = os.getenv("DEEPANALYZE_DEBUG_STREAM", "").lower() in (
+    "1",
+    "true",
+    "yes",
+)
+DEBUG_STREAM_FILE = os.getenv(
+    "DEEPANALYZE_DEBUG_STREAM_FILE", str(LOG_DIR / "llm_stream.log")
+)
+
+
+def log_stream_chunk(text: str) -> None:
+    if not DEBUG_STREAM or not text:
+        return
+    try:
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        with open(DEBUG_STREAM_FILE, "a", encoding="utf-8") as f:
+            f.write(text)
+    except Exception:
+        pass
 
 
 def execute_code(code_str):
@@ -652,6 +674,7 @@ def fix_tags_and_codeblock(s: str) -> str:
 
 def bot_stream(messages, workspace, session_id="default"):
     original_cwd = os.getcwd()
+    stream_id = f"{session_id}-{int(time.time() * 1000)}"
     WORKSPACE_DIR = get_session_workspace(session_id)
     os.makedirs(WORKSPACE_DIR, exist_ok=True)
     # 创建 generated 子文件夹用于存放代码生成的文件
@@ -660,6 +683,19 @@ def bot_stream(messages, workspace, session_id="default"):
     # print(messages)
     if messages and messages[0]["role"] == "assistant":
         messages = messages[1:]
+    # 注入系统提示：要求模型遵循 DeepAnalyze-8B 的标签协议
+    system_prompt = os.getenv(
+        "DEEPANALYZE_SYSTEM_PROMPT",
+        (
+            "You are DeepAnalyze-8B. Follow this strict format:\n"
+            "- If you need to execute code, respond with <Code>...</Code> and then continue to <Answer>...</Answer>.\n"
+            "- If no code is needed, respond directly in <Answer>...</Answer> only.\n"
+            "- Never omit <Answer>. Never output anything outside these tags.\n"
+            "- Use Python for code and keep it minimal.\n"
+        ),
+    )
+    if not messages or messages[0].get("role") != "system":
+        messages = [{"role": "system", "content": system_prompt}] + messages
     if messages and messages[-1]["role"] == "user":
         user_message = messages[-1]["content"]
         file_info = (
@@ -678,10 +714,16 @@ def bot_stream(messages, workspace, session_id="default"):
     assistant_reply = ""
     finished = False
     exe_output = None
+    loop_count = 0
     while not finished:
+        loop_count += 1
         extra_body = {"add_generation_prompt": False, "max_new_tokens": MAX_NEW_TOKENS}
         if STOP_TOKEN_IDS:
             extra_body["stop_token_ids"] = STOP_TOKEN_IDS
+        if DEBUG_STREAM:
+            log_stream_chunk(
+                f"\n[stream] id={stream_id} loop={loop_count} start\n"
+            )
         response = client.chat.completions.create(
             model=MODEL_PATH,
             messages=messages,
@@ -690,21 +732,58 @@ def bot_stream(messages, workspace, session_id="default"):
             extra_body=extra_body,
         )
         cur_res = ""
+        last_choice = None
+        saw_answer_tag = False
         for chunk in response:
-            if chunk.choices and chunk.choices[0].delta.content is not None:
-                delta = chunk.choices[0].delta.content
+            if not getattr(chunk, "choices", None):
+                continue
+            last_choice = chunk.choices[0]
+            delta = getattr(last_choice, "delta", None)
+            if delta is not None and delta.content is not None:
+                delta = delta.content
                 cur_res += delta
                 assistant_reply += delta
+                log_stream_chunk(delta)
                 yield assistant_reply
             if "</Answer>" in cur_res:
-                finished = True
+                if "<Code>" in cur_res:
+                    saw_answer_tag = True
+                else:
+                    finished = True
                 break
-        if chunk.choices[0].finish_reason == "stop" and not finished:
-            if not cur_res.endswith("</Code>"):
-                cur_res += "</Code>"
-                assistant_reply += "</Code>"
+        finish_reason = getattr(last_choice, "finish_reason", None)
+        if DEBUG_STREAM:
+            log_stream_chunk(
+                f"\n[stream] id={stream_id} loop={loop_count} finish_reason={finish_reason}\n"
+            )
+
+        if last_choice is None and not cur_res:
+            # 防止上游无有效内容导致死循环
+            finished = True
+
+        if not finished and "<Code>" not in cur_res:
+            if "<Answer>" not in cur_res:
+                cur_res = f"<Answer>\n{cur_res}\n</Answer>"
+                assistant_reply = f"<Answer>\n{assistant_reply}\n</Answer>"
+            elif "</Answer>" not in cur_res:
+                cur_res += "\n</Answer>"
+                assistant_reply += "\n</Answer>"
             yield assistant_reply
-        if "</Code>" in cur_res and not finished:
+            if DEBUG_STREAM:
+                log_stream_chunk("\n")
+            finished = True
+
+        if (
+            not finished
+            and "<Code>" in cur_res
+            and "</Code>" not in cur_res
+            and finish_reason in ("stop", "length")
+        ):
+            cur_res += "</Code>"
+            assistant_reply += "</Code>"
+            yield assistant_reply
+
+        if "<Code>" in cur_res and "</Code>" in cur_res and not finished:
             messages.append({"role": "assistant", "content": cur_res})
             code_match = re.search(r"<Code>(.*?)</Code>", cur_res, re.DOTALL)
             if code_match:
@@ -810,6 +889,10 @@ def bot_stream(messages, workspace, session_id="default"):
                 if new_files:
                     workspace.extend(new_files)
                     initial_workspace.update(new_files)
+            if saw_answer_tag:
+                finished = True
+        if finished and DEBUG_STREAM:
+            log_stream_chunk("\n")
     os.chdir(original_cwd)
 
 
@@ -822,7 +905,6 @@ async def chat(body: dict = Body(...)):
     def generate():
         for reply in bot_stream(messages, workspace, session_id):
             # result=reply + "\n"
-            print(reply)
             result = {
                 "id": "chatcmpl-123",
                 "object": "chat.completion",
