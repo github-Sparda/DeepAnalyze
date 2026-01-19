@@ -25,6 +25,17 @@ PROMPTS = {
             "1）假设列表；2）每个假设的步骤；3）预期产物（表/图）。"
         ),
     },
+    "hypothesis_planner": {
+        "en": (
+            "Generate multiple testable hypotheses and an analysis plan. "
+            "Return Markdown with: 1) hypotheses list, 2) steps per hypothesis, "
+            "3) expected artifacts (tables/plots)."
+        ),
+        "zh": (
+            "生成多个可验证假设与分析计划。返回 Markdown，包含："
+            "1）假设列表；2）每个假设的步骤；3）预期产物（表/图）。"
+        ),
+    },
     "planning_struct": {
         "en": (
             "Convert the plan to JSON with keys: hypotheses: [{title, steps, artifacts}]."
@@ -91,24 +102,28 @@ ROLE_TEMPLATES = {
     },
     "planning": {
         "system": "{system}",
-        "user": "{prompt}\n\nSummary:\n{summary}",
+        "user": "{prompt}\n\nSummary:\n{summary}\n\nPlan ID: {plan_id}\n{artifact_context}",
+    },
+    "hypothesis_planner": {
+        "system": "{system}",
+        "user": "{prompt}\n\nSummary:\n{summary}\n\nHistory:\n{history}\n\nPlan ID: {plan_id}\n{artifact_context}",
     },
     "codegen": {
         "system": "{system}",
-        "user": "{prompt}\n\nPlan:\n{plan}",
+        "user": "{prompt}\n\nPlan:\n{plan}\n\nPlan ID: {plan_id}\n{artifact_context}",
     },
     "analysis": {
         "system": "{system}",
-        "user": "{prompt}\n\nOutputs:\n{outputs}",
+        "user": "{prompt}\n\nOutputs:\n{outputs}\n\nPlan ID: {plan_id}\n{artifact_context}",
     },
     "report_outline": {
         "system": "{system}",
-        "user": "{prompt}\n\nAnalysis:\n{analysis}",
+        "user": "{prompt}\n\nAnalysis:\n{analysis}\n\nPlan ID: {plan_id}\n{artifact_context}",
     },
     "report": {
         "system": "{system}",
         "user": "{prompt}\n\nLanguage: {language}\nFormat: {format}\nExport mode: {mode}\n"
-        "Outline:\n{outline}\n\nAnalysis:\n{analysis}",
+        "Outline:\n{outline}\n\nAnalysis:\n{analysis}\n\nPlan ID: {plan_id}\n{artifact_context}",
     },
 }
 
@@ -130,6 +145,9 @@ def render_role_prompt(role: str, language: str, **kwargs) -> list[dict[str, str
     payload = {
         "system": system,
         "prompt": prompt,
+        "plan_id": kwargs.get("plan_id", ""),
+        "artifact_context": kwargs.get("artifact_context", ""),
+        "history": kwargs.get("history", ""),
         **kwargs,
     }
     return [

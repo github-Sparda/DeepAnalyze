@@ -13,7 +13,7 @@ WORKSPACE_DIRS = {
     "code": "code",
     "result": "result",
     "report": "report",
-    "log": "log",
+    "log": "logs",
     "meta": "meta",
     "charts": "charts",
 }
@@ -111,3 +111,15 @@ def write_json(path: str | Path, payload: Any) -> Path:
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return p
+
+
+def artifact_dir(workspace_dir: str | Path, plan_id: str, role: str) -> Path:
+    return ensure_dir(Path(workspace_dir) / "artifacts" / plan_id / role)
+
+
+def copy_artifact(source_path: str | Path, dest_dir: str | Path) -> Path:
+    src = Path(source_path)
+    dest = ensure_dir(dest_dir) / src.name
+    if src.resolve() != dest.resolve():
+        dest.write_bytes(src.read_bytes())
+    return dest

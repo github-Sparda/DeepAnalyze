@@ -33,6 +33,7 @@ async def orchestrated_chat(body: dict = Body(...)):
         )
     session_id = body.get("session_id", "default")
     max_depth = body.get("analysis_depth", MAX_RECURSION_DEPTH)
+    depth_decision = str(body.get("depth_decision", "")).strip().lower()
     try:
         max_depth = int(max_depth)
     except Exception:
@@ -47,6 +48,7 @@ async def orchestrated_chat(body: dict = Body(...)):
             "report_export_mode": body.get("report_export_mode", REPORT_EXPORT_MODE),
             "visual_style": body.get("visual_style", VISUAL_STYLE),
             "visual_interactive": body.get("visual_interactive", VISUAL_INTERACTIVE),
+            "depth_decision": depth_decision,
         },
     )
     return {
@@ -66,4 +68,6 @@ async def orchestrated_chat(body: dict = Body(...)):
                 "finish_reason": "stop",
             }
         ],
+        "depth_prompt": state.get("depth_prompt", ""),
+        "continuation_required": state.get("continuation_required", False),
     }

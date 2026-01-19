@@ -4,7 +4,7 @@ from pathlib import Path
 import uuid
 import platform
 import importlib.metadata
-from typing import Any
+from typing import Any, cast
 
 from API.config import WORKSPACE_BASE_DIR
 
@@ -70,8 +70,12 @@ def run_orchestrated_analysis(
         "config": config,
         "report": latest_report,
         "report_versions": [str(p) for p in existing_reports],
+        "plan_id": "",
+        "depth_prompt": "",
+        "depth_decision": str(config.get("depth_decision", "")).strip().lower(),
+        "artifacts": [],
     }
-
     llm = LLMClient()
     graph = build_graph(llm, config)
-    return graph.invoke(initial)
+    result = graph.invoke(initial)
+    return cast(OrchestrationState, result)
