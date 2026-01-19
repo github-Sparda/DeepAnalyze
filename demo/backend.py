@@ -53,6 +53,7 @@ async def orchestrated_chat(body: dict = Body(...)):
             "depth_decision": depth_decision,
         },
     )
+    depth_prompt = state.get("depth_prompt", "")
     return {
         "id": f"chatcmpl-{session_id}",
         "object": "chat.completion",
@@ -70,7 +71,8 @@ async def orchestrated_chat(body: dict = Body(...)):
                 "finish_reason": "stop",
             }
         ],
-        "depth_prompt": state.get("depth_prompt", ""),
+        "depth_prompt": depth_prompt,
+        "depth_confirmation": depth_prompt,
         "continuation_required": state.get("continuation_required", False),
     }
 

@@ -2459,7 +2459,9 @@ export function ThreePanelInterface() {
             timestamp: new Date(),
           },
         ]);
-        applyDepthResponse(data?.depth_prompt, data?.continuation_required);
+        const depthPromptFromResponse =
+          data?.depth_confirmation ?? data?.depth_prompt;
+        applyDepthResponse(depthPromptFromResponse, data?.continuation_required);
         autoCollapseForContent(content);
         // 若包含 <File> 标签，立即刷新工作区
         if (content.includes("<File>")) {
@@ -2600,8 +2602,17 @@ export function ThreePanelInterface() {
         const { objects, rest } = extractJsonObjects(buffer);
         buffer = rest;
         for (const obj of objects) {
-          if (obj?.depth_prompt || typeof obj?.continuation_required === "boolean") {
-            applyDepthResponse(obj?.depth_prompt, obj?.continuation_required);
+          const depthPromptFromChunk =
+            obj?.depth_confirmation ?? obj?.depth_prompt;
+          const continuationFlag =
+            typeof obj?.continuation_required === "boolean"
+              ? obj.continuation_required
+              : undefined;
+          if (
+            depthPromptFromChunk !== undefined ||
+            continuationFlag !== undefined
+          ) {
+            applyDepthResponse(depthPromptFromChunk, continuationFlag);
           }
           const extracted = obj?.choices?.[0]?.message?.content as
             | string
