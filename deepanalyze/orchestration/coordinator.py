@@ -144,20 +144,3 @@ class CodeExecutionOrchestrator:
         monitor.finalize()
         return recorded
 
-
-class DepthRecursionController:
-    def __init__(self, max_depth: int) -> None:
-        self.max_depth = max_depth
-
-    def should_prompt(self, depth: int) -> bool:
-        return self.max_depth == 0 and depth == 0
-
-    def prompt_message(self) -> str:
-        return (
-            "初次分析已完成。" "\n" "回复 'continue' 以开始更深一层的分析，否则输入 'stop' 结束。"
-        )
-
-    def can_recurse(self, depth: int) -> tuple[bool, bool]:
-        if self.should_prompt(depth):
-            return False, True
-        return depth < self.max_depth, False

@@ -102,28 +102,46 @@ ROLE_TEMPLATES = {
     },
     "planning": {
         "system": "{system}",
-        "user": "{prompt}\n\nSummary:\n{summary}\n\nPlan ID: {plan_id}\n{artifact_context}",
+        "user": (
+            "{prompt}\n\nSummary:\n{summary}\n\nPlan ID: {plan_id}\n{artifact_context}\n"
+            "Telemetry:\n{telemetry_context}"
+        ),
     },
     "hypothesis_planner": {
         "system": "{system}",
-        "user": "{prompt}\n\nSummary:\n{summary}\n\nHistory:\n{history}\n\nPlan ID: {plan_id}\n{artifact_context}",
+        "user": (
+            "{prompt}\n\nSummary:\n{summary}\n\nHistory:\n{history}\n\nPlan ID: {plan_id}\n"
+            "{artifact_context}\nTelemetry:\n{telemetry_context}"
+        ),
     },
     "codegen": {
         "system": "{system}",
-        "user": "{prompt}\n\nPlan:\n{plan}\n\nPlan ID: {plan_id}\n{artifact_context}",
+        "user": (
+            "{prompt}\n\nPlan:\n{plan}\n\nPlan ID: {plan_id}\n{artifact_context}\n"
+            "Telemetry:\n{telemetry_context}"
+        ),
     },
     "analysis": {
         "system": "{system}",
-        "user": "{prompt}\n\nOutputs:\n{outputs}\n\nPlan ID: {plan_id}\n{artifact_context}",
+        "user": (
+            "{prompt}\n\nOutputs:\n{outputs}\n\nPlan ID: {plan_id}\n{artifact_context}\n"
+            "Telemetry:\n{telemetry_context}"
+        ),
     },
     "report_outline": {
         "system": "{system}",
-        "user": "{prompt}\n\nAnalysis:\n{analysis}\n\nPlan ID: {plan_id}\n{artifact_context}",
+        "user": (
+            "{prompt}\n\nAnalysis:\n{analysis}\n\nPlan ID: {plan_id}\n{artifact_context}\n"
+            "Telemetry:\n{telemetry_context}"
+        ),
     },
     "report": {
         "system": "{system}",
-        "user": "{prompt}\n\nLanguage: {language}\nFormat: {format}\nExport mode: {mode}\n"
-        "Outline:\n{outline}\n\nAnalysis:\n{analysis}\n\nPlan ID: {plan_id}\n{artifact_context}",
+        "user": (
+            "{prompt}\n\nLanguage: {language}\nFormat: {format}\nExport mode: {mode}\n"
+            "Outline:\n{outline}\n\nAnalysis:\n{analysis}\n\nPlan ID: {plan_id}\n"
+            "{artifact_context}\nTelemetry:\n{telemetry_context}"
+        ),
     },
 }
 
@@ -148,6 +166,7 @@ def render_role_prompt(role: str, language: str, **kwargs) -> list[dict[str, str
         "plan_id": kwargs.get("plan_id", ""),
         "artifact_context": kwargs.get("artifact_context", ""),
         "history": kwargs.get("history", ""),
+        "telemetry_context": kwargs.get("telemetry_context", ""),
         **kwargs,
     }
     return [

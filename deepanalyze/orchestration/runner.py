@@ -74,6 +74,11 @@ def run_orchestrated_analysis(
         "depth_prompt": "",
         "depth_decision": str(config.get("depth_decision", "")).strip().lower(),
         "artifacts": [],
+        "visualization_plan": [],
+        "execution_retry_requested": False,
+        "execution_retry_count": 0,
+        "execution_retry_exhausted": False,
+        "execution_errors": [],
     }
     llm = LLMClient()
     graph = build_graph(llm, config)

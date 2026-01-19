@@ -21,6 +21,12 @@ class OrchestrationState(TypedDict, total=False):
      analysis_history: list[str]
      data_quality: dict[str, Any]
      data_quality_path: str
+     visualization_plan: list[dict[str, Any]]
+     execution_entries: list[dict[str, Any]]
+     execution_retry_requested: bool
+     execution_retry_count: int
+     execution_retry_exhausted: bool
+     execution_errors: list[dict[str, Any]]
      report_outline: str
      report: str
      report_versions: list[str]

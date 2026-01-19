@@ -33,6 +33,8 @@ from .plan_store import PlanStore, ArtifactRegistry
 from .prompts import get_prompt, get_system, render_role_prompt
 from .agents import HypothesisPlanner
 from .coordinator import CodeExecutionOrchestrator, ExecutionMonitor
+from .recursion import DepthRecursionController
+from .visualization_planner import VisualizationPlanner, load_dataframe
 from deepanalyze.visualization.writer import visualization_writer
 from deepanalyze.reporting.exporter import export_report
 from deepanalyze.reporting.templates import template_from_config
@@ -67,6 +69,19 @@ def _artifact_context(registry: ArtifactRegistry, plan_id: str) -> str:
         path = entry.get("path", "")
         status = entry.get("status", "")
         lines.append(f"- {kind}: {path} ({status})")
+    return "\n".join(lines)
+
+
+def _telemetry_context(state: OrchestrationState) -> str:
+    telemetry = state.get("telemetry", [])
+    if not telemetry:
+        return "Telemetry: none"
+    lines = ["Telemetry summary:"]
+    for entry in telemetry[-5:]:
+        node = entry.get("node", "unknown")
+        status = entry.get("status", "unknown")
+        duration = entry.get("duration_sec", 0)
+        lines.append(f"- {node}: {status} ({duration:.2f}s)")
     return "\n".join(lines)
 
 
@@ -106,7 +121,7 @@ def _run_node(name: str, func, config: dict[str, Any]):
             )
         return output
 
-    return wrapper
+        return wrapper
 
 
 def build_graph(llm: LLMClient, config: dict[str, Any]):
@@ -151,10 +166,12 @@ def build_graph(llm: LLMClient, config: dict[str, Any]):
                 results["datasets"].append(
                     {
                         "file": path.name,
+                        "path": str(path),
                         "rows": int(df.shape[0]),
                         "cols": int(df.shape[1]),
                         "missing_rate": missing,
                         "stats": stats,
+                        "dtypes": df.dtypes.apply(str).to_dict(),
                     }
                 )
             except Exception as exc:
@@ -164,12 +181,37 @@ def build_graph(llm: LLMClient, config: dict[str, Any]):
         record_artifact(workspace_dir, quality_path, "result", "data_quality")
         return {"data_quality": results, "data_quality_path": str(quality_path)}
 
+    def plan_visualizations(state: OrchestrationState) -> OrchestrationState:
+        data_quality = state.get("data_quality", {})
+        datasets = data_quality.get("datasets", [])
+        if not datasets:
+            return {"visualization_plan": []}
+        workspace_dir = Path(state.get("workspace_dir", ""))
+        planner = VisualizationPlanner(
+            workspace_dir, max_items=int(config.get("visualization_max_items", 6))
+        )
+        instructions = planner.plan(datasets)
+        plan_path = workspace_dir / "plan" / "visualization_plan.json"
+        write_json(plan_path, instructions)
+        record_artifact(workspace_dir, plan_path, "plan", "plan_visualizations")
+        return {"visualization_plan": instructions}
+
     def plan_analysis(state: OrchestrationState) -> OrchestrationState:
         summary = state.get("file_summary", "")
         language = state.get("config", {}).get("report_language", "zh")
         plan_store = PlanStore(Path(state.get("workspace_dir", "")))
         planner = HypothesisPlanner(llm, language)
-        plan = planner.plan(summary, state.get("analysis_history", []))
+        plan_id_hint = state.get("plan_id", "")
+        artifact_registry = ArtifactRegistry(Path(state.get("workspace_dir", "")))
+        artifact_context = _artifact_context(artifact_registry, plan_id_hint) if plan_id_hint else ""
+        telemetry_context = _telemetry_context(state)
+        plan = planner.plan(
+            summary,
+            state.get("analysis_history", []),
+            plan_id=plan_id_hint,
+            artifact_context=artifact_context,
+            telemetry_context=telemetry_context,
+        )
         plan_path = Path(state.get("workspace_dir", "")) / "plan" / "analysis_plan.md"
         write_text(plan_path, plan)
         record_artifact(state.get("workspace_dir", ""), plan_path, "plan", "plan_analysis")
@@ -196,6 +238,7 @@ def build_graph(llm: LLMClient, config: dict[str, Any]):
         if not hypotheses:
             hypotheses = _extract_hypotheses(plan)
         cleaned_hypotheses = [str(item) for item in hypotheses if item]
+        state["execution_retry_requested"] = False
         plan_id, _ = plan_store.save_plan(plan, plan_json, cleaned_hypotheses)
         artifact_registry = ArtifactRegistry(Path(state.get("workspace_dir", "")))
         artifact_plan_dir = artifact_dir(state.get("workspace_dir", ""), plan_id, "plan")
@@ -208,6 +251,10 @@ def build_graph(llm: LLMClient, config: dict[str, Any]):
         if data_quality_path:
             copied = copy_artifact(data_quality_path, artifact_dir(state.get("workspace_dir", ""), plan_id, "data"))
             artifact_registry.register(plan_id, "data", copied, {"phase": "data_quality"})
+        viz_plan_path = Path(state.get("workspace_dir", "")) / "plan" / "visualization_plan.json"
+        if viz_plan_path.exists():
+            viz_copied = copy_artifact(viz_plan_path, artifact_dir(state.get("workspace_dir", ""), plan_id, "plan"))
+            artifact_registry.register(plan_id, "plan", viz_copied, {"phase": "visualization_plan"})
         return {"plan": plan, "plan_json": plan_json, "hypotheses": cleaned_hypotheses, "plan_id": plan_id}
 
     def parallel_generation(state: OrchestrationState) -> OrchestrationState:
@@ -218,6 +265,8 @@ def build_graph(llm: LLMClient, config: dict[str, Any]):
         retries = int(config.get("execution_max_retries", EXECUTION_MAX_RETRIES))
         workspace_dir = Path(state.get("workspace_dir", ""))
         artifact_registry = ArtifactRegistry(workspace_dir)
+        telemetry_context = _telemetry_context(state)
+        artifact_context = _artifact_context(artifact_registry, plan_id) if plan_id else ""
 
         steps: list[dict[str, Any]] = []
         hypotheses = plan_json.get("hypotheses", []) if isinstance(plan_json, dict) else []
@@ -234,7 +283,6 @@ def build_graph(llm: LLMClient, config: dict[str, Any]):
 
         def _generate(step: dict[str, Any]) -> dict[str, Any]:
             prompt = get_prompt("codegen", language)
-            artifact_context = _artifact_context(artifact_registry, plan_id) if plan_id else ""
             messages = render_role_prompt(
                 "codegen",
                 language,
@@ -242,6 +290,7 @@ def build_graph(llm: LLMClient, config: dict[str, Any]):
                 plan=step["description"],
                 plan_id=plan_id,
                 artifact_context=artifact_context,
+                telemetry_context=telemetry_context,
             )
             if not messages:
                 messages = [
@@ -275,6 +324,7 @@ def build_graph(llm: LLMClient, config: dict[str, Any]):
 
         monitor = ExecutionMonitor(workspace_dir, plan_id)
         exec_results = orchestrator.execute(recorded, CODE_EXECUTION_TIMEOUT, monitor, retries)
+        execution_entries = list(monitor.entries)
         legacy_results_dir = ensure_dir(workspace_dir / "result")
         write_json(legacy_results_dir / "exec_results.json", exec_results)
         record_artifact(workspace_dir, legacy_results_dir / "exec_results.json", "result", "parallel_generation")
@@ -282,7 +332,40 @@ def build_graph(llm: LLMClient, config: dict[str, Any]):
             exec_path = artifact_dir(workspace_dir, plan_id, "result") / "exec_results.json"
             write_json(exec_path, exec_results)
             artifact_registry.register(plan_id, "result", exec_path, {"phase": "parallel_generation"})
-        return {"code_steps": recorded, "exec_results": exec_results}
+        return {
+            "code_steps": recorded,
+            "exec_results": exec_results,
+            "execution_entries": execution_entries,
+        }
+
+    def execution_guard(state: OrchestrationState) -> OrchestrationState:
+        exec_results = state.get("exec_results", [])
+        retry_count = int(state.get("execution_retry_count", 0))
+        failures: list[dict[str, Any]] = []
+        for result in exec_results:
+            statuses = result.get("statuses", [])
+            if statuses and statuses[-1] == "error":
+                failures.append(
+                    {
+                        "step": result.get("step"),
+                        "output": result.get("output"),
+                        "statuses": statuses,
+                    }
+                )
+        max_retries = int(config.get("execution_failure_max_retries", 1))
+        next_retry = retry_count
+        requested = False
+        exhausted = False
+        if failures:
+            next_retry += 1
+            requested = next_retry <= max_retries
+            exhausted = next_retry > max_retries
+        return {
+            "execution_retry_requested": requested,
+            "execution_retry_count": next_retry,
+            "execution_retry_exhausted": exhausted,
+            "execution_errors": failures,
+        }
 
     def analyze_results(state: OrchestrationState) -> OrchestrationState:
         outputs = state.get("exec_results", [])
@@ -294,6 +377,7 @@ def build_graph(llm: LLMClient, config: dict[str, Any]):
         artifact_registry = ArtifactRegistry(Path(state.get("workspace_dir", "")))
         artifact_context = _artifact_context(artifact_registry, plan_id) if plan_id else ""
         prompt = get_prompt("analysis", language)
+        telemetry_context = _telemetry_context(state)
         messages = render_role_prompt(
             "analysis",
             language,
@@ -303,6 +387,7 @@ def build_graph(llm: LLMClient, config: dict[str, Any]):
             ),
             plan_id=plan_id,
             artifact_context=artifact_context,
+            telemetry_context=telemetry_context,
         )
         if not messages:
             messages = [
@@ -329,40 +414,94 @@ def build_graph(llm: LLMClient, config: dict[str, Any]):
 
     def generate_visualizations(state: OrchestrationState) -> OrchestrationState:
         plan_id = state.get("plan_id", "")
-        if not plan_id:
-            return {}
-        data_quality = state.get("data_quality", {})
-        datasets = data_quality.get("datasets", []) if isinstance(data_quality, dict) else []
-        if not datasets:
-            return {}
-        missing_rate = datasets[0].get("missing_rate", {})
-        if not missing_rate:
+        instructions = state.get("visualization_plan", []) or []
+        if not (plan_id and instructions):
             return {}
         visual_style = state.get("config", {}).get("visual_style", "academic")
         workspace_dir = Path(state.get("workspace_dir", ""))
         artifact_registry = ArtifactRegistry(workspace_dir)
+        rendered: list[dict[str, Any]] = []
 
-        import matplotlib.pyplot as plt
+        def _build_figure(instruction: dict[str, Any]) -> Any:
+            dataset_path = instruction.get("dataset_path")
+            if not dataset_path:
+                return None
+            df = load_dataframe(Path(dataset_path))
+            if df is None or df.empty:
+                return None
+            import matplotlib.pyplot as plt
 
-        columns = list(missing_rate.keys())
-        rates = [missing_rate[col] for col in columns]
-        fig, ax = plt.subplots(figsize=(8, 4))
-        ax.bar(columns, rates, color="#4C78A8")
-        ax.set_title("Missing Rate by Column")
-        ax.set_ylabel("Missing Rate")
-        ax.tick_params(axis="x", rotation=45)
-        fig.tight_layout()
-        entries = visualization_writer(
-            fig,
-            workspace_dir=workspace_dir,
-            plan_id=plan_id,
-            style=visual_style,
-            name="missing_rate",
-            registry=artifact_registry,
-            metadata={"source": "data_quality"},
-        )
-        plt.close(fig)
-        return {"visualizations": entries}
+            fig, ax = plt.subplots(figsize=(8, 4))
+            viz_type = instruction.get("type", "distribution")
+            columns = instruction.get("columns") or []
+            if viz_type == "distribution" and columns:
+                column = columns[0]
+                ax.hist(df[column].dropna(), bins=24, color="#4C78A8")
+                ax.set_title(f"Distribution of {column}")
+            elif viz_type == "correlation" and columns:
+                subset = df[columns].select_dtypes(include="number")
+                corr = subset.corr()
+                im = ax.imshow(corr, cmap="RdYlBu", vmin=-1, vmax=1)
+                fig.colorbar(im, ax=ax)
+                ax.set_xticks(range(len(corr.columns)))
+                ax.set_xticklabels(corr.columns, rotation=45, ha="right")
+                ax.set_yticks(range(len(corr.columns)))
+                ax.set_yticklabels(corr.columns)
+                ax.set_title("Correlation matrix")
+            elif viz_type == "trend" and len(columns) >= 2:
+                x_col, y_col = columns[:2]
+                ax.plot(df[x_col], df[y_col], marker="o")
+                ax.set_title(f"{y_col} over {x_col}")
+                ax.set_xlabel(x_col)
+                ax.set_ylabel(y_col)
+            elif viz_type == "comparison" and len(columns) >= 2:
+                cat, num = columns[:2]
+                grouped = (
+                    df.groupby(cat)[num]
+                    .mean()
+                    .sort_values(ascending=False)
+                    .head(10)
+                )
+                grouped.plot(kind="bar", ax=ax, color="#4C78A8")
+                ax.set_title(f"{num} by {cat}")
+                ax.set_xlabel(cat)
+                ax.set_ylabel(num)
+            elif viz_type == "table" and columns:
+                table_df = df[columns].head(5)
+                ax.axis("off")
+                table = ax.table(
+                    cellText=table_df.values,
+                    colLabels=table_df.columns,
+                    loc="center",
+                )
+                table.auto_set_font_size(False)
+                table.set_fontsize(8)
+                ax.set_title("Sample rows")
+            else:
+                ax.text(0.5, 0.5, "Visualization not available", ha="center", va="center")
+                ax.axis("off")
+            fig.tight_layout()
+            return fig
+
+        for idx, instruction in enumerate(instructions):
+            fig = _build_figure(instruction)
+            if fig is None:
+                continue
+            name = instruction.get("name") or f"{instruction.get('type', 'visual')}_{idx+1}"
+            entries = visualization_writer(
+                fig,
+                workspace_dir=workspace_dir,
+                plan_id=plan_id,
+                style=visual_style,
+                name=name,
+                registry=artifact_registry,
+                metadata=instruction,
+            )
+            rendered.extend(entries)
+            import matplotlib.pyplot as plt
+
+            plt.close(fig)
+        return {"visualizations": rendered}
 
     def refine_hypotheses(state: OrchestrationState) -> OrchestrationState:
         analysis = state.get("analysis_results", "")
@@ -371,11 +510,15 @@ def build_graph(llm: LLMClient, config: dict[str, Any]):
         plan_id = state.get("plan_id", "")
         artifact_registry = ArtifactRegistry(Path(state.get("workspace_dir", "")))
         artifact_context = _artifact_context(artifact_registry, plan_id) if plan_id else ""
+        telemetry_context = _telemetry_context(state)
         messages = [
             {"role": "system", "content": get_system(language)},
             {
                 "role": "user",
-                "content": f"{prompt}\n\nAnalysis:\n{analysis}\n\nPlan ID: {plan_id}\n{artifact_context}",
+                "content": (
+                    f"{prompt}\n\nAnalysis:\n{analysis}\n\nPlan ID: {plan_id}\n"
+                    f"{artifact_context}\nTelemetry:\n{telemetry_context}"
+                ),
             },
         ]
         raw = llm.chat(messages, max_tokens=1024)
@@ -389,16 +532,17 @@ def build_graph(llm: LLMClient, config: dict[str, Any]):
         max_depth = int(state.get("max_depth", 0))
         depth = int(state.get("depth", 1))
         depth_decision = str(state.get("depth_decision", "")).strip().lower()
-        depth_prompt = ""
-        if max_depth == 0:
-            if depth_decision == "continue":
-                return {"should_recurse": True, "continuation_required": False, "depth_prompt": ""}
-            if depth_decision == "stop":
-                return {"should_recurse": False, "continuation_required": False, "depth_prompt": ""}
-            depth_prompt = "初次分析已完成。\n回复 'continue' 以开始更深一层的分析，否则输入 'stop' 结束。"
-            return {"should_recurse": False, "continuation_required": True, "depth_prompt": depth_prompt}
-        should_recurse = depth < max_depth
-        return {"should_recurse": should_recurse, "continuation_required": False, "depth_prompt": depth_prompt}
+        controller = DepthRecursionController(
+            max_depth,
+            retry_limit=int(config.get("execution_failure_max_retries", 1)),
+        )
+        return controller.evaluate(
+            depth,
+            state.get("followup_hypotheses", []),
+            state.get("execution_retry_requested", False),
+            state.get("execution_retry_exhausted", False),
+            depth_decision,
+        )
 
     def advance_depth(state: OrchestrationState) -> OrchestrationState:
         depth = int(state.get("depth", 1))
@@ -416,6 +560,7 @@ def build_graph(llm: LLMClient, config: dict[str, Any]):
         plan_summary = plan_text or json.dumps(plan_json, ensure_ascii=False)
         artifact_context = _artifact_context(artifact_registry, plan_id) if plan_id else ""
         prompt = get_prompt("report_outline", language)
+        telemetry_context = _telemetry_context(state)
         messages = render_role_prompt(
             "report_outline",
             language,
@@ -423,6 +568,7 @@ def build_graph(llm: LLMClient, config: dict[str, Any]):
             analysis=f"{analysis}\n\nPlan Summary:\n{plan_summary}",
             plan_id=plan_id,
             artifact_context=artifact_context,
+            telemetry_context=telemetry_context,
         )
         if not messages:
             messages = [
@@ -452,6 +598,7 @@ def build_graph(llm: LLMClient, config: dict[str, Any]):
         plan_id = state.get("plan_id", "")
         artifact_registry = ArtifactRegistry(Path(state.get("workspace_dir", "")))
         artifact_context = _artifact_context(artifact_registry, plan_id) if plan_id else ""
+        telemetry_context = _telemetry_context(state)
         messages = render_role_prompt(
             "report",
             language,
@@ -463,6 +610,7 @@ def build_graph(llm: LLMClient, config: dict[str, Any]):
             analysis=f"{analysis}\n\nPrevious report:\n{previous_report}",
             plan_id=plan_id,
             artifact_context=artifact_context,
+            telemetry_context=telemetry_context,
         )
         if not messages:
             messages = [
@@ -512,8 +660,10 @@ def build_graph(llm: LLMClient, config: dict[str, Any]):
 
     graph.add_node("understand_files", _run_node("understand_files", understand_files, config))
     graph.add_node("data_quality", _run_node("data_quality", data_quality, config))
+    graph.add_node("plan_visualizations", _run_node("plan_visualizations", plan_visualizations, config))
     graph.add_node("plan_analysis", _run_node("plan_analysis", plan_analysis, config))
     graph.add_node("parallel_generation", _run_node("parallel_generation", parallel_generation, config))
+    graph.add_node("execution_guard", _run_node("execution_guard", execution_guard, config))
     graph.add_node("analyze_results", _run_node("analyze_results", analyze_results, config))
     graph.add_node("generate_visualizations", _run_node("generate_visualizations", generate_visualizations, config))
     graph.add_node("refine_hypotheses", _run_node("refine_hypotheses", refine_hypotheses, config))
@@ -525,9 +675,15 @@ def build_graph(llm: LLMClient, config: dict[str, Any]):
 
     graph.set_entry_point("understand_files")
     graph.add_edge("understand_files", "data_quality")
-    graph.add_edge("data_quality", "plan_analysis")
+    graph.add_edge("data_quality", "plan_visualizations")
+    graph.add_edge("plan_visualizations", "plan_analysis")
     graph.add_edge("plan_analysis", "parallel_generation")
-    graph.add_edge("parallel_generation", "analyze_results")
+    graph.add_edge("parallel_generation", "execution_guard")
+    graph.add_conditional_edges(
+        "execution_guard",
+        lambda s: "retry" if s.get("execution_retry_requested") else "continue",
+        {"retry": "plan_analysis", "continue": "analyze_results"},
+    )
     graph.add_edge("analyze_results", "generate_visualizations")
     graph.add_edge("generate_visualizations", "refine_hypotheses")
     graph.add_edge("refine_hypotheses", "decide_recurse")

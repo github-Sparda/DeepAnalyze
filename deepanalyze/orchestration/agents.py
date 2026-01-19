@@ -16,6 +16,7 @@ class HypothesisPlanner:
         history: list[str] | None = None,
         plan_id: str | None = None,
         artifact_context: str | None = None,
+        telemetry_context: str | None = None,
     ) -> str:
         history_text = "\n".join(history or []) or "N/A"
         messages = render_role_prompt(
@@ -26,6 +27,7 @@ class HypothesisPlanner:
             history=history_text,
             plan_id=plan_id or "",
             artifact_context=artifact_context or "",
+            telemetry_context=telemetry_context or "",
         )
         if not messages:
             system = get_system(self.language)
@@ -34,7 +36,10 @@ class HypothesisPlanner:
                 {"role": "system", "content": system},
                 {
                     "role": "user",
-                    "content": f"{prompt}\n\nSummary:\n{summary}\n\nHistory:\n{history_text}",
+                    "content": (
+                        f"{prompt}\n\nSummary:\n{summary}\n\nHistory:\n{history_text}\n\n"
+                        f"Telemetry:\n{telemetry_context or 'N/A'}"
+                    ),
                 },
             ]
         return self.llm.chat(messages, max_tokens=4096)
