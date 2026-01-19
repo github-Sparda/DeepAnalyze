@@ -318,7 +318,7 @@ export function ThreePanelInterface() {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: "welcome-1",
-      content: "Hello! I'm DeepAnalyze-8B, your autonomous data science assistant. Upload your data and let's explore it together!",
+      content: "Hello! I'm DeepAnalyze, your autonomous data science assistant. Upload your data and let's explore it together!",
       sender: "ai",
       timestamp: new Date(),
       localOnly: true,
@@ -505,7 +505,7 @@ export function ThreePanelInterface() {
     }
     const welcome: Message = {
       id: `welcome-${Date.now()}`,
-      content: "Hello! I'm DeepAnalyze-8B, your autonomous data science assistant. Upload your data and let's explore it together!",
+      content: "Hello! I'm DeepAnalyze, your autonomous data science assistant. Upload your data and let's explore it together!",
       sender: "ai",
       timestamp: new Date(),
       localOnly: true,

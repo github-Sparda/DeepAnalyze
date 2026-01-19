@@ -6,7 +6,7 @@ A command-line interface for DeepAnalyze, powered by the Rich library. Provides 
 
 ### Prerequisites
 
-Please ensure that the vLLM service is running on the port configured in `API/config.py` (default `48000`) with the DeepAnalyze-8B model loaded.
+Please ensure that an OpenAI-compatible LLM endpoint is configured in `API/config.py` or `.env` before starting the CLI.
 
 1. **Start the DeepAnalyze API Server**:
    ```bash
@@ -17,13 +17,9 @@ Please ensure that the vLLM service is running on the port configured in `API/co
 2. **Launch the CLI**: 
    
    ```bash
-   
-   ```
-# In another terminal
-
+   # In another terminal
    # English version
-python api_cli.py
-
+   python api_cli.py
    # Chinese version
    python api_cli_ZH.py
    ```
@@ -73,7 +69,3 @@ The CLI automatically streams responses, showing real-time progress as DeepAnaly
 The CLI connects to the DeepAnalyze API server at `http://localhost:48200/v1` by default. You can change this in `API/config.py` (see `API_PUBLIC_BASE_V1`).
 
 Command history is saved to `~/.deeppanalyze_history_en` (English) or `~/.deeppanalyze_history_zh` (Chinese).
-
-
-
-```

@@ -10,11 +10,11 @@ from deepanalyze import DeepAnalyzeVLLM
 # Global configuration
 WORKING_DIR = "Absolute path_to_DSBench/data_modeling/"
 SAVE_PATH = "./output_model/"
-MODEL = "DeepAnalyze-8B"
+MODEL = "your-model-id"
 TASK_PROMPT = "Save the final results as 'submission.csv'."
 
 # Initialize the agent
-agent = DeepAnalyzeVLLM("path_to_DeepAnalyze-8B")
+agent = DeepAnalyzeVLLM("path_to_your-model-id")
 
 
 # Timeout context manager

@@ -68,7 +68,7 @@ print(f"File uploaded: {file_obj.id}")
 
 ```python
 response = requests.post('http://localhost:48200/v1/chat/completions', json={
-    "model": "DeepAnalyze-8B",
+    "model": "default",
     "messages": [
         {"role": "user", "content": "Introduce Python programming language in one sentence"}
     ],
@@ -83,7 +83,7 @@ print(content)
 
 ```python
 response = client.chat.completions.create(
-    model="DeepAnalyze-8B",
+    model="default",
     messages=[
         {"role": "user", "content": "Introduce Python programming language in one sentence"}
     ],
@@ -98,7 +98,7 @@ print(response.choices[0].message.content)
 **Requests Example:**
 ```python
 response = requests.post('http://localhost:48200/v1/chat/completions', json={
-    "model": "DeepAnalyze-8B",
+    "model": "default",
     "messages": [
         {
             "role": "user",
@@ -121,7 +121,7 @@ for file_info in files:
 **OpenAI Library Example:**
 ```python
 response = client.chat.completions.create(
-    model="DeepAnalyze-8B",
+    model="default",
     messages=[
         {
             "role": "user",
@@ -147,7 +147,7 @@ if hasattr(message, 'files') and message.files:
 
 ```python
 response = requests.post('http://localhost:48200/v1/chat/completions', json={
-    "model": "DeepAnalyze-8B",
+    "model": "default",
     "messages": [
         {
             "role": "user",
@@ -175,7 +175,7 @@ for line in response.iter_lines():
 **OpenAI Library Example:**
 ```python
 stream = client.chat.completions.create(
-    model="DeepAnalyze-8B",
+    model="default",
     messages=[
         {
             "role": "user",
@@ -279,7 +279,7 @@ Extended chat completion with file support.
 **Request:**
 ```json
 {
-  "model": "DeepAnalyze-8B",
+  "model": "default",
   "messages": [
     {
       "role": "user",
@@ -299,7 +299,7 @@ Extended chat completion with file support.
   "id": "chatcmpl-xyz789...",
   "object": "chat.completion",
   "created": 1704067200,
-  "model": "DeepAnalyze-8B",
+  "model": "default",
   "choices": [
     {
       "index": 0,
@@ -366,7 +366,7 @@ GET /health
 
 ```python
 # API Configuration
-MODEL_PATH = "DeepAnalyze-8B"          # Model name
+MODEL_PATH = "your-model-id"    # Model name
 WORKSPACE_BASE_DIR = "workspace"       # File storage
 HTTP_SERVER_PORT = 48100              # File server port
 

@@ -1,7 +1,7 @@
 export CUDA_VISIBLE_DEVICES=0
 
-MODEL_PATH="path_to_DeepAnalyze-8B"
-MODEL_NAME="DeepAnalyze-8B"
+MODEL_PATH="path_to_your-model-id"
+MODEL_NAME="your-model-id"
 
 EVAL_MODEL_PATH="model path or name"  # Evaluation model path (for LLM evaluation)
 # TASK_NAME="tablebench"  # Task name, e.g., tatqa, wikitq

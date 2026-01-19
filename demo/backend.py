@@ -696,11 +696,11 @@ def bot_stream(messages, workspace, session_id="default"):
     # print(messages)
     if messages and messages[0]["role"] == "assistant":
         messages = messages[1:]
-    # 注入系统提示：要求模型遵循 DeepAnalyze-8B 的标签协议
+    # 注入系统提示：要求模型遵循统一标签协议
     system_prompt = os.getenv(
         "DEEPANALYZE_SYSTEM_PROMPT",
         (
-            "You are DeepAnalyze-8B. Follow this strict format:\n"
+            "You are DeepAnalyze. Follow this strict format:\n"
             "- If you need to execute code, respond with <Code>...</Code> and then continue to <Answer>...</Answer>.\n"
             "- If no code is needed, respond directly in <Answer>...</Answer> only.\n"
             "- Never omit <Answer>. Never output anything outside these tags.\n"
@@ -918,14 +918,20 @@ async def chat(body: dict = Body(...)):
     def generate():
         if USE_ORCHESTRATOR:
             max_depth = body.get("analysis_depth", MAX_RECURSION_DEPTH)
+            messages = body.get("messages", [])
+            last_user = ""
+            if messages and isinstance(messages[-1], dict):
+                last_user = str(messages[-1].get("content", "")).strip().lower()
+            if last_user in {"continue", "继续", "继续分析"}:
+                max_depth = 1
             try:
                 max_depth = int(max_depth)
             except Exception:
                 max_depth = MAX_RECURSION_DEPTH
             if max_depth > 3:
                 max_depth = 3
-            if max_depth < 1:
-                max_depth = 1
+            if max_depth < 0:
+                max_depth = 0
 
             state = run_orchestrated_analysis(
                 session_id=session_id,
@@ -948,6 +954,13 @@ async def chat(body: dict = Body(...)):
                 or state.get("plan")
                 or ""
             )
+            if state.get("continuation_required") and state.get("followup_hypotheses"):
+                followups = "\n".join(f"- {h}" for h in state.get("followup_hypotheses", []))
+                content += (
+                    "\n\n[Follow-up Hypotheses]\n"
+                    f"{followups}\n\n"
+                    "Reply with 'continue' to run one more analysis round."
+                )
             result = {
                 "id": "chatcmpl-123",
                 "object": "chat.completion",
@@ -972,7 +985,7 @@ async def chat(body: dict = Body(...)):
                 "id": "chatcmpl-123",
                 "object": "chat.completion",
                 "created": 1677652288,
-                "model": "deepanalyze-8b",
+                "model": MODEL_PATH,
                 "choices": [
                     {
                         "index": 0,

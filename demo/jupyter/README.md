@@ -4,14 +4,14 @@
 
 ## Project Introduction
 
-The DeepAnalyze Jupyter Frontend is a Jupyter Notebook interface implementation for the DeepAnalyze data science agent. This project provides an interactive environment that allows users to interact with the DeepAnalyze model through the familiar Jupyter Notebook interface, enabling complete data science workflows including data preparation, analysis, modeling, visualization, and report generation.
+The DeepAnalyze Jupyter Frontend is a Jupyter Notebook interface for the DeepAnalyze data science agent. It provides an interactive environment that connects to an OpenAI-compatible LLM service, enabling data preparation, analysis, modeling, visualization, and report generation.
 
 ## Quick Start
 
 ### Requirements
 - uv (Unified management of Python runtime and dependencies)
 - Node.js (For running Jupyter MCP server)
-- OpenAI-compatible API server (e.g., vLLM deployed DeepAnalyze-8B)
+- OpenAI-compatible API server (configured in `.env`)
 
 ### Installation Steps
 
@@ -58,7 +58,7 @@ uv run CLI.py
 
 After running `uv run CLI.py`, a `workspace` directory will be created under the `jupyter` directory as the Jupyter working directory, and `deep_analyze.ipynb` will be created as the analysis file. You can upload the required datasets in Jupyter Lab (or directly copy them to the `workspace` directory).
 
-Enter the following commands in the terminal to start interacting with the DeepAnalyze model:
+Enter the following commands in the terminal to start interacting with the DeepAnalyze agent:
 ```
 >>> Analyze this dataset and generate visualization charts
 >>> Perform regression analysis on this data and explain the results

@@ -2,30 +2,35 @@
 
 ## Input
 ```python
-from deepanalyze import DeepAnalyzeVLLM
+import os
+import requests
 
-prompt = """# Instruction
-Generate a data science report.
+API_BASE = "http://localhost:48200/v1"
+DATA_DIR = "example/analysis_on_student_loan/data"
 
-# Data
-File 1: {"name": "bool.xlsx", "size": "4.8KB"}
-File 2: {"name": "person.csv", "size": "10.6KB"}
-File 3: {"name": "disabled.xlsx", "size": "5.6KB"}
-File 4: {"name": "enlist.csv", "size": "6.7KB"}
-File 5: {"name": "filed_for_bankrupcy.csv", "size": "1.0KB"}
-File 6: {"name": "longest_absense_from_school.xlsx", "size": "16.0KB"}
-File 7: {"name": "male.xlsx", "size": "8.8KB"}
-File 8: {"name": "no_payment_due.xlsx", "size": "15.6KB"}
-File 9: {"name": "unemployed.xlsx", "size": "5.6KB"}
-File 10: {"name": "enrolled.csv", "size": "20.4KB"}"""
+# 1) Upload files
+file_ids = []
+for filename in sorted(os.listdir(DATA_DIR)):
+    path = os.path.join(DATA_DIR, filename)
+    if not os.path.isfile(path):
+        continue
+    with open(path, "rb") as f:
+        resp = requests.post(f"{API_BASE}/files", files={"file": (filename, f)})
+    file_ids.append(resp.json()["id"])
 
-workspace = "example/analysis_on_student_loan/data"
-
-deepanalyze = DeepAnalyzeVLLM(
-    "DeepAnalyze-88"
-)
-answer = deepanalyze.generate(prompt, workspace=workspace)
-print(answer["reasoning"])
+# 2) Send analysis request
+payload = {
+    "model": "default",
+    "messages": [
+        {
+            "role": "user",
+            "content": "生成一份数据分析报告。",
+            "file_ids": file_ids,
+        }
+    ],
+}
+resp = requests.post(f"{API_BASE}/chat/completions", json=payload)
+print(resp.json()["choices"][0]["message"]["content"])
 ```
 
 ## DeepAnalyze's Output

@@ -57,7 +57,7 @@ async def list_models():
         "object": "list",
         "data": [
             {
-                "id": "DeepAnalyze-8B",
+                "id": "default",
                 "object": "model",
                 "created": int(time.time()),
                 "owned_by": "deepanalyze"

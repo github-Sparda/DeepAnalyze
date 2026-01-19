@@ -18,7 +18,7 @@ if str(API_DIR) not in sys.path:
 from config import API_PUBLIC_BASE, VLLM_BASE_URL_NO_V1
 
 API_BASE = API_PUBLIC_BASE
-MODEL = "DeepAnalyze-8B"
+MODEL = "default"
 
 
 def simple_chat():

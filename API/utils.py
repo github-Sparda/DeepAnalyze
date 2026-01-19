@@ -20,7 +20,12 @@ from datetime import datetime
 from typing import List, Optional, Dict, Any, Tuple
 from functools import partial
 
-from config import WORKSPACE_BASE_DIR, HTTP_SERVER_BASE, HTTP_SERVER_PORT
+from config import (
+    WORKSPACE_BASE_DIR,
+    HTTP_SERVER_BASE,
+    HTTP_SERVER_PORT,
+    ALLOW_ABSOLUTE_IO,
+)
 
 
 def get_thread_workspace(thread_id: str) -> str:
@@ -93,7 +98,7 @@ def prepare_vllm_messages(
     workspace_dir: str,
 ) -> List[Dict[str, str]]:
     """
-    Convert incoming messages to vLLM format and inject DeepAnalyze template:
+    Convert incoming messages to LLM format and inject DeepAnalyze template:
     - Always wrap user message with "# Instruction" heading
     - Optionally append workspace file info under "# Data"
     """
@@ -127,12 +132,28 @@ def prepare_vllm_messages(
     return vllm_messages
 
 
+def _detect_disallowed_io(code_str: str) -> bool:
+    if ALLOW_ABSOLUTE_IO:
+        return False
+    patterns = [
+        r'open\\s*\\(\\s*[\\\'\\"]/',
+        r'Path\\s*\\(\\s*[\\\'\\"]/',
+        r'pathlib\\.Path\\s*\\(\\s*[\\\'\\"]/',
+    ]
+    for pattern in patterns:
+        if re.search(pattern, code_str):
+            return True
+    return False
+
+
 def execute_code_safe(
     code_str: str, workspace_dir: str, timeout_sec: int = 120
 ) -> str:
     """Execute Python code in a separate process with timeout"""
     exec_cwd = os.path.abspath(workspace_dir)
     os.makedirs(exec_cwd, exist_ok=True)
+    if _detect_disallowed_io(code_str):
+        return "[Error]: blocked file IO outside workspace"
     tmp_path = None
     try:
         fd, tmp_path = tempfile.mkstemp(suffix=".py", dir=exec_cwd)
@@ -455,3 +476,30 @@ def start_http_server():
         httpd.allow_reuse_address = True
         print(f"HTTP Server serving {WORKSPACE_BASE_DIR} at port {HTTP_SERVER_PORT}")
         httpd.serve_forever()
+
+
+def build_artifact_list(workspace_dir: str, thread_id: str) -> List[Dict[str, Any]]:
+    manifest_path = Path(workspace_dir) / "manifest.json"
+    if not manifest_path.exists():
+        return []
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    artifacts: List[Dict[str, Any]] = []
+    for entry in manifest:
+        path = Path(entry.get("path", ""))
+        try:
+            rel = path.resolve().relative_to(Path(workspace_dir).resolve()).as_posix()
+        except Exception:
+            rel = path.name
+        artifacts.append(
+            {
+                "name": path.name,
+                "kind": entry.get("kind"),
+                "source": entry.get("source"),
+                "url": build_download_url(thread_id, rel),
+                "timestamp": entry.get("timestamp"),
+            }
+        )
+    return artifacts

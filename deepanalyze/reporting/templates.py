@@ -9,6 +9,8 @@ from API.config import (
     REPORT_TEMPLATE_SUBTITLE,
     REPORT_TEMPLATE_TITLE,
     REPORT_TEMPLATE_TOC,
+    REPORT_FONT_EN,
+    REPORT_FONT_ZH,
 )
 
 
@@ -26,7 +28,8 @@ class ReportTemplate:
 DEFAULT_TEMPLATE = ReportTemplate()
 
 
-def template_from_config() -> ReportTemplate:
+def template_from_config(language: str | None = None) -> ReportTemplate:
+    font_family = REPORT_FONT_ZH if language == "zh" else REPORT_FONT_EN
     return ReportTemplate(
         title=REPORT_TEMPLATE_TITLE,
         subtitle=REPORT_TEMPLATE_SUBTITLE,
@@ -34,4 +37,5 @@ def template_from_config() -> ReportTemplate:
         include_toc=REPORT_TEMPLATE_TOC,
         logo_url=REPORT_TEMPLATE_LOGO or None,
         footer=REPORT_TEMPLATE_FOOTER,
+        font_family=font_family,
     )

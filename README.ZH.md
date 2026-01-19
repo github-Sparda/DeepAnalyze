@@ -8,7 +8,10 @@ DeepAnalyze 是面向数据科学任务的智能分析系统，能够在尽量�
 - **多数据源支持**：CSV/Excel/JSON/YAML/XML/TXT/Markdown 等
 - **多交互方式**：Web UI / Jupyter UI / CLI / OpenAI 风格 API
 - **文件上传与生成结果**：自动产出图表、报告文件并支持下载
-- **开源与可扩展**：模型、代码、训练数据均可扩展
+- **开源与可扩展**：模型、代码、数据资源均可扩展
+- **多智能体编排**：通过 LangGraph 实现规划 → 代码 → 执行 → 分析 → 报告的显式流程
+- **报告多格式**：支持 HTML/Markdown/PDF/DOCX 输出与模板配置
+- **图表双风格**：学术风 / 仪表盘风，优先 Plotly/Seaborn，必要时 Matplotlib 回退
 
 ## 项目结构速览
 
@@ -64,10 +67,6 @@ DeepAnalyze/
 conda create -n deepanalyze python=3.12 -y
 conda activate deepanalyze
 pip install -r requirements.txt
-```
-
-
-```bash
 ```
 
 ### 3) 启动 API 服务
@@ -134,7 +133,7 @@ FILE_ID=$(echo $FILE_RESPONSE | jq -r '.id')
 curl -X POST http://localhost:48200/v1/chat/completions \
      -H "Content-Type: application/json" \
      -d "{
-        \"model\": \"DeepAnalyze-8B\",
+        \"model\": \"default\",
         \"messages\": [
           {
             \"role\": \"user\",

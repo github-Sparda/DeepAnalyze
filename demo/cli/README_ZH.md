@@ -6,7 +6,7 @@
 
 ### 先决条件
 
-请保证 vLLM 在 `API/config.py` 配置的端口（默认 `48000`）运行 DeepAnalyze-8B
+请先在 `API/config.py` 或 `.env` 中配置可用的 OpenAI 兼容 LLM 服务地址。
 
 1. **启动 DeepAnalyze API 服务器**：
 

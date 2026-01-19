@@ -2,17 +2,30 @@
 
 ## Input
 ```python
-from deepanalyze import DeepAnalyzeVLLM
+import requests
 
-prompt = """Analyze which teaching method (treatment) performs better."""
+API_BASE = "http://localhost:48200/v1"
+file_path = "example/simpson_paradox_analysis/data/Simpson.csv"
 
-workspace = "example/simpson_paradox_analysis/data"
+# 1) Upload file
+with open(file_path, "rb") as f:
+    file_id = requests.post(
+        f"{API_BASE}/files", files={"file": ("Simpson.csv", f)}
+    ).json()["id"]
 
-deepanalyze = DeepAnalyzeVLLM(
-    "DeepAnalyze-88"
-)
-answer = deepanalyze.generate(prompt, workspace=workspace)
-print(answer["reasoning"])
+# 2) Send analysis request
+payload = {
+    "model": "default",
+    "messages": [
+        {
+            "role": "user",
+            "content": "分析哪种教学方法（treatment）效果更好。",
+            "file_ids": [file_id],
+        }
+    ],
+}
+resp = requests.post(f"{API_BASE}/chat/completions", json=payload)
+print(resp.json()["choices"][0]["message"]["content"])
 ```
 ## DeepAnalyze's Output
 
@@ -1222,4 +1235,3 @@ Would you like me to provide more detailed breakdowns by department, age group, 
 - **Why models fail:** They skip stratification, conflate correlation with causality, and don’t produce verifiable intermediate outputs (grouped rates, weighted comparisons, CIs).
 - **Implication:** Current LLMs are not yet reliable to run an end-to-end data-science workflow; they work better as **assistants** than **autonomous analysts**.
 - **Minimal guardrails:** Require grouped tables before overall stats, explicit confounder checks, a simple stratified/weighted analysis, at least one group-level plot, and reproducible code or tables.
-

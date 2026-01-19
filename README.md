@@ -5,8 +5,6 @@
 # DeepAnalyze: Agentic Large Language Models for Autonomous Data Science
 [![arXiv](https://img.shields.io/badge/arXiv-2510.16872-b31b1b.svg?logo=arXiv)](https://arxiv.org/abs/2510.16872)
 [![homepage](https://img.shields.io/badge/%F0%9F%8C%90%20Homepage%20-DeepAnalyze%20Cases-blue.svg)](https://ruc-deepanalyze.github.io/)
-[![model](https://img.shields.io/badge/%F0%9F%A4%97%20Huggingface%20-DeepAnalyze--8B-orange.svg)](https://huggingface.co/RUC-DataLab/DeepAnalyze-8B)
-[![data](https://img.shields.io/badge/%F0%9F%93%9A%20Datasets%20-DataScience--Instruct--500K-darkgreen.svg)](https://huggingface.co/datasets/RUC-DataLab/DataScience-Instruct-500K)
 [![star](https://img.shields.io/github/stars/ruc-datalab/DeepAnalyze?style=social&label=Code+Stars)](https://github.com/ruc-datalab/DeepAnalyze)
 ![Badge](https://hitscounter.dev/api/hit?url=https%3A%2F%2Fgithub.com%2Fruc-datalab%2FDeepAnalyze&label=Visitors&icon=graph-up&color=%23dc3545&message=&style=flat&tz=UTC)  [![wechat](https://img.shields.io/badge/WeChat-%E5%8A%A0%E5%85%A5DeepAnalyze%E4%BA%A4%E6%B5%81%E8%AE%A8%E8%AE%BA%E7%BE%A4-black?logo=wechat&logoColor=07C160)](./assets/wechat.jpg) 
 
@@ -18,10 +16,13 @@
 > Renmin University of China, Tsinghua University
 
 
-**DeepAnalyze** is the first agentic LLM for autonomous data science. It can autonomously complete a wide range of data-centric tasks without human intervention, supporting:
+**DeepAnalyze** is an agentic system for autonomous data science. It can autonomously complete a wide range of data-centric tasks without human intervention, supporting:
 - 🛠 **Entire data science pipeline**: Automatically perform any data science tasks such as data preparation, analysis, modeling, visualization, and report generation.
 - 🔍 **Open-ended data research**: Conduct deep research on diverse data sources, including structured data (Databases, CSV, Excel), semi-structured data (JSON, XML, YAML), and unstructured data (TXT, Markdown), and finally produce analyst-grade research reports.
-- 📊 **Fully open-source**: The [model](https://huggingface.co/RUC-DataLab/DeepAnalyze-8B), [code](https://github.com/ruc-datalab/DeepAnalyze), [training data](https://huggingface.co/datasets/RUC-DataLab/DataScience-Instruct-500K), and [demo](https://huggingface.co/RUC-DataLab/DeepAnalyze-8B) of DeepAnalyze are all open-sourced, allowing you to deploy or extend your own data analysis assistant.
+- 🧭 **Multi-agent orchestration**: Plan → code → execute → analyze → report with explicit LangGraph flows.
+- 📝 **Report export**: HTML/Markdown/PDF/DOCX output with configurable templates and export modes.
+- 🎨 **Visualization styles**: Academic and dashboard themes with Plotly/Seaborn/Matplotlib support.
+- 📊 **Fully open-source**: The [code](https://github.com/ruc-datalab/DeepAnalyze) and demos are open-sourced, allowing you to deploy or extend your own data analysis assistant with any OpenAI-compatible LLM endpoint.
 
 <p align="center" width="100%">
 <img src="./assets/deepanalyze.jpg" alt="deepanalyze" style="width: 70%; min-width: 300px; display: block; margin: auto;">
@@ -33,7 +34,7 @@
 - **[2025.11.08]**: DeepAnalyze is now accessible through the JupyterUI, building based on [jupyter-mcp-server](https://github.com/datalayer/jupyter-mcp-server). Thanks to the contributor [@ChengJiale150](https://github.com/ChengJiale150).
 - **[2025.10.28]**: We welcome all contributions, including improving the DeepAnalyze and sharing use cases (see [`CONTRIBUTION.md`](CONTRIBUTION.md)). All merged PRs will be listed as contributors.
 - **[2025.10.27]**: DeepAnalyze has attracted widespread attention, gaining **1K+** GitHub stars and **200K+** Twitter views within a week.
-- **[2025.10.21]**: DeepAnalyze's [paper](https://arxiv.org/abs/2510.16872), [code](https://github.com/ruc-datalab/DeepAnalyze), [model](https://huggingface.co/RUC-DataLab/DeepAnalyze-8B), [training data](https://huggingface.co/datasets/RUC-DataLab/DataScience-Instruct-500K) are released!
+- **[2025.10.21]**: DeepAnalyze's [paper](https://arxiv.org/abs/2510.16872) and [code](https://github.com/ruc-datalab/DeepAnalyze) are released!
 
 ## 🖥 Demo
 
@@ -46,7 +47,6 @@ https://github.com/user-attachments/assets/04184975-7ee7-4ae0-8761-7a7550c5c8fe
 Upload the data, DeepAnalyze can perform data-oriented deep research 🔍 and any data-centric tasks 🛠
 </p>
 
-- Clone this repo and download [DeepAnalyze-8B](https://huggingface.co/RUC-DataLab/DeepAnalyze-8B).
 - Run these scripts to launch the API and interface, and then interact through the browser (http://localhost:4000 by default; see `API/config.py` `FRONTEND_PORT`):
     ```bash
     cd demo/chat
@@ -135,15 +135,12 @@ Check status:
 
 ### Requirements
 
-    ```bash
-    conda create -n deepanalyze python=3.12 -y
-    conda activate deepanalyze
-    pip install -r requirements.txt
-    
-    # For training
-    ```
+```bash
+conda create -n deepanalyze python=3.12 -y
+conda activate deepanalyze
+pip install -r requirements.txt
+```
 - [`requirements.txt`](requirements.txt) lists the minimal dependencies required for DeepAnalyze inference.
-- We recommend separating the inference and training environments to avoid dependency conflicts.
 
 ### Command Interaction
 
@@ -214,7 +211,7 @@ Check status:
   curl -X POST http://localhost:48200/v1/chat/completions \
        -H "Content-Type: application/json" \
        -d "{
-          \"model\": \"DeepAnalyze-8B\",
+        \"model\": \"default\",
           \"messages\": [
             {
               \"role\": \"user\",
@@ -229,41 +226,11 @@ Check status:
 
 - Refer to API/README.md for details.
 
-## 🎈 Develop Your Own DeepAnalyze
-
-### 1. Download Model and Training Data
-- Download [DeepSeek-R1-0528-Qwen3-8B](https://huggingface.co/deepseek-ai/DeepSeek-R1-0528-Qwen3-8B). Or you can directly finetune based on [DeepAnalyze-8B](https://huggingface.co/RUC-DataLab/DeepAnalyze-8B).
-
-  - If you use DeepSeek-R1-0528-Qwen3-8B as the base model, you should add the special tokens, using:
-
-    ```shell
-    MODEL_PATH=path_to_DeepSeek-R1-0528-Qwen3-8B
-    SAVE_PATH=path_to_save_DeepSeek-R1-0528-Qwen3-8B-addvocab
-    
-    python deepanalyze/add_vocab.py \
-      --model_path "$MODEL_PATH" \
-      --save_path "$SAVE_PATH" \
-      --add_tags
-    ```
-
-- Download training data [DataScience-Instruct-500K](https://huggingface.co/datasets/RUC-DataLab/DataScience-Instruct-500K).
-  
-  - unzip `DataScience-Instruct-500K/RL/data.zip`
-
-
-### 2. Curriculum-based Agentic Training
-- Single-ability Fine-tuning: [./scripts/single.sh](./scripts/single.sh)
-- Multi-ability Agentic Training (cold start): [./scripts/multi_coldstart.sh](./scripts/multi_coldstart.sh)
-- Multi-ability Agentic Training (RL): [./scripts/multi_rl.sh](./scripts/multi_rl.sh)
-
-### 3. Evaluation
-
-
 ## 👏 Contribution
 > We welcome all forms of contributions, and merged PRs will be listed as contributors.
-### Contribution on Code and Model
+### Contribution on Code and Orchestration
 
-- We welcome all forms of contributions on DeepAnalyze's code, model and UI, such as Docker packaging, DeepAnalyze model conversion and quantization, and submitting DeepAnalyze workflows based on closed-source LLMs. 
+- We welcome all forms of contributions on DeepAnalyze's code, orchestration, and UI, such as Docker packaging, workflow extensions, and submitting DeepAnalyze flows based on OpenAI-compatible LLM services.
 - You can submit a pull request directly.
 
 ### Contribution on Case Study
@@ -273,10 +240,7 @@ Check status:
     - `data/`: stores the uploaded files
     - `prompt.txt`: input instructions
     - `README.md`: documentation. We suggest including the input, DeepAnalyze’s output, outputs from other closed-source LLMs (optional), and your evaluation/comments of the case.
-- DeepAnalyze only has 8B parameters, so we also welcome examples where DeepAnalyze performs slightly worse than the closed-source LLMs — this will help us improve DeepAnalyze.
-
-## 🤝 Acknowledgement
-- Source of Training Data: [Reasoning-Table](https://github.com/MJinXiang/Reasoning-Table), [Spider](https://yale-lily.github.io/spider), [BIRD](https://bird-bench.github.io/), [DABStep](https://huggingface.co/blog/dabstep)
+- We also welcome examples where DeepAnalyze performs slightly worse than closed-source LLMs — this will help us improve DeepAnalyze.
 
 ## 🖋 Citation
 

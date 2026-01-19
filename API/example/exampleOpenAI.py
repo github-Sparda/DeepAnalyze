@@ -19,7 +19,7 @@ from config import API_PUBLIC_BASE_V1, VLLM_BASE_URL_NO_V1, DEEPANALYZE_VLLM_API
 
 # Configure OpenAI client for DeepAnalyze
 API_BASE = API_PUBLIC_BASE_V1
-MODEL = "DeepAnalyze-8B"
+MODEL = "default"
 
 client = openai.OpenAI(
     base_url=API_BASE,

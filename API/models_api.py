@@ -31,7 +31,7 @@ async def list_models():
         },
         # Add more models here if available in the future
         # {
-        #     "id": "DeepAnalyze-8B-FineTuned",
+        #     "id": "custom-model",
         #     "created": int(time.time()),
         #     "owned_by": "deepanalyze"
         # },

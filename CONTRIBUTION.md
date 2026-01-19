@@ -1,9 +1,9 @@
 # Welcome to Contribution
 > We welcome all forms of contributions, and merged PRs will be listed as contributors.
 
-## Contribution on Code and Model
+## Contribution on Code and Orchestration
 
-- We welcome all forms of contributions on DeepAnalyze's code and model, such as Docker packaging, DeepAnalyze model conversion and quantization, and submitting DeepAnalyze workflows based on closed-source LLMs. 
+- We welcome all forms of contributions on DeepAnalyze's code and orchestration, such as Docker packaging, workflow extensions, and submitting DeepAnalyze flows based on OpenAI-compatible LLM services. 
 - You can submit a pull request directly.
 
 ## Contribution on Case Study
@@ -13,4 +13,4 @@
     - `data/`: stores the uploaded files
     - `prompt.txt`: input instructions
     - `README.md`: documentation. We suggest including the input, DeepAnalyze’s output, outputs from other closed-source LLMs (optional, screenshots of the results are also acceptable.), and your evaluation/comments of the case.
-- DeepAnalyze only has 8B parameters, so we also welcome examples where DeepAnalyze performs slightly worse than the closed-source LLMs — this will help us improve DeepAnalyze.
+- We also welcome examples where DeepAnalyze performs slightly worse than closed-source LLMs — this will help us improve DeepAnalyze.

@@ -1,6 +1,6 @@
 # DeepAnalyze 中文说明文档
 
-本文档面向项目维护与二次开发，重点说明代码结构、模块职责、运行形态与关键配置。若你只想快速上手，请直接阅读 `README.ZH.md`。
+本文档面向项目维护与二次开发，重点说明代码结构、模块职责、运行形态与关键配置。若仅需快速上手，请阅读 `README.ZH.md`。
 
 ## 1. 代码结构与模块职责
 
@@ -8,88 +8,97 @@
 DeepAnalyze/
 ├─ API/                 # OpenAI 风格 API 服务（FastAPI）
 ├─ assets/              # 文档图片与演示素材
-├─ deepanalyze/         # 核心库与训练/推理相关代码
+├─ deepanalyze/         # 核心库（LangGraph 编排 / 报告 / 图表）
 ├─ demo/                # WebUI / JupyterUI / CLI 示例
-├─ docker/              # 容器化部署相关文件
 ├─ example/             # API 调用示例脚本
 ├─ playground/          # 评测/对比与实验入口
-├─ scripts/             # 训练/评测脚本入口
-├─ deepanalyze.py       # Python 入口封装
-├─ run.py               # 运行入口（可能用于调试/实验）
+├─ scripts/             # 启动/停止服务脚本
 ├─ requirements.txt     # 推理依赖
 └─ README.md            # 英文说明
 ```
 
-### 关键目录说明
+### 核心模块
 
-- `API/`  
-  提供 OpenAI 风格的 `/v1/chat/completions`、`/v1/files` 等接口。  
+- `deepanalyze/orchestration/`
+  LangGraph 编排主流程与状态管理（文件理解 → 规划 → 代码 → 执行 → 结果 → 报告）。
+- `deepanalyze/reporting/`
+  报告模板与导出（HTML/Markdown/PDF/DOCX，支持导出策略与模板配置）。
+- `deepanalyze/visualization/`
+  图表主题与绘图封装（学术风 / 仪表盘风）。
 
-- `demo/`  
-- `demo/chat`：Web UI（浏览器交互，默认端口 4000，见 `API/config.py` `FRONTEND_PORT`）  
-  - `demo/jupyter`：Jupyter Lab 交互界面  
-  - `demo/cli`：终端交互 UI  
+### 交互入口
 
-- `example/`  
-  提供 requests / openai SDK 的调用示例，适合自动化测试或集成。
-
-- `deepanalyze/`  
-  模型与训练/推理相关代码，包含适配脚本与训练框架集成。
-
-- `playground/`  
-  评测与实验入口，适合对比不同模型或流程。
+- `API/`：OpenAI 风格 API（`/v1/chat/completions`、`/v1/files` 等）。
+- `demo/backend.py`：WebUI 使用的 Demo 后端（支持 LangGraph 编排开关）。
+- `demo/chat`：WebUI 前端（默认端口 4000，见 `API/config.py`）。
+- `demo/jupyter`：Jupyter Lab 交互界面。
+- `demo/cli`：CLI 终端交互界面。
 
 ## 2. 功能概览
 
 - 端到端数据科学任务：数据准备、分析、建模、可视化、报告生成。
-- 多数据源支持：结构化（CSV/Excel/DB）、半结构化（JSON/YAML/XML）、非结构化（Markdown/TXT）。
-- 多交互方式：Web UI / Jupyter UI / CLI / OpenAI 风格 API。
-- 文件上传与结果回传：支持文件上传、生成图表/报告并可下载。
+- 多数据源支持：CSV/Excel/JSON/YAML/XML/TXT/Markdown 等。
+- 多交互方式：WebUI / JupyterUI / CLI / OpenAI 风格 API。
+- 文件上传与结果回传：支持上传、生成图表/报告并下载。
 
-## 3. 核心运行形态
+## 3. 核心流程
 
-DeepAnalyze 的默认推理路径是：
+默认流程为：读文件 → 规划 → 代码生成 → 执行 → 结果分析 → 报告输出。
+启用 LangGraph 编排后可控制递归深度（默认 1，上限 3）。
 
-2) 再启动 API 服务（`API/start_server.py`）  
-3) UI 或 CLI 通过 API 调用模型能力
+## 4. 运行形态与启动方式
 
-## 4. 关键配置与端口
+- API Server（标准 OpenAI 风格）
+  - `API/start_server.py`，对外提供 `/v1/*` 接口。
+- WebUI Demo
+  - `scripts/start_services.sh` 或 `demo/start.sh` 启动 Demo 后端 + 前端。
+- JupyterUI
+  - `demo/jupyter/server.py` 负责连接 Jupyter Lab 并执行代码。
+- CLI
+  - `demo/cli/api_cli.py` / `demo/cli/api_cli_ZH.py`，默认调用 API Server。
 
-端口与服务地址统一在 `API/config.py` 中设置，其他模块应通过该文件引用。
+## 5. 关键配置（.env 与 API/config.py）
 
-API 服务默认端口（见 `API/README.md`）：
+### 模型与服务
+- `DEEPANALYZE_VLLM_BASE_URL`：上游模型 API 地址（兼容 OpenAI 协议）
+- `DEEPANALYZE_VLLM_API_KEY`：API Key
+- `DEEPANALYZE_MODEL_PATH` / `DEFAULT_MODEL`：模型名称
 
-- API：`http://localhost:48200`
-- 文件下载：`http://localhost:48100`
+### 编排与递归
+- `DEEPANALYZE_USE_ORCHESTRATOR`：是否启用 LangGraph 编排
+- `DEEPANALYZE_MAX_DEPTH`：递归深度（默认 1，上限 3）
 
-## 4.1 报告导出与递归深度
-
-可在 `.env` 中设置以下参数：
-
-- `DEEPANALYZE_REPORT_FORMAT`：`html`/`markdown`/`pdf`/`docx`，默认 `html`
+### 报告导出
+- `DEEPANALYZE_REPORT_FORMAT`：`html`/`markdown`/`pdf`/`docx`
 - `DEEPANALYZE_REPORT_EXPORT_MODE`：`academic_redraw`/`html_convert`/`html_print`
 - `DEEPANALYZE_REPORT_LANGUAGE`：报告语言（默认 `zh`）
-- `DEEPANALYZE_MAX_DEPTH`：递归深度（默认 `1`，最大 `3`）
+- `DEEPANALYZE_REPORT_TITLE`/`SUBTITLE`/`AUTHOR`/`LOGO`/`TOC`/`FOOTER`
 
-## 5. 常见使用入口
+### 图表风格
+- `DEEPANALYZE_VISUAL_STYLE`：`academic`/`dashboard`
+- `DEEPANALYZE_VISUAL_INTERACTIVE`：是否输出交互图（Plotly）
 
-- Web UI：`demo/chat`
-- Jupyter UI：`demo/jupyter`
-- CLI：`demo/cli`
-- API：`API/`
+### 端口
+- API：`http://localhost:48200`
+- 文件下载：`http://localhost:48100`
+- WebUI：`http://localhost:4000`（默认）
 
-## 6. 示例数据与提示词格式
+## 6. 报告与图表说明
 
-在 `README.md` 中给出了典型的 prompt 结构示例，核心要素包括：
+- 报告导出使用 `deepanalyze/reporting/exporter.py`，HTML 为默认输出。
+- PDF 依赖 `weasyprint`，若缺失会降级输出提示文本。
+- DOCX 基于 HTML 纯文本转换，适合基础输出。
+- 图表主题在 `deepanalyze/visualization/theme.py` 中定义，Plotly 为交互优先库。
 
-- 任务指令（Instruction）
-- 多个文件的元信息（name/size）
-- workspace 指向实际数据目录
+## 7. 工作目录与日志
 
-## 7. 适合的自动化测试点
+- `workspace/`：会话工作区（上传文件、生成文件、报告输出等）。
+- `logs/`：运行日志（脚本启动时生成）。
+- 可通过 `DEEPANALYZE_DEBUG_STREAM` 输出 LLM 流式调试日志。
 
-- `/v1/chat/completions`：最关键的稳定性与结果一致性测试
-- `/v1/files`：文件上传/下载/删除流
-- `/health`：服务存活与端口可达性
+## 8. 自动化验证建议
 
-如需编写自动化测试，可以复用 `example/` 中的脚本作为基线。
+- `/v1/chat/completions`：流式与非流式输出
+- `/v1/files`：上传/下载/删除
+- WebUI：前端流式显示与停止任务
+- 编排模式：递归深度为 2 时是否增量生成结果

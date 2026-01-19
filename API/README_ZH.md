@@ -68,7 +68,7 @@ print(f"File uploaded: {file_obj.id}")
 
 ```python
 response = requests.post('http://localhost:48200/v1/chat/completions', json={
-    "model": "DeepAnalyze-8B",
+    "model": "default",
     "messages": [
         {"role": "user", "content": "用一句话介绍Python编程语言"}
     ],
@@ -82,7 +82,7 @@ print(content)
 **OpenAI 库示例:**
 ```python
 response = client.chat.completions.create(
-    model="DeepAnalyze-8B",
+    model="default",
     messages=[
         {"role": "user", "content": "用一句话介绍Python编程语言"}
     ],
@@ -97,7 +97,7 @@ print(response.choices[0].message.content)
 **请求示例:**
 ```python
 response = requests.post('http://localhost:48200/v1/chat/completions', json={
-    "model": "DeepAnalyze-8B",
+    "model": "default",
     "messages": [
         {
             "role": "user",
@@ -120,7 +120,7 @@ for file_info in files:
 **OpenAI 库示例:**
 ```python
 response = client.chat.completions.create(
-    model="DeepAnalyze-8B",
+    model="default",
     messages=[
         {
             "role": "user",
@@ -146,7 +146,7 @@ if hasattr(message, 'files') and message.files:
 
 ```python
 response = requests.post('http://localhost:48200/v1/chat/completions', json={
-    "model": "DeepAnalyze-8B",
+    "model": "default",
     "messages": [
         {
             "role": "user",
@@ -174,7 +174,7 @@ for line in response.iter_lines():
 **OpenAI 库示例:**
 ```python
 stream = client.chat.completions.create(
-    model="DeepAnalyze-8B",
+    model="default",
     messages=[
         {
             "role": "user",
@@ -280,7 +280,7 @@ DELETE /v1/files/{file_id}
 **请求:**
 ```json
 {
-  "model": "DeepAnalyze-8B",
+  "model": "default",
   "messages": [
     {
       "role": "user",
@@ -300,7 +300,7 @@ DELETE /v1/files/{file_id}
   "id": "chatcmpl-xyz789...",
   "object": "chat.completion",
   "created": 1704067200,
-  "model": "DeepAnalyze-8B",
+  "model": "default",
   "choices": [
     {
       "index": 0,
@@ -368,7 +368,7 @@ GET /health
 
 ```python
 # API 配置
-MODEL_PATH = "DeepAnalyze-8B"          # 模型名称
+MODEL_PATH = "your-model-id"    # 模型名称
 WORKSPACE_BASE_DIR = "workspace"       # 文件存储
 HTTP_SERVER_PORT = 48100              # 文件服务器端口
 

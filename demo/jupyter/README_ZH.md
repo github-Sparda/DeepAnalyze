@@ -4,14 +4,14 @@
 
 ## 项目简介
 
-DeepAnalyze Jupyter 前端是 DeepAnalyze 数据科学智能体的 Jupyter Notebook 接口实现。本项目提供了一个交互式环境，让用户可以通过熟悉的 Jupyter Notebook 界面与 DeepAnalyze 模型进行交互，实现数据准备、分析、建模、可视化和报告生成等完整数据科学流程。
+DeepAnalyze Jupyter 前端是 DeepAnalyze 数据科学智能体的 Jupyter Notebook 接口实现。本项目提供了一个交互式环境，让用户可以通过熟悉的 Jupyter Notebook 界面连接 OpenAI 兼容的 LLM 服务，实现数据准备、分析、建模、可视化和报告生成等完整数据科学流程。
 
 ## 快速开始
 
 ### 环境要求
 - uv (统一管理 Python 运行与依赖)
 - Node.js (用于运行 Jupyter MCP 服务器)
-- OpenAI 兼容的 API 服务器 (如 vLLM 部署的 DeepAnalyze-8B)
+- OpenAI 兼容的 API 服务器（在 `.env` 中配置）
 
 ### 安装步骤
 
@@ -65,7 +65,7 @@ uv run CLI.py
 
 运行`uv run CLI.py`后，会在`jupyter`目录下创建`workspace`目录作为Jupyter工作目录,并创建`deep_analyze.ipynb`作为分析文件,你可以在Jupyter Lab中上传所需的数据集(或者直接复制到`workspace`目录下)。
 
-在终端中输入以下命令,即可开始与 DeepAnalyze 模型交互：
+在终端中输入以下命令,即可开始与 DeepAnalyze 智能体交互：
 ```
 >>> 分析这个数据集并生成可视化图表
 >>> 对这些数据进行回归分析并解释结果
