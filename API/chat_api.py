@@ -17,16 +17,16 @@ import openai
 from fastapi import APIRouter, Body
 from fastapi.responses import StreamingResponse
 
-from config import (
+from .config import (
     API_BASE,
     DEFAULT_TEMPERATURE,
     STOP_TOKEN_IDS,
     MAX_NEW_TOKENS,
     DEEPANALYZE_VLLM_API_KEY,
 )
-from models import ChatCompletionRequest, ChatCompletionResponse, ChatCompletionChoice
-from storage import storage
-from utils import (
+from .models import ChatCompletionRequest, ChatCompletionResponse, ChatCompletionChoice
+from .storage import storage
+from .utils import (
     get_thread_workspace, prepare_vllm_messages, execute_code_safe,
     execute_code_safe_async, WorkspaceTracker,render_file_block,
     generate_report_from_messages, extract_code_from_segment

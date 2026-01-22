@@ -8,11 +8,17 @@ import threading
 import signal
 import sys
 import atexit
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
-from config import (
+# Add project root to sys.path for imports
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+from .config import (
     API_HOST,
     API_PORT,
     API_TITLE,
@@ -21,9 +27,9 @@ from config import (
     HTTP_SERVER_BASE,
     CLEANUP_INTERVAL_MINUTES,
 )
-from models import HealthResponse
-from utils import start_http_server
-from storage import storage
+from .models import HealthResponse
+from .utils import start_http_server
+from .storage import storage
 
 # Safety constants
 # MAX_CLEANUP_ERRORS = 10

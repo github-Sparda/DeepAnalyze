@@ -261,6 +261,9 @@ def build_graph(llm: LLMClient, config: dict[str, Any]):
         )
         plan_json = state.get("plan_json", {})
         goal_hints = _extract_visualization_goals(plan_json)
+        goal_hint = (state.get("config", {}).get("analysis_goal", "") or "").strip()
+        if goal_hint:
+            goal_hints.append(goal_hint)
         instructions = planner.plan(datasets, goals=goal_hints)
         plan_path = workspace_dir / "plan" / "visualization_plan.json"
         write_json(plan_path, instructions)
@@ -280,12 +283,14 @@ def build_graph(llm: LLMClient, config: dict[str, Any]):
         telemetry_context = _telemetry_context(
             state, artifact_registry, plan_id_hint
         )
+        goal_hint = (state.get("config", {}).get("analysis_goal", "") or "").strip()
         plan = planner.plan(
             summary,
             state.get("analysis_history", []),
             plan_id=plan_id_hint,
             artifact_context=artifact_context,
             telemetry_context=telemetry_context,
+            goal_hint=goal_hint,
         )
         plan_path = Path(state.get("workspace_dir", "")) / "plan" / "analysis_plan.md"
         write_text(plan_path, plan)

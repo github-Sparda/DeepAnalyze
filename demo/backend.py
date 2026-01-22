@@ -2,6 +2,15 @@ from fastapi import FastAPI, Body, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pathlib import Path
+from typing import Any, Mapping
+
+import sys
+import os
+
+# Add project root to sys.path for imports
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 
 from API.config import (
     MAX_RECURSION_DEPTH,
@@ -13,7 +22,9 @@ from API.config import (
     USE_ORCHESTRATOR,
     WORKSPACE_BASE_DIR,
 )
+from API.utils import execute_code_safe
 from deepanalyze.orchestration.document_manager import DocumentManager
+from deepanalyze.orchestration.intent_router import ChatIntent, classify_intent, RouterDecision
 from deepanalyze.orchestration.runner import run_orchestrated_analysis
 
 app = FastAPI(title="DeepAnalyze Orchestrator")
@@ -34,6 +45,12 @@ async def orchestrated_chat(body: dict = Body(...)):
             {"error": "Orchestrator disabled"}, status_code=501
         )
     session_id = body.get("session_id", "default")
+    workspace_dir = Path(WORKSPACE_BASE_DIR) / session_id
+    document_manager = DocumentManager(workspace_dir)
+    manifest = document_manager.load_manifest()
+    messages = body.get("messages", [])
+    user_text = _last_user_message(messages)
+    decision = classify_intent(user_text, manifest)
     max_depth = body.get("analysis_depth", MAX_RECURSION_DEPTH)
     depth_decision = str(body.get("depth_decision", "")).strip().lower()
     try:
@@ -41,6 +58,11 @@ async def orchestrated_chat(body: dict = Body(...)):
     except Exception:
         max_depth = MAX_RECURSION_DEPTH
     max_depth = max(0, min(max_depth, 3))
+    if decision.intent == ChatIntent.REUSE_ARTIFACT and decision.artifact_preview:
+        preview = decision.artifact_preview
+        message = f"Reusing existing {preview.get('kind')} “{preview.get('name', '')}”."
+        return _reuse_response(session_id, message, preview)
+
     state = run_orchestrated_analysis(
         session_id=session_id,
         config={
@@ -51,6 +73,8 @@ async def orchestrated_chat(body: dict = Body(...)):
             "visual_style": body.get("visual_style", VISUAL_STYLE),
             "visual_interactive": body.get("visual_interactive", VISUAL_INTERACTIVE),
             "depth_decision": depth_decision,
+            "analysis_goal": decision.goal or "",
+            "user_intent": decision.intent.value,
         },
     )
     depth_prompt = state.get("depth_prompt", "")
@@ -74,7 +98,25 @@ async def orchestrated_chat(body: dict = Body(...)):
         "depth_prompt": depth_prompt,
         "depth_confirmation": depth_prompt,
         "continuation_required": state.get("continuation_required", False),
+        "intent": decision.intent.value,
+        "manifest": manifest,
     }
+
+
+@app.post("/execute")
+async def execute_code(body: dict = Body(...)):
+    session_id = body.get("session_id", "default")
+    code = body.get("code", "")
+    workspace_dir = Path(WORKSPACE_BASE_DIR) / session_id
+    workspace_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        output = execute_code_safe(code, str(workspace_dir))
+        return {"result": output}
+    except Exception as exc:  # pragma: no cover
+        return {
+            "error": "execution_failed",
+            "message": str(exc),
+        }
 
 
 @app.get("/documents/summary")
@@ -83,3 +125,37 @@ async def documents_summary(session_id: str = Query("default")):
     manager = DocumentManager(workspace_dir)
     manifest = manager.manifest()
     return manifest
+
+
+def _last_user_message(messages: list[Mapping[str, Any]]) -> str:
+    for message in reversed(messages or []):
+        if message.get("role") == "user":
+            return str(message.get("content", "") or "")
+    return ""
+
+
+def _reuse_response(session_id: str, message: str, preview: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": f"chatcmpl-{session_id}",
+        "object": "chat.completion",
+        "created": int(time.time()),
+        "model": "deepanalyze-orchestrator",
+        "choices": [
+            {
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": message,
+                },
+                "finish_reason": "stop",
+            }
+        ],
+        "depth_prompt": "",
+        "depth_confirmation": "",
+        "continuation_required": False,
+    }
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=48200)

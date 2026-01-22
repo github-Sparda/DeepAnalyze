@@ -20,7 +20,7 @@ from datetime import datetime
 from typing import List, Optional, Dict, Any, Tuple
 from functools import partial
 
-from config import (
+from .config import (
     WORKSPACE_BASE_DIR,
     HTTP_SERVER_BASE,
     HTTP_SERVER_PORT,

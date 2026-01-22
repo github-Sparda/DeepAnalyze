@@ -111,7 +111,7 @@ ROLE_TEMPLATES = {
         "system": "{system}",
         "user": (
             "{prompt}\n\nSummary:\n{summary}\n\nHistory:\n{history}\n\nPlan ID: {plan_id}\n"
-            "{artifact_context}\nTelemetry:\n{telemetry_context}"
+            "{artifact_context}\nTelemetry:\n{telemetry_context}\nGoal hints:\n{goal_hint}"
         ),
     },
     "codegen": {

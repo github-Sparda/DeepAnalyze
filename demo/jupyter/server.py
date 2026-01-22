@@ -8,8 +8,15 @@ import openai
 import subprocess
 import nbformat
 import threading
+import os
 from pathlib import Path
 from dotenv import load_dotenv
+
+# Add project root to sys.path for imports
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
 from utils import is_port_in_use, jupyter_lab_alive
 from mcp_tools import (
     list_workspace_files,

@@ -413,7 +413,10 @@ export function ThreePanelInterface() {
   const [codeEditorContent, setCodeEditorContent] = useState("");
   const [showCodeEditor, setShowCodeEditor] = useState(false);
   const [isExecutingCode, setIsExecutingCode] = useState(false);
-  const [codeExecutionResult, setCodeExecutionResult] = useState("");
+  const [codeExecutionResult, setCodeExecutionResult] = useState<{
+    output: string;
+    error?: string;
+  }>({ output: "" });
 
   const [documentManifest, setDocumentManifest] =
     useState<DocumentManifest | null>(null);
@@ -692,9 +695,31 @@ export function ThreePanelInterface() {
       if (res.ok) {
         const data = await res.json();
         setDocumentManifest(data);
+      } else {
+        // If manifest.json doesn't exist, create a basic one from uploaded files
+        const basicManifest: DocumentManifest = {
+          updated_at: Date.now(),
+          plans: [],
+          reports: [],
+          tables: [],
+          artifact_counts: {},
+          visualizations: [],
+        };
+        // Optionally, populate with workspace files if needed
+        setDocumentManifest(basicManifest);
       }
     } catch (err) {
       console.error("load document manifest error", err);
+      // Create a basic manifest on error
+      const basicManifest: DocumentManifest = {
+        updated_at: Date.now(),
+        plans: [],
+        reports: [],
+        tables: [],
+        artifact_counts: {},
+        visualizations: [],
+      };
+      setDocumentManifest(basicManifest);
     }
   };
 
@@ -1583,13 +1608,26 @@ export function ThreePanelInterface() {
 
       if (response.ok) {
         const data = await response.json();
-        setCodeExecutionResult(data.result);
+        const executionResult = data.result ?? "";
+        const executionError = data.error
+          ? `${data.error}: ${data.message ?? ""}`.trim()
+          : "";
+        setCodeExecutionResult({
+          output: executionResult,
+          error: executionError,
+        });
         await loadWorkspaceFiles(); // Refresh file list after execution
       } else {
-        setCodeExecutionResult("Error: Failed to execute code");
+        setCodeExecutionResult({
+          output: "",
+          error: "Error: Failed to execute code",
+        });
       }
     } catch (error) {
-      setCodeExecutionResult(`Error: ${error}`);
+      setCodeExecutionResult({
+        output: "",
+        error: `Error: ${error}`,
+      });
     } finally {
       setIsExecutingCode(false);
     }
@@ -2462,6 +2500,16 @@ export function ThreePanelInterface() {
         const depthPromptFromResponse =
           data?.depth_confirmation ?? data?.depth_prompt;
         applyDepthResponse(depthPromptFromResponse, data?.continuation_required);
+        if (data?.intent === "reuse_artifact" && data?.artifact_preview?.relative_path) {
+          previewWorkspacePath(data.artifact_preview.relative_path, {
+            metadata: data.artifact_preview.metadata || {},
+            name:
+              data.artifact_preview.name ||
+              data.artifact_preview.relative_path ||
+              "artifact",
+            kind: data.artifact_preview.kind || "artifact",
+          });
+        }
         autoCollapseForContent(content);
         // 若包含 <File> 标签，立即刷新工作区
         if (content.includes("<File>")) {
@@ -3635,26 +3683,29 @@ export function ThreePanelInterface() {
                             </span>
                           </div>
                           <div className="flex-1 min-h-0 p-3 overflow-auto font-mono text-sm bg-white dark:bg-black text-gray-800 dark:text-gray-200">
-                            {codeExecutionResult ? (
+                            {codeExecutionResult.error && (
+                              <div className="text-red-500 dark:text-red-400 mb-2">
+                                {codeExecutionResult.error}
+                              </div>
+                            )}
+                            {codeExecutionResult.output ? (
                               <div>
                                 <div className="text-gray-500 dark:text-gray-400 mb-1">
                                   $ python main.py
                                 </div>
                                 <pre className="whitespace-pre-wrap text-gray-800 dark:text-gray-200">
-                                  {codeExecutionResult}
+                                  {codeExecutionResult.output}
                                 </pre>
-                                <div className="flex items-center mt-2">
-                                  <span className="text-gray-500 dark:text-gray-400">
-                                    $
-                                  </span>
-                                  <span className="w-2 h-4 bg-gray-400 dark:bg-gray-500 ml-1 animate-pulse"></span>
-                                </div>
                               </div>
                             ) : (
                               <div className="text-gray-400 dark:text-gray-500 italic">
                                 Run code to see output...
                               </div>
                             )}
+                            <div className="flex items-center mt-2">
+                              <span className="text-gray-500 dark:text-gray-400">$</span>
+                              <span className="w-2 h-4 bg-gray-400 dark:bg-gray-500 ml-1 animate-pulse"></span>
+                            </div>
                           </div>
                         </div>
                       </div>

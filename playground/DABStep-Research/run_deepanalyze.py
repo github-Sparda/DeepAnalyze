@@ -1,8 +1,16 @@
 import os
 import re
 import json
+import sys
+import os
 from pathlib import Path
 from multiprocessing import Pool
+
+# Add project root to sys.path for imports
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
 from deepanalyze import DeepAnalyzeVLLM
 
 

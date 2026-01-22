@@ -14,6 +14,12 @@ import re
 import contextlib
 import io
 import sys
+import os
+
+# Add project root to sys.path for imports
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 from pathlib import Path
 import random
 import traceback

@@ -9,9 +9,9 @@ from typing import Optional
 from fastapi import APIRouter, File, UploadFile, Form, HTTPException, Query, Response
 from fastapi.responses import JSONResponse
 
-from config import VALID_FILE_PURPOSES, FILE_STORAGE_DIR
-from models import FileObject, FileDeleteResponse
-from storage import storage
+from .config import VALID_FILE_PURPOSES, FILE_STORAGE_DIR
+from .models import FileObject, FileDeleteResponse
+from .storage import storage
 
 
 # Create router for file endpoints

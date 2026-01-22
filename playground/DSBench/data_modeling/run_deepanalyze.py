@@ -3,8 +3,16 @@ import json
 import time
 import shutil
 import signal
+import sys
+import os
 from contextlib import contextmanager
 from multiprocessing import Pool
+
+# Add project root to sys.path for imports
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
 from deepanalyze import DeepAnalyzeVLLM
 
 # Global configuration

@@ -2,11 +2,18 @@ from __future__ import annotations
 
 import argparse
 import time
+import sys
+import os
 from pathlib import Path
 
 import pandas as pd
 import plotly.express as px
 import matplotlib.pyplot as plt
+
+# Add project root to sys.path for imports
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 
 from deepanalyze.visualization.writer import visualization_writer
 

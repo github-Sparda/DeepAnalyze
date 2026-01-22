@@ -8,8 +8,8 @@ from typing import List
 
 from fastapi import APIRouter
 
-from config import DEFAULT_MODEL
-from models import ModelObject, ModelsListResponse
+from .config import DEFAULT_MODEL
+from .models import ModelObject, ModelsListResponse
 
 
 # Create router for models endpoints

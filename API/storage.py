@@ -11,10 +11,10 @@ import threading
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 
-from models import (
+from .models import (
     FileObject, ThreadObject, MessageObject
 )
-from utils import get_thread_workspace, uniquify_path
+from .utils import get_thread_workspace, uniquify_path
 
 
 class Storage:

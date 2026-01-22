@@ -8,11 +8,7 @@ from pathlib import Path
 import sys
 import json
 
-API_DIR = Path(__file__).resolve().parents[2] / "API"
-if str(API_DIR) not in sys.path:
-    sys.path.append(str(API_DIR))
-
-from config import API_BASE
+from ..API.config import API_BASE
 
 
 def collect_file_info(directory: str) -> str:

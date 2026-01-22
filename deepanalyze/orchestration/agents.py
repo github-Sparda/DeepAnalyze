@@ -17,6 +17,7 @@ class HypothesisPlanner:
         plan_id: str | None = None,
         artifact_context: str | None = None,
         telemetry_context: str | None = None,
+        goal_hint: str | None = None,
     ) -> str:
         history_text = "\n".join(history or []) or "N/A"
         messages = render_role_prompt(
@@ -28,6 +29,7 @@ class HypothesisPlanner:
             plan_id=plan_id or "",
             artifact_context=artifact_context or "",
             telemetry_context=telemetry_context or "",
+            goal_hint=goal_hint or "",
         )
         if not messages:
             system = get_system(self.language)
