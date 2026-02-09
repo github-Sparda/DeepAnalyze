@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Body, Query
+from fastapi import Fastsrc/api, Body, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pathlib import Path
@@ -12,7 +12,7 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-from API.config import (
+from src/api.config import (
     MAX_RECURSION_DEPTH,
     REPORT_FORMAT,
     REPORT_LANGUAGE,
@@ -22,12 +22,12 @@ from API.config import (
     USE_ORCHESTRATOR,
     WORKSPACE_BASE_DIR,
 )
-from API.utils import execute_code_safe
-from deepanalyze.orchestration.document_manager import DocumentManager
-from deepanalyze.orchestration.intent_router import ChatIntent, classify_intent, RouterDecision
-from deepanalyze.orchestration.runner import run_orchestrated_analysis
+from src/api.utils import execute_code_safe
+from orchestration.document_manager import DocumentManager
+from orchestration.intent_router import ChatIntent, classify_intent, RouterDecision
+from orchestration.runner import run_orchestrated_docs/analysis
 
-app = FastAPI(title="DeepAnalyze Orchestrator")
+app = Fastsrc/api(title="DeepAnalyze Orchestrator")
 
 app.add_middleware(
     CORSMiddleware,
@@ -45,13 +45,13 @@ async def orchestrated_chat(body: dict = Body(...)):
             {"error": "Orchestrator disabled"}, status_code=501
         )
     session_id = body.get("session_id", "default")
-    workspace_dir = Path(WORKSPACE_BASE_DIR) / session_id
-    document_manager = DocumentManager(workspace_dir)
+    data/sessions/active_dir = Path(WORKSPACE_BASE_DIR) / session_id
+    document_manager = DocumentManager(data/sessions/active_dir)
     manifest = document_manager.load_manifest()
     messages = body.get("messages", [])
     user_text = _last_user_message(messages)
     decision = classify_intent(user_text, manifest)
-    max_depth = body.get("analysis_depth", MAX_RECURSION_DEPTH)
+    max_depth = body.get("docs/analysis_depth", MAX_RECURSION_DEPTH)
     depth_decision = str(body.get("depth_decision", "")).strip().lower()
     try:
         max_depth = int(max_depth)
@@ -63,7 +63,7 @@ async def orchestrated_chat(body: dict = Body(...)):
         message = f"Reusing existing {preview.get('kind')} “{preview.get('name', '')}”."
         return _reuse_response(session_id, message, preview)
 
-    state = run_orchestrated_analysis(
+    state = run_orchestrated_docs/analysis(
         session_id=session_id,
         config={
             "max_depth": max_depth,
@@ -73,7 +73,7 @@ async def orchestrated_chat(body: dict = Body(...)):
             "visual_style": body.get("visual_style", VISUAL_STYLE),
             "visual_interactive": body.get("visual_interactive", VISUAL_INTERACTIVE),
             "depth_decision": depth_decision,
-            "analysis_goal": decision.goal or "",
+            "docs/analysis_goal": decision.goal or "",
             "user_intent": decision.intent.value,
         },
     )
@@ -81,14 +81,14 @@ async def orchestrated_chat(body: dict = Body(...)):
     return {
         "id": f"chatcmpl-{session_id}",
         "object": "chat.completion",
-        "model": "deepanalyze-orchestrator",
+        "model": "src/core-orchestrator",
         "choices": [
             {
                 "index": 0,
                 "message": {
                     "role": "assistant",
                     "content": state.get("report")
-                    or state.get("analysis_results")
+                    or state.get("docs/analysis_results")
                     or state.get("plan")
                     or "",
                 },
@@ -107,10 +107,10 @@ async def orchestrated_chat(body: dict = Body(...)):
 async def execute_code(body: dict = Body(...)):
     session_id = body.get("session_id", "default")
     code = body.get("code", "")
-    workspace_dir = Path(WORKSPACE_BASE_DIR) / session_id
-    workspace_dir.mkdir(parents=True, exist_ok=True)
+    data/sessions/active_dir = Path(WORKSPACE_BASE_DIR) / session_id
+    data/sessions/active_dir.mkdir(parents=True, exist_ok=True)
     try:
-        output = execute_code_safe(code, str(workspace_dir))
+        output = execute_code_safe(code, str(data/sessions/active_dir))
         return {"result": output}
     except Exception as exc:  # pragma: no cover
         return {
@@ -121,8 +121,8 @@ async def execute_code(body: dict = Body(...)):
 
 @app.get("/documents/summary")
 async def documents_summary(session_id: str = Query("default")):
-    workspace_dir = Path(WORKSPACE_BASE_DIR) / session_id
-    manager = DocumentManager(workspace_dir)
+    data/sessions/active_dir = Path(WORKSPACE_BASE_DIR) / session_id
+    manager = DocumentManager(data/sessions/active_dir)
     manifest = manager.manifest()
     return manifest
 
@@ -139,7 +139,7 @@ def _reuse_response(session_id: str, message: str, preview: dict[str, Any]) -> d
         "id": f"chatcmpl-{session_id}",
         "object": "chat.completion",
         "created": int(time.time()),
-        "model": "deepanalyze-orchestrator",
+        "model": "src/core-orchestrator",
         "choices": [
             {
                 "index": 0,

@@ -20,26 +20,13 @@
 ## 新架构设计
 
 ### 视图模式系统
-```typescript
-interface ViewModes {
-  chat: {        // 对话模式 - 专注于AI交互
-    layout: "single-panel",
-    features: ["实时对话", "上下文记忆", "智能建议"]
-  },
-  analysis: {    // 分析模式 - 专注数据分析
-    layout: "split-view", 
-    features: ["数据预览", "分析工具", "可视化展示"]
-  },
-  report: {      // 报告模式 - 专注报告生成
-    layout: "document-view",
-    features: ["报告编辑", "格式转换", "导出管理"]
-  },
-  dashboard: {   // 仪表板模式 - 概览管理
-    layout: "grid-layout",
-    features: ["项目管理", "历史记录", "快捷操作"]
-  }
-}
-```
+四种核心视图模式：
+- **对话模式**: 专注于AI交互的单面板布局
+- **分析模式**: 数据分析和可视化的分屏布局  
+- **报告模式**: 报告编辑和导出的文档视图
+- **仪表板模式**: 项目概览和管理的网格布局
+
+详细的技术接口定义请参考 [`docs/design/frontend_enhancement_plan.ts`](./design/frontend_enhancement_plan.ts)
 
 ### 导航系统重构
 - **主菜单**: 简化的五项核心功能导航
@@ -49,95 +36,17 @@ interface ViewModes {
 
 ### 用户体验增强
 
-#### 1. 智能文件上传
-```typescript
-fileUpload: {
-  dragDrop: true,           // 拖拽上传
-  fileTypeValidation: true, // 文件类型验证
-  previewSupport: ['csv', 'xlsx', 'json', 'txt'], // 预览支持
-  maxSize: '100MB',        // 最大文件限制
-  batchUpload: true        // 批量上传
-}
-```
-
-#### 2. 增强AI对话体验
-```typescript
-aiChat: {
-  typingIndicators: true,    // 输入状态指示
-  messageStreaming: true,    // 消息流式显示
-  contextAware: true,        // 上下文感知
-  suggestionChips: true,     // 智能建议芯片
-  codeBlockHighlighting: true, // 代码高亮
-  fileAttachmentPreview: true  // 文件附件预览
-}
-```
-
-#### 3. 实时状态反馈
-```typescript
-statusFeedback: {
-  progressBar: true,         // 进度条显示
-  statusMessages: true,      // 状态消息
-  notificationSystem: true,  // 通知系统
-  loadingStates: true,       // 加载状态
-  errorHandling: true        // 错误处理
-}
-```
+详细的用户体验增强技术实现请参考 [`docs/design/frontend_enhancement_plan.ts`](./design/frontend_enhancement_plan.ts)
 
 ## 组件架构
 
-### 主要组件层次
-```
-App
-├── EnhancedLayout
-│   ├── Header (Logo + Navigation + UserMenu)
-│   ├── MainContent
-│   │   └── ViewRouter
-│   │       ├── ChatView
-│   │       ├── AnalysisView  
-│   │       ├── ReportView
-│   │       └── DashboardView
-│   └── Footer (Status + QuickActions)
-├── Modals (FileUpload, Settings, Share, Help)
-└── Notifications (Toast + AlertBanner)
-```
-
-### 核心组件详情
-
-#### 1. EnhancedLayout (增强布局)
-- 响应式侧边栏设计
-- 可折叠导航菜单
-- 主题切换功能
-- 状态栏和快速操作
-
-#### 2. EnhancedChatInterface (增强对话界面)
-- 流式消息显示
-- 文件附件支持
-- 语音输入功能
-- 消息状态管理
-- 上下文感知建议
-
-#### 3. DashboardView (仪表板视图)
-- 项目统计卡片
-- 最近活动列表
-- 快速操作入口
-- 状态概览面板
+详细的技术组件架构和层次结构请参考 [`docs/design/frontend_enhancement_plan.ts`](./design/frontend_enhancement_plan.ts)
 
 ## 技术实现栈
 
 ### 前端技术栈
-```typescript
-framework: "Next.js 14 with App Router"
-styling: "Tailwind CSS + shadcn/ui"
-stateManagement: "React Context + useReducer"  
-dataFetching: "SWR for caching and revalidation"
-realTime: "WebSocket for live updates"
-charts: "Recharts or Chart.js"
-markdown: "react-markdown with remark plugins"
-codeEditor: "Monaco Editor"
-uiComponents: "Radix UI primitives"
-icons: "Lucide React"
-internationalization: "next-intl"
-```
+
+详细的技术选型和实现细节请参考 [`docs/design/frontend_enhancement_plan.ts`](./design/frontend_enhancement_plan.ts)
 
 ### 性能优化策略
 1. **代码分割**: 按路由和功能动态加载

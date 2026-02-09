@@ -30,8 +30,8 @@ stop_service() {
 }
 
 # Stop services
-stop_service "Backend API" "logs/backend.pid"
-stop_service "React Frontend" "logs/frontend.pid"
+stop_service "Backend src/api" "outputs/logs/backend.pid"
+stop_service "React Frontend" "outputs/logs/frontend.pid"
 
 echo ""
 echo "Cleaning up remaining processes..."
@@ -44,23 +44,23 @@ echo ""
 echo "Releasing ports..."
 
 PYTHON_BIN=${PYTHON_BIN:-python3}
-CONFIG_DIR="$(cd "$(dirname "$0")/../API" && pwd)"
+CONFIG_DIR="$(cd "$(dirname "$0")/../src/api" && pwd)"
 
-read -r VLLM_PORT API_PORT FILE_PORT FRONTEND_PORT <<EOF
+read -r VLLM_PORT src/api_PORT FILE_PORT FRONTEND_PORT <<EOF
 $($PYTHON_BIN - <<PY
 import sys
 from pathlib import Path
 
 sys.path.append(str(Path("$CONFIG_DIR")))
-from config import API_PORT, HTTP_SERVER_PORT, FRONTEND_PORT, get_vllm_port
+from config import src/api_PORT, HTTP_SERVER_PORT, FRONTEND_PORT, get_vllm_port
 
-print(f"{get_vllm_port() or ''} {API_PORT} {HTTP_SERVER_PORT} {FRONTEND_PORT}")
+print(f"{get_vllm_port() or ''} {src/api_PORT} {HTTP_SERVER_PORT} {FRONTEND_PORT}")
 PY
 )
 EOF
 
 # Release ports (sync with config.py)
-for port in $VLLM_PORT $FILE_PORT $API_PORT $FRONTEND_PORT; do
+for port in $VLLM_PORT $FILE_PORT $src/api_PORT $FRONTEND_PORT; do
     if lsof -i:$port > /dev/null 2>&1; then
         echo "   Releasing port $port..."
         lsof -ti:$port | xargs kill -9 2>/dev/null || true
@@ -80,5 +80,5 @@ fi
 echo ""
 echo "System stopped successfully."
 echo ""
-echo "Log files are kept in the logs/ directory."
+echo "Log files are kept in the outputs/logs/ directory."
 echo "To restart the system: ./launch.sh"

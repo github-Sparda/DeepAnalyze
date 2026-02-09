@@ -21,7 +21,7 @@ def demonstrate_sandbox_features():
     try:
         # 测试1: 基础沙箱执行
         print("\n--- 测试1: 基础沙箱执行 ---")
-        from deepanalyze.security.lightweight_sandbox import execute_in_sandbox
+        from security.lightweight_sandbox import execute_in_sandbox
         
         test_code = '''
 print("Hello from secure sandbox!")
@@ -80,7 +80,7 @@ def demonstrate_trust_system():
     print("\n--- 测试4: 用户信任评估系统 ---")
     
     try:
-        from deepanalyze.security.hybrid_engine import secure_execute, get_user_trust
+        from security.hybrid_engine import secure_execute, get_user_trust
         
         # 模拟多次执行来测试信任评估
         user_id = "trust_demo_user"
@@ -120,7 +120,7 @@ def demonstrate_resource_management():
     print("\n--- 测试5: 资源管理功能 ---")
     
     try:
-        from deepanalyze.security.lightweight_sandbox import get_sandbox_stats
+        from security.lightweight_sandbox import get_sandbox_stats
         
         # 显示沙箱统计信息
         stats = get_sandbox_stats()

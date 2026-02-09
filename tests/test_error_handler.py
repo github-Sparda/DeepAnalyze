@@ -7,7 +7,7 @@ import time
 import logging
 from pathlib import Path
 
-from deepanalyze.error.handler import (
+from error.handler import (
     ErrorHandler,
     ErrorSeverity,
     ErrorCategory,
@@ -36,13 +36,13 @@ def demo_basic_error_handling():
     # 模拟不同类型错误
     try:
         # 网络错误
-        raise ConnectionError("无法连接到API服务器")
+        raise ConnectionError("无法连接到src_api服务器")
     except Exception as e:
         error_info = handler.handle_error(
             e,
             severity=ErrorSeverity.MEDIUM,
             category=ErrorCategory.NETWORK,
-            context={"api_endpoint": "chat/completions"}
+            context={"api_endpoint": "chat_completions"}
         )
         print(f"处理网络错误: {error_info.error_id}")
     
@@ -139,7 +139,7 @@ def demo_recovery_strategies():
     
     # 模拟网络超时错误
     try:
-        raise TimeoutError("API请求超时")
+        raise TimeoutError("src_api请求超时")
     except Exception as e:
         error_info = handle_exception(
             e,
@@ -147,7 +147,7 @@ def demo_recovery_strategies():
             category=ErrorCategory.NETWORK
         )
         print(f"网络错误处理: {error_info.error_id}")
-        print(f"恢复尝试次数: {error_info.recovery_attempts}")
+        print(f"恢复尝试次数: {error_info.recovery_attemporaryts}")
         print(f"恢复成功: {error_info.recovery_successful}")
 
 

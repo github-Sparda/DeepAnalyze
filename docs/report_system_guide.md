@@ -32,7 +32,7 @@ DeepAnalyze增强版报告系统提供了完整的报告生命周期管理，支
 ### 基本报告操作
 
 ```python
-from deepanalyze.reporting.manager import (
+from src/core.reporting.manager import (
     create_new_report,
     ReportType,
     ReportStatus
@@ -40,11 +40,11 @@ from deepanalyze.reporting.manager import (
 
 # 创建新报告
 metadata = create_new_report(
-    session_id="analysis_session_001",
+    session_id="docs/analysis_session_001",
     title="2024年销售数据分析报告",
     content="# 销售分析\n\n详细分析内容...",
     report_type=ReportType.ANALYTICAL,
-    template_id="analytical",
+    data/cache/temporarylate_id="analytical",
     metadata={
         "author": "数据分析团队",
         "tags": ["销售", "分析", "2024"],
@@ -60,7 +60,7 @@ print(f"报告ID: {metadata.report_id}")
 ### 报告管理操作
 
 ```python
-from deepanalyze.reporting.manager import ReportManager
+from src/core.reporting.manager import ReportManager
 
 manager = ReportManager()
 
@@ -92,7 +92,7 @@ deleted = manager.delete_report("session_001", "report_12345")
 ### 报告导出功能
 
 ```python
-from deepanalyze.reporting.manager import ExportFormat
+from src/core.reporting.manager import ExportFormat
 
 # 导出为不同格式
 formats = [
@@ -120,9 +120,9 @@ for format_type, description in formats:
 metadata = create_new_report(
     session_id="session_001",
     title="市场趋势分析报告",
-    content=analysis_content,
+    content=docs/analysis_content,
     report_type=ReportType.ANALYTICAL,
-    template_id="analytical"
+    data/cache/temporarylate_id="analytical"
 )
 # 适用于：数据探索、统计分析、趋势研究
 ```
@@ -134,7 +134,7 @@ metadata = create_new_report(
     title="Q1业务执行报告",
     content=executive_content,
     report_type=ReportType.EXECUTIVE,
-    template_id="executive"
+    data/cache/temporarylate_id="executive"
 )
 # 适用于：高层决策、业务汇报、战略规划
 ```
@@ -155,34 +155,34 @@ metadata = create_new_report(
 ### 预定义模板
 ```python
 # 分析报告模板
-template = manager.default_templates["analytical"]
-print(f"模板名称: {template.name}")
-print(f"包含章节: {template.sections}")
-print(f"可用变量: {list(template.variables.keys())}")
+data/cache/temporarylate = manager.default_data/cache/temporarylates["analytical"]
+print(f"模板名称: {data/cache/temporarylate.name}")
+print(f"包含章节: {data/cache/temporarylate.sections}")
+print(f"可用变量: {list(data/cache/temporarylate.variables.keys())}")
 
 # 执行报告模板
-exec_template = manager.default_templates["executive"]
+exec_data/cache/temporarylate = manager.default_data/cache/temporarylates["executive"]
 ```
 
 ### 自定义模板创建
 ```python
-from deepanalyze.reporting.manager import ReportTemplate
+from src/core.reporting.manager import ReportTemplate
 
-custom_template = ReportTemplate(
-    template_id="custom_business",
+custom_data/cache/temporarylate = ReportTemplate(
+    data/cache/temporarylate_id="custom_business",
     name="商业分析模板",
     description="专为商业分析设计的报告模板",
     report_type=ReportType.ANALYTICAL,
     sections=["执行摘要", "市场分析", "财务表现", "风险评估", "建议措施"],
     variables={
         "company_name": "公司名称",
-        "analysis_period": "分析期间",
+        "docs/analysis_period": "分析期间",
         "currency": "货币单位"
     }
 )
 
 # 注册自定义模板
-manager.default_templates["custom_business"] = custom_template
+manager.default_data/cache/temporarylates["custom_business"] = custom_data/cache/temporarylate
 ```
 
 ## 元数据管理
@@ -271,12 +271,12 @@ export_path = manager.export_report(
 ```python
 # 按项目组织报告
 project_reports = {
-    "sales_analysis_2024": {
+    "sales_docs/analysis_2024": {
         "Q1_report": "report_q1_2024",
         "Q2_report": "report_q2_2024", 
         "annual_summary": "report_annual_2024"
     },
-    "customer_analysis": {
+    "customer_docs/analysis": {
         "segmentation": "report_customer_segments",
         "behavior": "report_customer_behavior"
     }
@@ -286,7 +286,7 @@ project_reports = {
 time_based_organization = {
     "daily": ["daily_reports_2024_*"],
     "weekly": ["weekly_summary_*"],
-    "monthly": ["monthly_analysis_*"],
+    "monthly": ["monthly_docs/analysis_*"],
     "quarterly": ["q*_2024_*"]
 }
 ```
@@ -379,7 +379,7 @@ def get_reports_paginated(session_id, page=1, page_size=20):
     return all_reports[start_idx:end_idx]
 ```
 
-## API参考
+## src/api参考
 
 ### 主要类和方法
 

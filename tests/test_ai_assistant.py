@@ -3,14 +3,14 @@ AI Assistant Enhancement Tests and Examples
 AI助手增强功能测试和示例
 """
 
-from deepanalyze.assistant.engine import (
+from assistant.engine import (
     AIAssistantEngine,
     IntentType,
     ResponseStyle,
     ContextMode,
     chat_with_assistant
 )
-from deepanalyze.assistant.context_manager import (
+from assistant.context_manager import (
     ContextManager,
     MemoryType,
     get_ai_assistant
@@ -232,7 +232,7 @@ def performance_test():
     duration = end_time - start_time
     
     print(f"处理20条消息耗时: {duration:.2f}秒")
-    print(f"平均每条消息: {duration/20:.3f}秒")
+    print(f"平均每条消息: {duration_20:.3f}秒")
     
     # 测试上下文长度
     context = engine.context_manager.get_context(session_id)

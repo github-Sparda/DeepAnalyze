@@ -7,7 +7,7 @@ DeepAnalyze错误处理系统提供全面的错误管理、自动恢复和监控
 
 ### 1. 多级错误分类
 - **严重程度**: LOW, MEDIUM, HIGH, CRITICAL
-- **错误类别**: VALIDATION, EXECUTION, NETWORK, FILESYSTEM, MEMORY, TIMEOUT, CONFIGURATION, EXTERNAL_API, UNKNOWN
+- **错误类别**: VALIDATION, EXECUTION, NETWORK, FILESYSTEM, MEMORY, TIMEOUT, CONFIGURATION, EXTERNAL_src/api, UNKNOWN
 
 ### 2. 自动恢复机制
 - 智能恢复策略匹配
@@ -29,7 +29,7 @@ DeepAnalyze错误处理系统提供全面的错误管理、自动恢复和监控
 ### 基本错误处理
 
 ```python
-from deepanalyze.error.handler import ErrorHandler, ErrorSeverity, ErrorCategory
+from src/core.error.handler import ErrorHandler, ErrorSeverity, ErrorCategory
 
 # 创建错误处理器
 handler = ErrorHandler()
@@ -37,7 +37,7 @@ handler = ErrorHandler()
 # 处理各种错误
 try:
     # 网络操作
-    raise ConnectionError("API连接失败")
+    raise ConnectionError("src/api连接失败")
 except Exception as e:
     error_info = handler.handle_error(
         e,
@@ -56,7 +56,7 @@ print(f"按类别分布: {stats['categories']}")
 ### 安全执行模式
 
 ```python
-from deepanalyze.error.handler import safe_execute
+from src/core.error.handler import safe_execute
 
 def risky_operation(x, y):
     """可能出错的操作"""
@@ -75,11 +75,11 @@ print(f"结果: {result}")  # 输出: 结果: 0
 ### 装饰器使用
 
 ```python
-from deepanalyze.error.handler import safe_operation, critical_operation
+from src/core.error.handler import safe_operation, critical_operation
 
 @safe_operation(max_retries=3, fallback_value="默认结果")
 def unreliable_api_call():
-    """不稳定的API调用"""
+    """不稳定的src/api调用"""
     import random
     if random.random() < 0.5:
         raise ConnectionError("网络不稳定")
@@ -103,7 +103,7 @@ except ValueError as e:
 ### 自定义恢复策略
 
 ```python
-from deepanalyze.error.handler import ErrorHandler, RecoveryStrategy, ErrorCategory, ErrorSeverity
+from src/core.error.handler import ErrorHandler, RecoveryStrategy, ErrorCategory, ErrorSeverity
 
 def custom_recovery_function(error_info):
     """自定义恢复逻辑"""
@@ -116,9 +116,9 @@ handler = ErrorHandler()
 custom_strategy = RecoveryStrategy(
     name="custom_db_recovery",
     description="数据库连接恢复策略",
-    applicable_categories=[ErrorCategory.EXTERNAL_API],
+    applicable_categories=[ErrorCategory.EXTERNAL_src/api],
     applicable_severities=[ErrorSeverity.MEDIUM, ErrorSeverity.HIGH],
-    max_attempts=3,
+    max_atdata/cache/temporaryts=3,
     retry_delay=5.0,
     recovery_function=custom_recovery_function
 )
@@ -159,7 +159,7 @@ handler.clear_error_history(older_than_hours=24)  # 清除24小时前的错误
     "recovery": {
       "successful": 8,
       "failed": 2,
-      "attempts": 15
+      "atdata/cache/temporaryts": 15
     }
   },
   "recent_errors": [
@@ -170,7 +170,7 @@ handler.clear_error_history(older_than_hours=24)  # 清除24小时前的错误
       "category": "unknown",
       "type": "ValueError",
       "message": "值错误 0",
-      "recovery_attempts": 1,
+      "recovery_atdata/cache/temporaryts": 1,
       "recovery_successful": true
     }
   ]
@@ -225,7 +225,7 @@ except Exception as e:
     return None
 
 # 新代码
-from deepanalyze.error.handler import safe_execute
+from src/core.error.handler import safe_execute
 
 result = safe_execute(some_operation, fallback_value=None)
 ```
@@ -274,7 +274,7 @@ logging.basicConfig(level=logging.WARNING)  # 减少日志输出
 handler.max_error_history = 500  # 默认1000
 ```
 
-## API参考
+## src/api参考
 
 ### ErrorHandler类
 

@@ -2,7 +2,7 @@
 
 ## 概述
 
-这是一个直接调用 DeepAnalyze 各个核心模块功能的命令行工具，无需启动 API 服务器即可直接使用数据分析、可视化、报告生成等功能。
+这是一个直接调用 DeepAnalyze 各个核心模块功能的命令行工具，无需启动 src/api 服务器即可直接使用数据分析、可视化、报告生成等功能。
 
 ## 🚀 快速开始
 
@@ -10,22 +10,22 @@
 
 ```bash
 # 分析数据文件
-python scripts/deepanalyze_cli.py --file data.csv --analyze
+python scripts/src/core_cli.py --file data.csv --analyze
 
 # 指定分析类型
-python scripts/deepanalyze_cli.py --file data.csv --analyze --types descriptive inferential
+python scripts/src/core_cli.py --file data.csv --analyze --types descriptive inferential
 
 # 生成可视化图表
-python scripts/deepanalyze_cli.py --visualize data.csv
+python scripts/src/core_cli.py --visualize data.csv
 
 # 与AI助手对话
-python scripts/deepanalyze_cli.py --chat "分析这份数据的主要特征"
+python scripts/src/core_cli.py --chat "分析这份数据的主要特征"
 
 # 生成报告
-python scripts/deepanalyze_cli.py --report-title "分析报告" --report-content "报告内容"
+python scripts/src/core_cli.py --report-title "分析报告" --report-content "报告内容"
 
 # 进入交互模式
-python scripts/deepanalyze_cli.py --interactive
+python scripts/src/core_cli.py --interactive
 ```
 
 ## 📋 可用命令
@@ -33,11 +33,11 @@ python scripts/deepanalyze_cli.py --interactive
 ### 数据分析命令
 ```bash
 # 基本数据分析
-python scripts/deepanalyze_cli.py --file data.csv --analyze
+python scripts/src/core_cli.py --file data.csv --analyze
 
 # 指定分析类型
-python scripts/deepanalyze_cli.py --file data.csv --analyze --types descriptive
-python scripts/deepanalyze_cli.py --file data.csv --analyze --types inferential predictive
+python scripts/src/core_cli.py --file data.csv --analyze --types descriptive
+python scripts/src/core_cli.py --file data.csv --analyze --types inferential predictive
 ```
 
 支持的分析类型：
@@ -50,25 +50,25 @@ python scripts/deepanalyze_cli.py --file data.csv --analyze --types inferential 
 ### 可视化命令
 ```bash
 # 生成数据可视化图表
-python scripts/deepanalyze_cli.py --visualize data.csv
+python scripts/src/core_cli.py --visualize data.csv
 ```
 
 ### AI助手命令
 ```bash
 # 与AI助手对话
-python scripts/deepanalyze_cli.py --chat "请分析这些数据的趋势"
+python scripts/src/core_cli.py --chat "请分析这些数据的趋势"
 ```
 
 ### 报告生成命令
 ```bash
 # 生成分析报告
-python scripts/deepanalyze_cli.py --report-title "销售分析报告" --report-content "这里是报告的详细内容"
+python scripts/src/core_cli.py --report-title "销售分析报告" --report-content "这里是报告的详细内容"
 ```
 
 ### 交互模式
 ```bash
 # 进入交互式命令行界面
-python scripts/deepanalyze_cli.py --interactive
+python scripts/src/core_cli.py --interactive
 ```
 
 在交互模式下可用的命令：
@@ -109,17 +109,17 @@ python scripts/deepanalyze_cli.py --interactive
 
 ### 示例1：简单数据分析
 ```bash
-python scripts/deepanalyze_cli.py --file sales_data.csv --analyze --types descriptive
+python scripts/src/core_cli.py --file sales_data.csv --analyze --types descriptive
 ```
 
 ### 示例2：生成可视化
 ```bash
-python scripts/deepanalyze_cli.py --visualize employee_data.csv
+python scripts/src/core_cli.py --visualize employee_data.csv
 ```
 
 ### 示例3：交互式分析
 ```bash
-python scripts/deepanalyze_cli.py --interactive
+python scripts/src/core_cli.py --interactive
 >>> analyze customer_data.csv
 >>> visualize customer_data.csv  
 >>> chat "基于这些数据给出业务建议"
@@ -146,10 +146,10 @@ python scripts/deepanalyze_cli.py --interactive
 1. **模块导入失败**：确保在项目根目录运行命令
 2. **数据文件不存在**：检查文件路径是否正确
 3. **可视化失败**：确认安装了必要的绘图库
-4. **AI助手无响应**：某些功能可能需要配置相应的 API 密钥
+4. **AI助手无响应**：某些功能可能需要配置相应的 src/api 密钥
 
 ## 📚 相关文档
 
-- [API CLI 使用说明](../demo/cli/README.md) - 基于 API 的 CLI 工具
-- [Jupyter CLI 使用说明](../demo/jupyter/README.md) - Jupyter 界面 CLI
+- [src/api CLI 使用说明](../src/cli/README.md) - 基于 src/api 的 CLI 工具
+- [Jupyter CLI 使用说明](../src/jupyter/README.md) - Jupyter 界面 CLI
 - [技术文档索引](../DOCS.ZH.md) - 完整技术文档

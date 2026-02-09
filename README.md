@@ -9,7 +9,7 @@
 [![生产就绪](https://img.shields.io/badge/%F0%9F%9A%80%20状态-生产就绪-brightgreen.svg)](#)
 
 [![arXiv](https://img.shields.io/badge/arXiv-2510.16872-b31b1b.svg?logo=arXiv)](https://arxiv.org/abs/2510.16872)
-[![homepage](https://img.shields.io/badge/%F0%9F%8C%90%20Homepage%20-DeepAnalyze%20Cases-blue.svg)](https://ruc-deepanalyze.github.io/)
+[![homepage](https://img.shields.io/badge/%F0%9F%8C%90%20Homepage%20-DeepAnalyze%20Cases-blue.svg)](https://ruc-src/core.github.io/)
 [![star](https://img.shields.io/github/stars/ruc-datalab/DeepAnalyze?style=social&label=Code+Stars)](https://github.com/ruc-datalab/DeepAnalyze)
 ![Badge](https://hitscounter.dev/api/hit?url=https%3A%2F%2Fgithub.com%2Fruc-datalab%2FDeepAnalyze&label=Visitors&icon=graph-up&color=%23dc3545&message=&style=flat&tz=UTC)  [![wechat](https://img.shields.io/badge/WeChat-%E5%8A%A0%E5%85%A5DeepAnalyze%E4%BA%A4%E6%B5%81%E8%AE%A8%E8%AE%BA%E7%BE%A4-black?logo=wechat&logoColor=07C160)](./assets/wechat.jpg) 
 
@@ -47,12 +47,12 @@
 > 🔄 *项目持续迭代中，欢迎提出宝贵建议和贡献代码*
 
 <p align="center" width="100%">
-<img src="./assets/deepanalyze.jpg" alt="deepanalyze" style="width: 70%; min-width: 300px; display: block; margin: auto;">
+<img src="./assets/src/core.jpg" alt="src/core" style="width: 70%; min-width: 300px; display: block; margin: auto;">
 </p>
 
 
 ## 🔥 News
-- **[2025.11.13]**: DeepAnalyze now supports OpenAI-style API endpointsis and is accessible through the Command Line Terminal UI. Thanks to the contributor [@LIUyizheSDU](https://github.com/LIUyizheSDU/)
+- **[2025.11.13]**: DeepAnalyze now supports OpenAI-style src/api endpointsis and is accessible through the Command Line Terminal UI. Thanks to the contributor [@LIUyizheSDU](https://github.com/LIUyizheSDU/)
 - **[2025.11.08]**: DeepAnalyze is now accessible through the JupyterUI, building based on [jupyter-mcp-server](https://github.com/datalayer/jupyter-mcp-server). Thanks to the contributor [@ChengJiale150](https://github.com/ChengJiale150).
 - **[2025.10.28]**: We welcome all contributions, including improving the DeepAnalyze and sharing use cases (see [`CONTRIBUTION.md`](CONTRIBUTION.md)). All merged PRs will be listed as contributors.
 - **[2025.10.27]**: DeepAnalyze has attracted widespread attention, gaining **1K+** GitHub stars and **200K+** Twitter views within a week.
@@ -60,7 +60,7 @@
 
 ## 🖥 Demo
 
-All ports/addresses are centralized in `API/config.py`. Update that file if you need to change them.
+All ports/addresses are centralized in `src/api/config.py`. Update that file if you need to change them.
 
 ### WebUI
 
@@ -69,9 +69,9 @@ https://github.com/user-attachments/assets/04184975-7ee7-4ae0-8761-7a7550c5c8fe
 Upload the data, DeepAnalyze can perform data-oriented deep research 🔍 and any data-centric tasks 🛠
 </p>
 
-- Run these scripts to launch the API and interface, and then interact through the browser (http://localhost:4000 by default; see `API/config.py` `FRONTEND_PORT`):
+- Run these scripts to launch the src/api and interface, and then interact through the browser (http://localhost:4000 by default; see `src/api/config.py` `FRONTEND_PORT`):
     ```bash
-    cd demo/chat
+    cd src/web
     npm install
     cd ..
     bash start.sh
@@ -79,7 +79,7 @@ Upload the data, DeepAnalyze can perform data-oriented deep research 🔍 and an
     # stop the api and interface
     bash stop.sh
     ```
-- If you want to deploy under a specific IP, please replace localhost with your IP address in [./demo/backend.py](./demo/backend.py) and [./demo/chat/lib/config.ts](./demo/chat/lib/config.ts)
+- If you want to deploy under a specific IP, please replace localhost with your IP address in [./demo/backend.py](./demo/backend.py) and [./src/web/lib/config.ts](./src/web/lib/config.ts)
 
 ### JupyterUI
 
@@ -89,7 +89,7 @@ Familiar with Jupyter Notebook? Try DeepAnalyze through the JupyterUI!
 </p>
 
 - This Demo runs Jupyter Lab as frontend, creating a new notebook, converting `<Analyze|Understand|Answer>` to Markdown cells, converting `<Code>` to Code cells and executing them as `<Execute>`.
-- Go to [demo/jupyter](./demo/jupyter) to see more and try!
+- Go to [src/jupyter](./src/jupyter) to see more and try!
 - 👏Thanks a lot to the contributor [@ChengJiale150](https://github.com/ChengJiale150).
 
 ### CLI
@@ -100,12 +100,12 @@ Try DeepAnalyze through the command-line interface
 </p>
 
 
-- Start the API server and launch the CLI interface:
+- Start the src/api server and launch the CLI interface:
     ```bash
-    cd API
+    cd src/api
     python start_server.py  # In one terminal
     
-    cd demo/cli
+    cd src/cli
     python api_cli.py       # In another terminal (English)
     # or
     python api_cli_ZH.py    # In another terminal (Chinese)
@@ -119,7 +119,7 @@ Try DeepAnalyze through the command-line interface
 
 > [!TIP]
 >
-> Clone this repository to deploy DeepAnalyze locally as your data analyst, completing any data science tasks without any workflow or closed-source APIs.
+> Clone this repository to deploy DeepAnalyze locally as your data analyst, completing any data science tasks without any workflow or closed-source src/apis.
 >
 > 🔥 The UI of the demo is an initial version. Welcome to further develop it, and we will include you as a contributor.
 
@@ -158,8 +158,8 @@ Check status:
 ### Requirements
 
 ```bash
-conda create -n deepanalyze python=3.12 -y
-conda activate deepanalyze
+conda create -n src/core python=3.12 -y
+conda activate src/core
 pip install -r requirements.txt
 ```
 - [`requirements.txt`](requirements.txt) lists the minimal dependencies required for DeepAnalyze inference.
@@ -189,11 +189,11 @@ pip install -r requirements.txt
   File 9: {"name": "unemployed.xlsx", "size": "5.6KB"}
   File 10: {"name": "enrolled.csv", "size": "20.4KB"}"""
   
-  workspace = "/home/u2023000922/zhangshaolei/deepanalyze_public/DeepAnalyze/example/analysis_on_student_loan/"
+  data/sessions/active = "/home/u2023000922/zhangshaolei/src/core_public/DeepAnalyze/data/examples/docs/analysis_on_student_loan/"
   
-      "/fs/fast/u2023000922/zhangshaolei/checkpoints/deepanalyze-8b/"
+      "/fs/fast/u2023000922/zhangshaolei/checkpoints/src/core-8b/"
   )
-  answer = deepanalyze.generate(prompt, workspace=workspace)
+  answer = src/core.generate(prompt, data/sessions/active=data/sessions/active)
   print(answer["reasoning"])
   ```
   You shoud get a deep research report, which can be rendered as a PDF.:
@@ -202,26 +202,26 @@ pip install -r requirements.txt
   
   ## Introduction and Research Context
   
-  The analysis of student enrollment patterns represents a critical area of educational research with significant implications for institutional planning, resource allocation, and student support services. This comprehensive study examines a comprehensive dataset encompassing 1,194 enrollment records across six educational institutions, merged with supplementary demographic, financial, and employment status data. The research employs advanced analytical techniques including network analysis, predictive modeling, and temporal pattern recognition to uncover both macro-level institutional trends and micro-level student mobility patterns. The dataset's longitudinal nature, spanning fifteen months of enrollment records, provides unique insights into the complex dynamics of student pathways through higher education systems.
+  The docs/analysis of student enrollment patterns represents a critical area of educational research with significant implications for institutional planning, resource allocation, and student support services. This comprehensive study examines a comprehensive dataset encompassing 1,194 enrollment records across six educational institutions, merged with supplementary demographic, financial, and employment status data. The research employs advanced analytical techniques including network docs/analysis, predictive modeling, and data/cache/temporaryoral pattern recognition to uncover both macro-level institutional trends and micro-level student mobility patterns. The dataset's longitudinal nature, spanning fifteen months of enrollment records, provides unique insights into the complex dynamics of student pathways through higher education systems.
   
-  Our methodological approach combines quantitative analysis of enrollment durations, transfer probabilities, and financial indicators with qualitative ...
+  Our methodological approach combines quantitative docs/analysis of enrollment durations, transfer probabilities, and financial indicators with qualitative ...
   
   The research contributes to the growing body of literature on student mobility by providing empirical evidence of institutional transfer networks and their relationship to student outcomes...
   .....
   ```
   <p align="center" width="100%">
-    <img src="./assets/report.png" alt="deepanalyze" style="width: 100%; min-width: 300px; display: block; margin: auto;">
+    <img src="./assets/report.png" alt="src/core" style="width: 100%; min-width: 300px; display: block; margin: auto;">
   </p>
 
-  > For more examples and task completion details, please refer to [DeepAnalyze's homepage](https://ruc-deepanalyze.github.io/).
+  > For more data/exampless and task completion details, please refer to [DeepAnalyze's homepage](https://ruc-src/core.github.io/).
 
-### API
+### src/api
 
   ```
-  python API/start_server.py
+  python src/api/start_server.py
   ```
 
-- API usage :
+- src/api usage :
 
   ```
   FILE_RESPONSE=$(curl -s -X POST "http://localhost:48200/v1/files" \
@@ -246,7 +246,7 @@ pip install -r requirements.txt
   ```
   
 
-- Refer to API/README.md for details.
+- Refer to src/api/README.md for details.
 
 ## 👏 Contribution
 > We welcome all forms of contributions, and merged PRs will be listed as contributors.
@@ -258,23 +258,23 @@ pip install -r requirements.txt
 ### Contribution on Case Study
 
 - We also especially encourage you to share your use cases and feedback when using DeepAnalyze; these are extremely valuable for helping us improve DeepAnalyze.
-- You can place your use cases in a new folder under [`.example/`](.example/). We recommend following the folder structure of [`.example/analysis_on_student_loan/`](.example/analysis_on_student_loan/), which includes three parts:
+- You can place your use cases in a new folder under [`.data/examples/`](.data/examples/). We recommend following the folder structure of [`.data/examples/docs/analysis_on_student_loan/`](.data/examples/docs/analysis_on_student_loan/), which includes three parts:
     - `data/`: stores the uploaded files
     - `prompt.txt`: input instructions
     - `README.md`: documentation. We suggest including the input, DeepAnalyze’s output, outputs from other closed-source LLMs (optional), and your evaluation/comments of the case.
-- We also welcome examples where DeepAnalyze performs slightly worse than closed-source LLMs — this will help us improve DeepAnalyze.
+- We also welcome data/exampless where DeepAnalyze performs slightly worse than closed-source LLMs — this will help us improve DeepAnalyze.
 
 ## 🖋 Citation
 
 If this repository is useful for you, please cite as:
 
 ```
-@misc{deepanalyze,
+@misc{src/core,
       title={DeepAnalyze: Agentic Large Language Models for Autonomous Data Science}, 
       author={Shaolei Zhang and Ju Fan and Meihao Fan and Guoliang Li and Xiaoyong Du},
       year={2025},
       eprint={2510.16872},
-      archivePrefix={arXiv},
+      data/sessions/archivedPrefix={arXiv},
       primaryClass={cs.AI},
       url={https://arxiv.org/abs/2510.16872}, 
 }

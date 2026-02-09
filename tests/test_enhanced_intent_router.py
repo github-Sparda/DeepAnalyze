@@ -3,7 +3,7 @@ Enhanced Intent Router Test and Examples
 增强意图识别系统的测试用例和使用示例
 """
 
-from deepanalyze.orchestration.enhanced_intent_router import (
+from orchestration.enhanced_intent_router import (
     EnhancedChatIntent,
     EnhancedRouterDecision,
     enhanced_classify_intent,
@@ -118,14 +118,14 @@ def test_confidence_calculation():
         print("-" * 50)
 
 
-def demonstrate_migration_example():
+def demonstrate_migration_examples():
     """演示如何从旧系统迁移到新系统"""
     print("=== 迁移示例 ===")
     
     # 旧系统的使用方式
     print("旧系统使用方式:")
     print("""
-    from deepanalyze.orchestration.intent_router import classify_intent
+    from orchestration.intent_router import classify_intent
     
     decision = classify_intent("分析数据", manifest)
     if decision.intent == ChatIntent.GUIDED_ANALYSIS:
@@ -135,7 +135,7 @@ def demonstrate_migration_example():
     
     print("\n新系统使用方式:")
     print("""
-    from deepanalyze.orchestration.enhanced_intent_router import enhanced_classify_intent
+    from orchestration.enhanced_intent_router import enhanced_classify_intent
     
     decision = enhanced_classify_intent("分析数据", manifest)
     print(f"意图: {decision.intent.value}")
@@ -161,7 +161,7 @@ def classify_intent_simple(message: str) -> dict:
     """模拟旧系统的简单分类（用于对比）"""
     text = message.lower()
     if any(word in text for word in ['analyze', '分析', 'trend', '趋势']):
-        return {'intent': 'guided_analysis'}
+        return {'intent': 'guided_docs_analysis'}
     elif any(word in text for word in ['show', '显示', 'report', '报告']):
         return {'intent': 'reuse_artifact'}
     else:
@@ -175,6 +175,6 @@ if __name__ == "__main__":
     test_basic_classification()
     test_entity_extraction()
     test_confidence_calculation()
-    demonstrate_migration_example()
+    demonstrate_migration_data_examples()
     
     print("\n测试完成！")

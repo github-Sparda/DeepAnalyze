@@ -25,7 +25,7 @@ DeepAnalyze统一状态管理系统提供了会话级别的状态持久化、恢
 ### 基本使用
 
 ```python
-from deepanalyze.state.manager import StateManager
+from src/core.state.manager import StateManager
 
 # 创建状态管理器
 manager = StateManager()
@@ -34,7 +34,7 @@ manager = StateManager()
 session_id = manager.create_session(
     session_name="我的数据分析",
     user_id="user123",
-    tags=["analysis", "finance"]
+    tags=["docs/analysis", "finance"]
 )
 
 # 获取会话状态
@@ -43,7 +43,7 @@ state = manager.get_state(session_id)
 # 更新状态
 updates = {
     "input_files": ["sales_data.csv"],
-    "analysis_results": "已完成趋势分析",
+    "docs/analysis_results": "已完成趋势分析",
     "hypotheses": ["销售额呈上升趋势"]
 }
 success = manager.update_state(session_id, updates)
@@ -56,7 +56,7 @@ manager.save_state(session_id, full_state)
 ### 便捷函数使用
 
 ```python
-from deepanalyze.state.manager import (
+from src/core.state.manager import (
     create_new_session,
     get_session_state,
     update_session_state
@@ -88,7 +88,7 @@ all_sessions = manager.list_sessions()
 user_sessions = manager.list_sessions(user_id="user123")
 
 # 按标签查询
-analysis_sessions = manager.list_sessions(tags=["analysis"])
+docs/analysis_sessions = manager.list_sessions(tags=["docs/analysis"])
 
 # 获取会话信息
 session_info = manager.get_session_info(session_id)
@@ -105,11 +105,11 @@ manager.delete_session(session_id)
 {
     "session_id": str,           # 会话ID
     "run_id": str,              # 运行ID
-    "workspace_dir": str,       # 工作目录
+    "data/sessions/active_dir": str,       # 工作目录
     "input_files": list,        # 输入文件列表
     "plan": str,                # 分析计划
     "hypotheses": list,         # 假设列表
-    "analysis_results": str,    # 分析结果
+    "docs/analysis_results": str,    # 分析结果
     "report": str,              # 生成报告
     "artifacts": list,          # 生成的工件
     "visualizations": list,     # 可视化结果
@@ -136,7 +136,7 @@ session_id = manager.create_session(session_name="分析1")
 ```python
 # 推荐：批量更新
 updates = {
-    "current_step": "data_analysis",
+    "current_step": "data_docs/analysis",
     "progress": "75%",
     "last_updated": datetime.now().isoformat()
 }
@@ -187,7 +187,7 @@ export PYTHONPATH=/path/to/DeepAnalyze:$PYTHONPATH
 2. **权限问题**
 ```bash
 # 确保工作目录有写权限
-chmod 755 workspace/
+chmod 755 data/sessions/active/
 ```
 
 3. **并发冲突**
@@ -199,7 +199,7 @@ except Exception as e:
     print(f"更新失败: {e}")
 ```
 
-## API参考
+## src/api参考
 
 ### StateManager类
 

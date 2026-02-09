@@ -15,16 +15,16 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-from deepanalyze.visualization.writer import visualization_writer
+from visualization.writer import visualization_writer
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Visualization archival demo")
-    parser.add_argument("--workspace", default="workspace", help="Workspace directory")
+    parser.add_argument("--data/sessions/active", default="data/sessions/active", help="Workspace directory")
     parser.add_argument("--plan-id", default="", help="Plan ID to use")
     args = parser.parse_args()
 
-    workspace_dir = Path(args.workspace)
+    data/sessions/active_dir = Path(args.data/sessions/active)
     plan_id = args.plan_id or f"demo_{int(time.time())}"
 
     df = pd.DataFrame({"x": list(range(10)), "y": [v * v for v in range(10)]})
@@ -37,7 +37,7 @@ def main() -> None:
     fig.tight_layout()
     academic_entries = visualization_writer(
         fig,
-        workspace_dir=workspace_dir,
+        data/sessions/active_dir=data/sessions/active_dir,
         plan_id=plan_id,
         style="academic",
         name="academic_demo",
@@ -48,7 +48,7 @@ def main() -> None:
     plotly_fig = px.line(df, x="x", y="y", title="Dashboard Demo")
     dashboard_entries = visualization_writer(
         plotly_fig,
-        workspace_dir=workspace_dir,
+        data/sessions/active_dir=data/sessions/active_dir,
         plan_id=plan_id,
         style="dashboard",
         name="dashboard_demo",

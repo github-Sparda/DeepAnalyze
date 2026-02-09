@@ -1,12 +1,12 @@
 # DeepAnalyze 中文 README
 
-DeepAnalyze 是面向数据科学任务的智能分析系统，能够在尽量少的人工干预下完成数据准备、探索分析、建模、可视化与报告生成，支持多种数据形态并提供多种交互入口（Web/Jupyter/CLI/API）。
+DeepAnalyze 是面向数据科学任务的智能分析系统，能够在尽量少的人工干预下完成数据准备、探索分析、建模、可视化与报告生成，支持多种数据形态并提供多种交互入口（Web/Jupyter/CLI/src/api）。
 
 ## 亮点与特点
 
 - **端到端数据科学**：从数据清洗、分析到报告产出的一体化能力
 - **多数据源支持**：CSV/Excel/JSON/YAML/XML/TXT/Markdown 等
-- **多交互方式**：Web UI / Jupyter UI / CLI / OpenAI 风格 API
+- **多交互方式**：Web UI / Jupyter UI / CLI / OpenAI 风格 src/api
 - **文件上传与生成结果**：自动产出图表、报告文件并支持下载
 - **开源与可扩展**：模型、代码、数据资源均可扩展
 - **多智能体编排**：通过 LangGraph 实现规划 → 代码 → 执行 → 分析 → 报告的显式流程
@@ -17,13 +17,13 @@ DeepAnalyze 是面向数据科学任务的智能分析系统，能够在尽量�
 
 ```
 DeepAnalyze/
-├─ API/          # OpenAI 风格 API 服务
+├─ src/api/          # OpenAI 风格 src/api 服务
 ├─ demo/         # Web/Jupyter/CLI 界面
-├─ example/      # API 调用示例脚本
-├─ deepanalyze/  # 核心库
+├─ data/examples/      # src/api 调用示例脚本
+├─ src/core/  # 核心库
 ├─ assets/       # 文档图示
 ├─ scripts/      # 启动/停止服务脚本
-└─ playground/   # 评测与实验入口
+└─ data/examples/benchmarks/   # 评测与实验入口
 ```
 
 如需更详细的结构说明，请看 `DOCS.ZH.md`。
@@ -64,58 +64,58 @@ DeepAnalyze/
 建议使用独立环境：
 
 ```bash
-conda create -n deepanalyze python=3.12 -y
-conda activate deepanalyze
+conda create -n src/core python=3.12 -y
+conda activate src/core
 pip install -r requirements.txt
 ```
 
-### 3) 启动 API 服务
+### 3) 启动 src/api 服务
 
 ```bash
-cd /home/huangzw/Project/DeepAnalyze/API
+cd /home/huangzw/Project/DeepAnalyze/src/api
 python start_server.py
 ```
 
-默认端口（可在 `API/config.py` 中统一调整）：
+默认端口（可在 `src/api/config.py` 中统一调整）：
 
-- API：`http://localhost:48200`
+- src/api：`http://localhost:48200`
 - 文件服务：`http://localhost:48100`
 
 ## Web UI
 
-端口/地址统一在 `API/config.py` 中配置，如需修改请以该文件为准。
+端口/地址统一在 `src/api/config.py` 中配置，如需修改请以该文件为准。
 
 ```bash
-cd /home/huangzw/Project/DeepAnalyze/demo/chat
+cd /home/huangzw/Project/DeepAnalyze/src/web
 npm install
 cd ..
 bash start.sh
 ```
 
-浏览器访问：`http://localhost:4000`（端口可在 `API/config.py` 中调整）
+浏览器访问：`http://localhost:4000`（端口可在 `src/api/config.py` 中调整）
 
 如需修改部署 IP，请调整：
 
 - `demo/backend.py`
-- `demo/chat/lib/config.ts`
+- `src/web/lib/config.ts`
 
 ## Jupyter UI
 
-Jupyter 界面位于 `demo/jupyter`，适合习惯 Notebook 的用户。
+Jupyter 界面位于 `src/jupyter`，适合习惯 Notebook 的用户。
 
 ## CLI
 
 ```bash
-cd /home/huangzw/Project/DeepAnalyze/API
-python start_server.py  # 先启动 API
+cd /home/huangzw/Project/DeepAnalyze/src/api
+python start_server.py  # 先启动 src/api
 
-cd /home/huangzw/Project/DeepAnalyze/demo/cli
+cd /home/huangzw/Project/DeepAnalyze/src/cli
 python api_cli.py       # 英文
 # 或
 python api_cli_ZH.py    # 中文
 ```
 
-## OpenAI 风格 API
+## OpenAI 风格 src/api
 
 ### 1) 上传文件
 
@@ -141,11 +141,11 @@ curl -X POST http://localhost:48200/v1/chat/completions \
             \"file_ids\": [\"$FILE_ID\"]
           }
         ],
-        \"temperature\": 0.4
+        \"data/cache/temporaryerature\": 0.4
       }"
 ```
 
-更多 API 细节见 `API/README.md`。
+更多 src/api 细节见 `src/api/README.md`。
 
 ## Python 调用示例
 
@@ -158,15 +158,15 @@ prompt = \"\"\"# Instruction
 File 1: {\"name\": \"person.csv\", \"size\": \"10.6KB\"}
 File 2: {\"name\": \"enrolled.csv\", \"size\": \"20.4KB\"}\"\"\"
 
-workspace = \"/path/to/your/data_dir\"
-answer = deepanalyze.generate(prompt, workspace=workspace)
+data/sessions/active = \"/path/to/your/data_dir\"
+answer = src/core.generate(prompt, data/sessions/active=data/sessions/active)
 print(answer[\"reasoning\"])
 ```
 
 ## 示例与测试
 
-- `example/exampleRequest.py`：requests 调用示例
-- `example/exampleOpenAI.py`：OpenAI SDK 调用示例
+- `data/examples/data/examplesRequest.py`：requests 调用示例
+- `data/examples/data/examplesOpenAI.py`：OpenAI SDK 调用示例
 
 ## 常见问题
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from deepanalyze.orchestration.recursion import DepthRecursionController
+from src.core.orchestration.recursion import DepthRecursionController
 
 
 def test_depth_recursion_prompts_when_max_depth_zero():

@@ -12,16 +12,16 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-def test_semantic_cache():
+def test_semantic_data/cache():
     """测试语义缓存功能"""
     print("🚀 开始语义缓存测试...")
     
     try:
-        from deepanalyze.cache import SemanticCache
+        from data/cache import SemanticCache
         
         # 创建语义缓存实例
         print("\n=== 创建语义缓存实例 ===")
-        cache = SemanticCache(similarity_threshold=0.7, max_cache_size=10)
+        data/cache = SemanticCache(similarity_threshold=0.7, max_data/cache_size=10)
         print("✅ 语义缓存实例创建成功")
         
         # 存储测试数据
@@ -34,7 +34,7 @@ def test_semantic_cache():
         ]
         
         for text, result in test_entries:
-            success = cache.store(text, result)
+            success = data/cache.store(text, result)
             print(f"  存储 '{text}': {'✅' if success else '❌'}")
         
         # 测试语义搜索
@@ -48,7 +48,7 @@ def test_semantic_cache():
         
         for query in search_queries:
             print(f"\n🔍 查询: '{query}'")
-            results = cache.search_similar(query, top_k=2)
+            results = data/cache.search_similar(query, top_k=2)
             
             if results:
                 print("  📋 找到相似项:")
@@ -66,18 +66,18 @@ def test_semantic_cache():
         ]
         
         for query in get_queries:
-            result = cache.get(query, threshold=0.6)
+            result = data/cache.get(query, threshold=0.6)
             print(f"查询 '{query}': {'✅ 命中' if result else '❌ 未命中'}")
         
         # 显示统计信息
         print("\n=== 缓存统计信息 ===")
-        stats = cache.get_stats()
+        stats = data/cache.get_stats()
         print(f"总请求数: {stats['total_requests']}")
         print(f"精确命中: {stats['exact_hits']}")
         print(f"语义命中: {stats['semantic_hits']}")
         print(f"未命中: {stats['misses']}")
         print(f"命中率: {stats['hit_rate']:.2%}")
-        print(f"缓存大小: {stats['cache_size']}")
+        print(f"缓存大小: {stats['data/cache_size']}")
         
         print("\n🎉 语义缓存测试完成!")
         return True
@@ -89,5 +89,5 @@ def test_semantic_cache():
         return False
 
 if __name__ == "__main__":
-    success = test_semantic_cache()
+    success = test_semantic_data/cache()
     sys.exit(0 if success else 1)

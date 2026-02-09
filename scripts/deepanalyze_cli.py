@@ -37,14 +37,14 @@ class DeepAnalyzeDirectCLI:
         """加载核心模块"""
         try:
             # 数据分析模块
-            from deepanalyze.analytics.advanced_analyzer import analyze_dataset, AnalysisType
+            from analytics.advanced_analyzer import analyze_dataset, AnalysisType
             self.modules['analytics'] = {
                 'analyze_dataset': analyze_dataset,
                 'AnalysisType': AnalysisType
             }
             
             # 状态管理模块
-            from deepanalyze.state.manager import create_new_session, get_session_state, update_session_state
+            from state.manager import create_new_session, get_session_state, update_session_state
             self.modules['state'] = {
                 'create_new_session': create_new_session,
                 'get_session_state': get_session_state,
@@ -52,20 +52,20 @@ class DeepAnalyzeDirectCLI:
             }
             
             # 报告生成模块
-            from deepanalyze.reporting.manager import ReportManager, ReportType
+            from reporting.manager import ReportManager, ReportType
             self.modules['reporting'] = {
                 'ReportManager': ReportManager,
                 'ReportType': ReportType
             }
             
             # AI助手模块
-            from deepanalyze.assistant.engine import AIAssistantEngine
+            from assistant.engine import AIAssistantEngine
             self.modules['assistant'] = {
                 'AIAssistantEngine': AIAssistantEngine
             }
             
             # 可视化模块
-            from deepanalyze.visualization import plotter
+            from visualization import plotter
             self.modules['visualization'] = {
                 'plotter': plotter
             }
@@ -89,7 +89,7 @@ class DeepAnalyzeDirectCLI:
         console.print(f"[green]✅ 会话创建成功: {session_id}[/green]")
         return session_id
     
-    def analyze_data(self, file_path: str, analysis_types: List[str] = None):
+    def analyze_data(self, file_path: str, docs/analysis_types: List[str] = None):
         """直接数据分析"""
         if 'analytics' not in self.modules:
             console.print("[red]❌ 数据分析模块未加载[/red]")
@@ -101,8 +101,8 @@ class DeepAnalyzeDirectCLI:
             session_id = self.current_session
             
         # 转换分析类型
-        if analysis_types:
-            analysis_enum_types = []
+        if docs/analysis_types:
+            docs/analysis_enum_types = []
             type_mapping = {
                 'descriptive': self.modules['analytics']['AnalysisType'].DESCRIPTIVE,
                 'inferential': self.modules['analytics']['AnalysisType'].INFERENTIAL,
@@ -111,11 +111,11 @@ class DeepAnalyzeDirectCLI:
                 'prescriptive': self.modules['analytics']['AnalysisType'].PRESCRIPTIVE
             }
             
-            for atype in analysis_types:
+            for atype in docs/analysis_types:
                 if atype.lower() in type_mapping:
-                    analysis_enum_types.append(type_mapping[atype.lower()])
+                    docs/analysis_enum_types.append(type_mapping[atype.lower()])
         else:
-            analysis_enum_types = None
+            docs/analysis_enum_types = None
             
         console.print(f"[cyan]🔍 开始分析文件: {file_path}[/cyan]")
         
@@ -128,7 +128,7 @@ class DeepAnalyzeDirectCLI:
             result = self.modules['analytics']['analyze_dataset'](
                 file_path=file_path,
                 session_id=session_id,
-                analysis_types=analysis_enum_types
+                docs/analysis_types=docs/analysis_enum_types
             )
         
         if result and "error" not in result:
@@ -338,7 +338,7 @@ class DeepAnalyzeDirectCLI:
 • [yellow]modules[/yellow] - 显示可用模块
 • [yellow]session[/yellow] - 显示当前会话
 
-[data analysis]
+[data docs/analysis]
 • [yellow]analyze <file_path>[/yellow] - 分析数据文件
 • [yellow]visualize <file_path>[/yellow] - 生成可视化图表
 

@@ -11,7 +11,7 @@ python tests/smoke_orchestration.py
 ## Manual Checklist
 
 - [ ] Orchestration completes for a small CSV input
-- [ ] Plan JSON and code scripts are saved to workspace
+- [ ] Plan JSON and code scripts are saved to data/sessions/active
 - [ ] Report export succeeds for Markdown/HTML
 - [ ] Data quality summary is generated
 - [ ] Run summary includes node timings

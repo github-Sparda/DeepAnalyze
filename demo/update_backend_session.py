@@ -9,20 +9,20 @@ def update_backend():
     # 1. 更新 execute_code_safe 中的 WORKSPACE_DIR
     content = re.sub(
         r'exec_cwd = os\.path\.abspath\(WORKSPACE_DIR\)',
-        'exec_cwd = os.path.abspath(workspace_dir)',
+        'exec_cwd = os.path.abspath(data/sessions/active_dir)',
         content
     )
     
-    # 2. 更新 /workspace/clear 接口
+    # 2. 更新 /data/sessions/active/clear 接口
     content = re.sub(
-        r'@app\.delete\("/workspace/clear"\)\nasync def clear_workspace\(\):\s*"""清空工作区"""[^}]+}',
-        '''@app.delete("/workspace/clear")
-async def clear_workspace(session_id: str = Query("default")):
+        r'@app\.delete\("/data/sessions/active/clear"\)\nasync def clear_data/sessions/active\(\):\s*"""清空工作区"""[^}]+}',
+        '''@app.delete("/data/sessions/active/clear")
+async def clear_data/sessions/active(session_id: str = Query("default")):
     """清空工作区（支持 session 隔离）"""
-    workspace_dir = get_session_workspace(session_id)
-    if os.path.exists(workspace_dir):
-        shutil.rmtree(workspace_dir)
-    os.makedirs(workspace_dir, exist_ok=True)
+    data/sessions/active_dir = get_session_data/sessions/active(session_id)
+    if os.path.exists(data/sessions/active_dir):
+        shutil.rmtree(data/sessions/active_dir)
+    os.makedirs(data/sessions/active_dir, exist_ok=True)
     return {"message": "Workspace cleared successfully"}''',
         content,
         flags=re.DOTALL
@@ -36,63 +36,63 @@ async def clear_workspace(session_id: str = Query("default")):
     )
     content = re.sub(
         r'code = request\.get\("code", ""\)',
-        'code = request.get("code", "")\n        session_id = request.get("session_id", "default")\n        workspace_dir = get_session_workspace(session_id)',
+        'code = request.get("code", "")\n        session_id = request.get("session_id", "default")\n        data/sessions/active_dir = get_session_data/sessions/active(session_id)',
         content
     )
     content = re.sub(
         r'os\.makedirs\(WORKSPACE_DIR, exist_ok=True\)\s+# 使用子进程安全执行',
-        '# 使用子进程安全执行（在指定 session workspace 中）',
+        '# 使用子进程安全执行（在指定 session data/sessions/active 中）',
         content
     )
     content = re.sub(
         r'result = execute_code_safe\(code\)',
-        'result = execute_code_safe(code, workspace_dir)',
+        'result = execute_code_safe(code, data/sessions/active_dir)',
         content
     )
     
     # 4. 更新 execute_code_safe 函数签名
     content = re.sub(
         r'def execute_code_safe\(code_str: str, timeout_sec: int = 120\) -> str:',
-        'def execute_code_safe(code_str: str, workspace_dir: str = None, timeout_sec: int = 120) -> str:',
+        'def execute_code_safe(code_str: str, data/sessions/active_dir: str = None, timeout_sec: int = 120) -> str:',
         content
     )
     
     # 5. 更新 export_report 接口
     content = re.sub(
         r'messages = body\.get\("messages", \[\]\)\s+title = \(body\.get\("title"\)',
-        'messages = body.get("messages", [])\n        session_id = body.get("session_id", "default")\n        workspace_dir = get_session_workspace(session_id)\n        title = (body.get("title")',
+        'messages = body.get("messages", [])\n        session_id = body.get("session_id", "default")\n        data/sessions/active_dir = get_session_data/sessions/active(session_id)\n        title = (body.get("title")',
         content
     )
     content = re.sub(
         r'md_path = _save_md\(md_text, base_name\)',
-        'md_path = _save_md(md_text, base_name, workspace_dir)',
+        'md_path = _save_md(md_text, base_name, data/sessions/active_dir)',
         content
     )
     content = re.sub(
         r'def _save_md\(md_text: str, base_name: str\) -> Path:',
-        'def _save_md(md_text: str, base_name: str, workspace_dir: str) -> Path:',
+        'def _save_md(md_text: str, base_name: str, data/sessions/active_dir: str) -> Path:',
         content
     )
     content = re.sub(
         r'Path\(WORKSPACE_DIR\)\.mkdir\(parents=True, exist_ok=True\)\s+md_path = uniquify_path\(Path\(WORKSPACE_DIR\) / f"\{base_name\}\.md"\)',
-        'Path(workspace_dir).mkdir(parents=True, exist_ok=True)\n    md_path = uniquify_path(Path(workspace_dir) / f"{base_name}.md")',
+        'Path(data/sessions/active_dir).mkdir(parents=True, exist_ok=True)\n    md_path = uniquify_path(Path(data/sessions/active_dir) / f"{base_name}.md")',
         content
     )
     
     # 6. 更新 /chat/completions 中的 collect_file_info 和 bot_stream
     content = re.sub(
-        r'def bot_stream\(messages, workspace\):',
-        'def bot_stream(messages, workspace, session_id="default"):',
+        r'def bot_stream\(messages, data/sessions/active\):',
+        'def bot_stream(messages, data/sessions/active, session_id="default"):',
         content
     )
     content = re.sub(
-        r'@app\.post\("/chat/completions"\)\nasync def chat\(body: dict = Body\(\.\.\.\)\):\s+messages = body\.get\("messages", \[\]\)\s+workspace = body\.get\("workspace", \[\]\)',
-        '@app.post("/chat/completions")\nasync def chat(body: dict = Body(...)):\n    messages = body.get("messages", [])\n    workspace = body.get("workspace", [])\n    session_id = body.get("session_id", "default")',
+        r'@app\.post\("/chat/completions"\)\nasync def chat\(body: dict = Body\(\.\.\.\)\):\s+messages = body\.get\("messages", \[\]\)\s+data/sessions/active = body\.get\("data/sessions/active", \[\]\)',
+        '@app.post("/chat/completions")\nasync def chat(body: dict = Body(...)):\n    messages = body.get("messages", [])\n    data/sessions/active = body.get("data/sessions/active", [])\n    session_id = body.get("session_id", "default")',
         content
     )
     content = re.sub(
-        r'for reply in bot_stream\(messages, workspace\):',
-        'for reply in bot_stream(messages, workspace, session_id):',
+        r'for reply in bot_stream\(messages, data/sessions/active\):',
+        'for reply in bot_stream(messages, data/sessions/active, session_id):',
         content
     )
     

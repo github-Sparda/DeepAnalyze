@@ -12,8 +12,8 @@ def _load_json(path: Path) -> list[dict]:
         return []
 
 
-def validate_registry(workspace_dir: Path) -> dict[str, object]:
-    artifacts_dir = workspace_dir / "artifacts"
+def validate_registry(data/sessions/active_dir: Path) -> dict[str, object]:
+    artifacts_dir = data/sessions/active_dir / "artifacts"
     summary: dict[str, object] = {"plans": [], "errors": []}
     if not artifacts_dir.exists():
         summary["errors"].append("artifacts directory missing")
@@ -54,11 +54,11 @@ def validate_registry(workspace_dir: Path) -> dict[str, object]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Validate artifact registry entries.")
-    parser.add_argument("--workspace", default="workspace", help="Workspace directory")
+    parser.add_argument("--data/sessions/active", default="data/sessions/active", help="Workspace directory")
     args = parser.parse_args()
-    workspace_dir = Path(args.workspace)
-    summary = validate_registry(workspace_dir)
-    output_dir = workspace_dir / "logs" / "artifacts"
+    data/sessions/active_dir = Path(args.data/sessions/active)
+    summary = validate_registry(data/sessions/active_dir)
+    output_dir = data/sessions/active_dir / "outputs/logs" / "artifacts"
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / "summary.json"
     output_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")

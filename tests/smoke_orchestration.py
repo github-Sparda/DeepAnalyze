@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-import tempfile
+import temporaryfile
 from pathlib import Path
 import sys
 
@@ -9,8 +9,8 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.append(str(ROOT_DIR))
 
-from deepanalyze.orchestration.graph import build_graph
-from deepanalyze.orchestration.state import OrchestrationState
+from orchestration.graph import build_graph
+from orchestration.state import OrchestrationState
 
 
 class FakeLLM:
@@ -55,12 +55,12 @@ class FakeLLM:
 
 def main():
     fixture = Path(__file__).parent / "fixtures" / "sample.csv"
-    with tempfile.TemporaryDirectory() as tmpdir:
-        workspace = Path(tmpdir)
-        (workspace / fixture.name).write_text(fixture.read_text(encoding="utf-8"), encoding="utf-8")
+    with temporaryfile.TemporaryDirectory() as tmpdir:
+        data_sessions_active = Path(tmpdir)
+        (data_sessions/active / fixture.name).write_text(fixture.read_text(encoding="utf-8"), encoding="utf-8")
         state: OrchestrationState = {
             "session_id": "smoke",
-            "workspace_dir": str(workspace),
+            "data_sessions_active_dir": str(data_sessions/active),
             "depth": 1,
             "max_depth": 1,
             "config": {"report_format": "markdown", "report_language": "en"},

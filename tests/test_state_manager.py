@@ -3,7 +3,7 @@ State Management Usage Examples and Tests
 状态管理使用示例和测试
 """
 
-from deepanalyze.state.manager import (
+from state.manager import (
     StateManager,
     create_new_session,
     get_session_state,
@@ -11,7 +11,7 @@ from deepanalyze.state.manager import (
     update_session_state,
     get_state_manager
 )
-from deepanalyze.orchestration.state import OrchestrationState
+from orchestration.state import OrchestrationState
 
 
 def demo_basic_usage():

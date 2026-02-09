@@ -6,12 +6,12 @@
 
 ```
 DeepAnalyze/
-├─ API/                 # OpenAI 风格 API 服务（FastAPI）
+├─ src/api/                 # OpenAI 风格 src/api 服务（Fastsrc/api）
 ├─ assets/              # 文档图片与演示素材
-├─ deepanalyze/         # 核心库（LangGraph 编排 / 报告 / 图表）
+├─ src/core/         # 核心库（LangGraph 编排 / 报告 / 图表）
 ├─ demo/                # WebUI / JupyterUI / CLI 示例
-├─ example/             # API 调用示例脚本
-├─ playground/          # 评测/对比与实验入口
+├─ data/examples/             # src/api 调用示例脚本
+├─ data/examples/benchmarks/          # 评测/对比与实验入口
 ├─ scripts/             # 启动/停止服务脚本
 ├─ requirements.txt     # 推理依赖
 └─ README.md            # 英文说明
@@ -19,26 +19,26 @@ DeepAnalyze/
 
 ### 核心模块
 
-- `deepanalyze/orchestration/`
+- `src/core/orchestration/`
   LangGraph 编排主流程与状态管理（文件理解 → 规划 → 代码 → 执行 → 结果 → 报告）。
-- `deepanalyze/reporting/`
+- `src/core/reporting/`
   报告模板与导出（HTML/Markdown/PDF/DOCX，支持导出策略与模板配置）。
-- `deepanalyze/visualization/`
+- `src/core/visualization/`
   图表主题与绘图封装（学术风 / 仪表盘风）。
 
 ### 交互入口
 
-- `API/`：OpenAI 风格 API（`/v1/chat/completions`、`/v1/files` 等）。
+- `src/api/`：OpenAI 风格 src/api（`/v1/chat/completions`、`/v1/files` 等）。
 - `demo/backend.py`：WebUI 使用的 Demo 后端（支持 LangGraph 编排开关）。
-- `demo/chat`：WebUI 前端（默认端口 4000，见 `API/config.py`）。
-- `demo/jupyter`：Jupyter Lab 交互界面。
-- `demo/cli`：CLI 终端交互界面。
+- `src/web`：WebUI 前端（默认端口 4000，见 `src/api/config.py`）。
+- `src/jupyter`：Jupyter Lab 交互界面。
+- `src/cli`：CLI 终端交互界面。
 
 ## 2. 功能概览
 
 - 端到端数据科学任务：数据准备、分析、建模、可视化、报告生成。
 - 多数据源支持：CSV/Excel/JSON/YAML/XML/TXT/Markdown 等。
-- 多交互方式：WebUI / JupyterUI / CLI / OpenAI 风格 API。
+- 多交互方式：WebUI / JupyterUI / CLI / OpenAI 风格 src/api。
 - 文件上传与结果回传：支持上传、生成图表/报告并下载。
 
 ## 3. 核心流程
@@ -48,20 +48,20 @@ DeepAnalyze/
 
 ## 4. 运行形态与启动方式
 
-- API Server（标准 OpenAI 风格）
-  - `API/start_server.py`，对外提供 `/v1/*` 接口。
+- src/api Server（标准 OpenAI 风格）
+  - `src/api/start_server.py`，对外提供 `/v1/*` 接口。
 - WebUI Demo
   - `scripts/start_services.sh` 或 `demo/start.sh` 启动 Demo 后端 + 前端。
 - JupyterUI
-  - `demo/jupyter/server.py` 负责连接 Jupyter Lab 并执行代码。
+  - `src/jupyter/server.py` 负责连接 Jupyter Lab 并执行代码。
 - CLI
-  - `demo/cli/api_cli.py` / `demo/cli/api_cli_ZH.py`，默认调用 API Server。
+  - `src/cli/api_cli.py` / `src/cli/api_cli_ZH.py`，默认调用 src/api Server。
 
-## 5. 关键配置（.env 与 API/config.py）
+## 5. 关键配置（.env 与 src/api/config.py）
 
 ### 模型与服务
-- `DEEPANALYZE_VLLM_BASE_URL`：上游模型 API 地址（兼容 OpenAI 协议）
-- `DEEPANALYZE_VLLM_API_KEY`：API Key
+- `DEEPANALYZE_VLLM_BASE_URL`：上游模型 src/api 地址（兼容 OpenAI 协议）
+- `DEEPANALYZE_VLLM_src/api_KEY`：src/api Key
 - `DEEPANALYZE_MODEL_PATH` / `DEFAULT_MODEL`：模型名称
 
 ### 编排与递归
@@ -79,21 +79,21 @@ DeepAnalyze/
 - `DEEPANALYZE_VISUAL_INTERACTIVE`：是否输出交互图（Plotly）
 
 ### 端口
-- API：`http://localhost:48200`
+- src/api：`http://localhost:48200`
 - 文件下载：`http://localhost:48100`
 - WebUI：`http://localhost:4000`（默认）
 
 ## 6. 报告与图表说明
 
-- 报告导出使用 `deepanalyze/reporting/exporter.py`，HTML 为默认输出。
+- 报告导出使用 `src/core/reporting/exporter.py`，HTML 为默认输出。
 - PDF 依赖 `weasyprint`，若缺失会降级输出提示文本。
 - DOCX 基于 HTML 纯文本转换，适合基础输出。
-- 图表主题在 `deepanalyze/visualization/theme.py` 中定义，Plotly 为交互优先库。
+- 图表主题在 `src/core/visualization/theme.py` 中定义，Plotly 为交互优先库。
 
 ## 7. 工作目录与日志
 
-- `workspace/`：会话工作区（上传文件、生成文件、报告输出等）。
-- `logs/`：运行日志（脚本启动时生成）。
+- `data/sessions/active/`：会话工作区（上传文件、生成文件、报告输出等）。
+- `outputs/logs/`：运行日志（脚本启动时生成）。
 - 可通过 `DEEPANALYZE_DEBUG_STREAM` 输出 LLM 流式调试日志。
 
 ## 8. 自动化验证建议

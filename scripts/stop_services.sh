@@ -3,8 +3,8 @@ set -euo pipefail
 
 PYTHON_BIN="/home/huangzw/miniforge3/envs/common/bin/python"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-LOG_DIR="$ROOT_DIR/logs"
-API_DIR="$ROOT_DIR/API"
+LOG_DIR="$ROOT_DIR/outputs/logs"
+src/api_DIR="$ROOT_DIR/src/api"
 
 if [ -f "$ROOT_DIR/.env" ]; then
   set -a
@@ -13,19 +13,19 @@ if [ -f "$ROOT_DIR/.env" ]; then
   set +a
 fi
 
-read -r API_PORT FILE_PORT FRONTEND_PORT <<EOF
+read -r src/api_PORT FILE_PORT FRONTEND_PORT <<EOF
 $(
-  API_DIR="$API_DIR" "$PYTHON_BIN" - <<'PY'
+  src/api_DIR="$src/api_DIR" "$PYTHON_BIN" - <<'PY'
 import os
 import sys
 
-api_dir = os.environ.get("API_DIR")
+api_dir = os.environ.get("src/api_DIR")
 if api_dir:
     sys.path.append(api_dir)
 
-from config import API_PORT, HTTP_SERVER_PORT, FRONTEND_PORT
+from config import src/api_PORT, HTTP_SERVER_PORT, FRONTEND_PORT
 
-print(API_PORT, HTTP_SERVER_PORT, FRONTEND_PORT)
+print(src/api_PORT, HTTP_SERVER_PORT, FRONTEND_PORT)
 PY
 )
 EOF
@@ -64,7 +64,7 @@ esac
 
 echo "Stopping DeepAnalyze services..."
 if [ "$TARGET" = "all" ] || [ "$TARGET" = "backend" ]; then
-  stop_pid_file "Backend API" "$LOG_DIR/backend.pid"
+  stop_pid_file "Backend src/api" "$LOG_DIR/backend.pid"
 fi
 if [ "$TARGET" = "all" ] || [ "$TARGET" = "frontend" ]; then
   stop_pid_file "Frontend" "$LOG_DIR/frontend.pid"
@@ -72,7 +72,7 @@ fi
 
 echo "Releasing ports..."
 if [ "$TARGET" = "all" ] || [ "$TARGET" = "backend" ]; then
-  for port in "$API_PORT" "$FILE_PORT"; do
+  for port in "$src/api_PORT" "$FILE_PORT"; do
     if lsof -i:"$port" >/dev/null 2>&1; then
       echo "Releasing port $port..."
       lsof -ti:"$port" | xargs kill -9 >/dev/null 2>&1 || true

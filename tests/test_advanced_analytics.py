@@ -6,9 +6,9 @@ Advanced Analytics Tests and Examples
 import pandas as pd
 import numpy as np
 from pathlib import Path
-import tempfile
+import temporaryfile
 
-from deepanalyze.analytics.advanced_analyzer import (
+from analytics.advanced_analyzer import (
     AdvancedDataAnalyzer,
     AnalysisType,
     StatisticalTest,
@@ -52,12 +52,12 @@ def demo_data_loading():
     
     # 创建临时CSV文件
     df = create_sample_data()
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
+    with temporaryfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
         df.to_csv(f.name, index=False)
-        temp_file = f.name
+        temporary_file = f.name
     
     # 测试数据加载
-    loaded_df = analyzer.load_data(temp_file)
+    loaded_df = analyzer.load_data(temporary_file)
     if loaded_df is not None:
         print(f"成功加载数据: {loaded_df.shape}")
         print(f"列名: {list(loaded_df.columns)}")
@@ -66,7 +66,7 @@ def demo_data_loading():
         print("数据加载失败")
     
     # 清理临时文件
-    Path(temp_file).unlink()
+    Path(temporary_file).unlink()
     
     return loaded_df
 
@@ -99,7 +99,7 @@ def demo_data_quality_assessment(df: pd.DataFrame):
             print(f"    {col}: {len(outliers)} 个异常值")
 
 
-def demo_statistical_analysis(df: pd.DataFrame):
+def demo_statistical_docs_analysis(df: pd.DataFrame):
     """演示统计分析功能"""
     print("\n=== 统计分析演示 ===")
     
@@ -138,7 +138,7 @@ def demo_statistical_analysis(df: pd.DataFrame):
         print(f"    解释: {result.interpretation}")
 
 
-def demo_comprehensive_analysis():
+def demo_comprehensive_docs_analysis():
     """演示综合分析报告"""
     print("\n=== 综合分析报告演示 ===")
     
@@ -148,7 +148,7 @@ def demo_comprehensive_analysis():
     
     # 生成综合报告
     analyzer = AdvancedDataAnalyzer()
-    report = analyzer.generate_analysis_report(
+    report = analyzer.generate_docs_analysis_report(
         df, 
         session_id,
         analysis_types=[AnalysisType.DESCRIPTIVE, AnalysisType.INFERENTIAL]
@@ -197,14 +197,14 @@ def demo_error_handling():
     print(f"加载不存在文件: {'成功' if result is not None else '失败（正确）'}")
     
     # 测试不支持的格式
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+    with temporaryfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
         f.write("这不是CSV格式的内容")
-        temp_file = f.name
+        temporary_file = f.name
     
-    result = analyzer.load_data(temp_file)
+    result = analyzer.load_data(temporary_file)
     print(f"加载不支持格式: {'成功' if result is not None else '失败（正确）'}")
     
-    Path(temp_file).unlink()
+    Path(temporary_file).unlink()
 
 
 def performance_test():
@@ -223,7 +223,7 @@ def performance_test():
     session_id = "perf_test_large"
     
     start_time = time.time()
-    report = analyzer.generate_analysis_report(large_df, session_id)
+    report = analyzer.generate_docs_analysis_report(large_df, session_id)
     end_time = time.time()
     
     print(f"处理 {len(large_df)} 行数据耗时: {end_time - start_time:.2f} 秒")
@@ -238,8 +238,8 @@ if __name__ == "__main__":
         # 执行所有演示
         df = demo_data_loading()
         demo_data_quality_assessment(df)
-        demo_statistical_analysis(df)
-        demo_comprehensive_analysis()
+        demo_statistical_docs_analysis(df)
+        demo_comprehensive_docs_analysis()
         demo_error_handling()
         performance_test()
         

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from deepanalyze.orchestration.intent_router import ChatIntent, classify_intent
+from orchestration.intent_router import ChatIntent, classify_intent
 
 
 def _manifest_with_report() -> dict[str, object]:

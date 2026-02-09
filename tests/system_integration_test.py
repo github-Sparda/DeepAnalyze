@@ -3,7 +3,7 @@
 系统集成测试和性能优化验证
 System Integration Test and Performance Optimization
 
-改进版本 - 修正API调用错误，完善测试覆盖，优化代码质量
+改进版本 - 修正src/api调用错误，完善测试覆盖，优化代码质量
 """
 
 import sys
@@ -11,7 +11,7 @@ import os
 import time
 import json
 from pathlib import Path
-import tempfile
+import temporaryfile
 import shutil
 from typing import Dict, Any, List, Optional
 import logging
@@ -26,23 +26,23 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 # 导入各个模块
-from deepanalyze.state.manager import (
+from state.manager import (
     StateManager, 
     create_new_session, 
     get_session_state, 
     update_session_state
 )
-from deepanalyze.error.handler import (
+from error.handler import (
     ErrorHandler, 
     ErrorSeverity, 
     ErrorCategory, 
     safe_execute,
     handle_exception
 )
-from deepanalyze.assistant.engine import AIAssistantEngine
-from deepanalyze.analytics.advanced_analyzer import analyze_dataset
-from deepanalyze.reporting.manager import ReportManager, ReportType
-from deepanalyze.collaboration.manager import (
+from assistant.engine import AIAssistantEngine
+from analytics.advanced_analyzer import analyze_dataset
+from reporting.manager import ReportManager, ReportType
+from collaboration.manager import (
     CollaborationManager, 
     PermissionLevel,
     ShareType
@@ -53,7 +53,7 @@ class SystemIntegrationTest:
     """系统集成测试类 - 改进版"""
     
     def __init__(self):
-        self.temp_dir = None
+        self.temporary_dir = None
         self.managers = {}
         self.test_results = {}
         self.performance_metrics = {}
@@ -62,25 +62,25 @@ class SystemIntegrationTest:
     def setup(self):
         """设置测试环境"""
         self.logger.info("🔧 设置测试环境...")
-        self.temp_dir = tempfile.mkdtemp(prefix="deepanalyze_test_")
+        self.temporary_dir = temporaryfile.mkdtemporary(prefix="src_core_test_")
         
         # 初始化各个管理器
         try:
             # 使用全局StateManager确保一致性
-            from deepanalyze.state.manager import get_state_manager
+            from state.manager import get_state_manager
             state_manager = get_state_manager()
             # 重新设置base_dir到测试目录
-            state_manager.base_dir = Path(self.temp_dir)
+            state_manager.base_dir = Path(self.temporary_dir)
             state_manager.base_dir.mkdir(parents=True, exist_ok=True)
             
             self.managers = {
                 'state': state_manager,  # 使用全局管理器
                 'error': ErrorHandler(),
                 'assistant': AIAssistantEngine(),
-                'report': ReportManager(self.temp_dir),
-                'collaboration': CollaborationManager(self.temp_dir)
+                'report': ReportManager(self.temporary_dir),
+                'collaboration': CollaborationManager(self.temporary_dir)
             }
-            self.logger.info(f"📁 测试工作目录: {self.temp_dir}")
+            self.logger.info(f"📁 测试工作目录: {self.temporary_dir}")
             self.logger.info("✅ 测试环境设置完成")
             return True
         except Exception as e:
@@ -89,9 +89,9 @@ class SystemIntegrationTest:
     
     def teardown(self):
         """清理测试环境"""
-        if self.temp_dir and os.path.exists(self.temp_dir):
+        if self.temporary_dir and os.path.exists(self.temporary_dir):
             try:
-                shutil.rmtree(self.temp_dir)
+                shutil.rmtree(self.temporary_dir)
                 self.logger.info("🧹 测试环境已清理")
             except Exception as e:
                 self.logger.warning(f"⚠️ 清理测试环境时出现问题: {e}")
@@ -118,14 +118,14 @@ class SystemIntegrationTest:
                 session_id, 
                 "user_001", 
                 "测试用户", 
-                "test@example.com", 
+                "test@data_examples.com", 
                 PermissionLevel.EDITOR
             )
             assert collab_added, "添加协作者失败"
             
             # 3. 模拟数据分析
             self.logger.info("  3️⃣ 执行数据分析...")
-            sample_data_path = Path(self.temp_dir) / "sample_data.csv"
+            sample_data_path = Path(self.temporary_dir) / "sample_data.csv"
             sample_data_content = """name,age,salary,department
 张三,25,8000,技术部
 李四,30,12000,销售部
@@ -195,9 +195,9 @@ class SystemIntegrationTest:
             # 7. 验证状态更新 - 修复状态获取问题
             self.logger.info("  7️⃣ 验证状态更新...")
             # 强制刷新状态管理器缓存
-            from deepanalyze.state.manager import get_state_manager
+            from state.manager import get_state_manager
             state_manager = get_state_manager()
-            state_manager._cache.pop(session_id, None)  # 清除缓存
+            state_manager._data_cache.pop(session_id, None)  # 清除缓存
             
             session_state = get_session_state(session_id)
             assert session_state is not None, "获取会话状态失败"
@@ -264,7 +264,7 @@ class SystemIntegrationTest:
             assert update_success, "状态更新失败"
             
             # 强制刷新缓存以确保状态同步
-            self.managers['state']._cache.pop(session_id, None)
+            self.managers['state']._data_cache.pop(session_id, None)
             
             # 验证状态可以通过不同方式获取
             # 使用相同的管理器实例进行比较
@@ -335,7 +335,7 @@ class SystemIntegrationTest:
             
             # 测试大文件处理
             self.logger.info("  📁 测试大文件处理...")
-            large_data_path = Path(self.temp_dir) / "large_data.csv"
+            large_data_path = Path(self.temporary_dir) / "large_data.csv"
             large_data_content = "id,value,name\n" + "\n".join([
                 f"{i},{i*2},用户{i}" for i in range(1000)
             ])
@@ -464,8 +464,8 @@ class SystemIntegrationTest:
             return False
     
     def test_api_compatibility(self):
-        """测试API兼容性和边界条件"""
-        self.logger.info("\n🧪 测试API兼容性...")
+        """测试src_api兼容性和边界条件"""
+        self.logger.info("\n🧪 测试src/api兼容性...")
         start_time = time.time()
         
         try:
@@ -529,7 +529,7 @@ class SystemIntegrationTest:
                 }
             }
             
-            self.logger.info(f"✅ API兼容性测试完成: {successful_tests}/{total_tests} 成功 (耗时: {execution_time:.3f}秒)")
+            self.logger.info(f"✅ src_api兼容性测试完成: {successful_tests}/{total_tests} 成功 (耗时: {execution_time:.3f}秒)")
             return successful_tests >= total_tests * 0.8
             
         except Exception as e:
@@ -538,7 +538,7 @@ class SystemIntegrationTest:
                 'error': str(e),
                 'execution_time': time.time() - start_time
             }
-            self.logger.error(f"❌ API兼容性测试失败: {str(e)}")
+            self.logger.error(f"❌ src_api兼容性测试失败: {str(e)}")
             return False
     
     def test_data_processing_pipeline(self):
@@ -583,7 +583,7 @@ class SystemIntegrationTest:
                         file_extension = "csv"
                     else:
                         file_extension = file_type.split('_')[0] if '_' in file_type else 'txt'
-                    file_path = Path(self.temp_dir) / f"test_{file_type}.{file_extension}"
+                    file_path = Path(self.temporary_dir) / f"test_{file_type}.{file_extension}"
                     file_path.write_text(content, encoding='utf-8')
                     
                     # 分析数据
@@ -890,7 +890,7 @@ class SystemIntegrationTest:
                 session_id, 
                 f"user_{i}", 
                 f"用户{i}", 
-                f"user{i}@example.com", 
+                f"user{i}@data_examples.com", 
                 PermissionLevel.VIEWER
             )
             
@@ -968,7 +968,7 @@ class SystemIntegrationTest:
                 self.logger.info(f"   📊 {test_name}:")
                 self.logger.info(f"      平均耗时: {metrics['avg_time']*1000:.2f}ms")
                 self.logger.info(f"      吞吐量: {metrics['throughput']:.1f} ops/sec")
-                self.logger.info(f"      最小/最大: {metrics['min_time']*1000:.2f}ms / {metrics['max_time']*1000:.2f}ms")
+                self.logger.info(f"      最小_最大: {metrics['min_time']*1000:.2f}ms / {metrics['max_time']*1000:.2f}ms")
                 self.logger.info(f"      迭代次数: {metrics['iterations']}")
         
         # 系统健康度评估
@@ -1082,7 +1082,7 @@ def main():
             tester.test_module_integration,
             tester.test_edge_cases,
             tester.test_concurrent_operations,
-            tester.test_api_compatibility,  # 新增API兼容性测试
+            tester.test_api_compatibility,  # 新增src/api兼容性测试
             tester.test_data_processing_pipeline,  # 新增数据处理管道测试
             tester.test_error_recovery
         ]
@@ -1101,8 +1101,8 @@ def main():
         report = tester.generate_test_report()
         
         # 保存测试报告
-        if tester.temp_dir:
-            report_file = Path(tester.temp_dir) / "integration_test_report_detailed.json"
+        if tester.temporary_dir:
+            report_file = Path(tester.temporary_dir) / "integration_test_report_detailed.json"
             with open(report_file, 'w', encoding='utf-8') as f:
                 json.dump(report, f, ensure_ascii=False, indent=2)
             logger.info(f"\n💾 详细测试报告已保存到: {report_file}")

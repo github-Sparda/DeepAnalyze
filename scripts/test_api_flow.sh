@@ -3,7 +3,7 @@ set -euo pipefail
 
 PYTHON_BIN="/home/huangzw/miniforge3/envs/common/bin/python"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-API_DIR="$ROOT_DIR/API"
+src/api_DIR="$ROOT_DIR/src/api"
 
 if [ -f "$ROOT_DIR/.env" ]; then
   set -a
@@ -12,35 +12,35 @@ if [ -f "$ROOT_DIR/.env" ]; then
   set +a
 fi
 
-read -r API_PUBLIC_BASE_V1 DEFAULT_MODEL <<EOF
+read -r src/api_PUBLIC_BASE_V1 DEFAULT_MODEL <<EOF
 $(
-  API_DIR="$API_DIR" "$PYTHON_BIN" - <<'PY'
+  src/api_DIR="$src/api_DIR" "$PYTHON_BIN" - <<'PY'
 import os
 import sys
 
-api_dir = os.environ.get("API_DIR")
+api_dir = os.environ.get("src/api_DIR")
 if api_dir:
     sys.path.append(api_dir)
 
-from config import API_PUBLIC_BASE_V1, DEFAULT_MODEL
+from config import src/api_PUBLIC_BASE_V1, DEFAULT_MODEL
 
-print(API_PUBLIC_BASE_V1, DEFAULT_MODEL)
+print(src/api_PUBLIC_BASE_V1, DEFAULT_MODEL)
 PY
 )
 EOF
 
-DATA_FILE="${1:-$ROOT_DIR/example/analysis_on_student_loan/data/enrolled.csv}"
+DATA_FILE="${1:-$ROOT_DIR/data/examples/docs/analysis_on_student_loan/data/enrolled.csv}"
 
 if [ ! -f "$DATA_FILE" ]; then
   echo "Data file not found: $DATA_FILE"
   exit 1
 fi
 
-echo "API base: $API_PUBLIC_BASE_V1"
+echo "src/api base: $src/api_PUBLIC_BASE_V1"
 echo "Model: $DEFAULT_MODEL"
 echo "Data: $DATA_FILE"
 
-FILE_RESPONSE=$(curl -s -X POST "$API_PUBLIC_BASE_V1/files" \
+FILE_RESPONSE=$(curl -s -X POST "$src/api_PUBLIC_BASE_V1/files" \
   -F "file=@${DATA_FILE}" \
   -F "purpose=file-extract")
 
@@ -63,14 +63,14 @@ fi
 
 echo "Uploaded file id: $FILE_ID"
 
-CHAT_RESPONSE=$(curl -s -X POST "$API_PUBLIC_BASE_V1/chat/completions" \
+CHAT_RESPONSE=$(curl -s -X POST "$src/api_PUBLIC_BASE_V1/chat/completions" \
   -H "Content-Type: application/json" \
   -d "{
     \"model\": \"${DEFAULT_MODEL}\",
     \"messages\": [
       {\"role\": \"user\", \"content\": \"请分析这份数据并给出关键结论\", \"file_ids\": [\"${FILE_ID}\"]}
     ],
-    \"temperature\": 0.4
+    \"data/cache/temporaryerature\": 0.4
   }")
 
 echo "Response:"

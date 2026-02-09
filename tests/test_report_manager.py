@@ -3,7 +3,7 @@ Enhanced Report System Tests and Examples
 增强版报告系统测试和示例
 """
 
-from deepanalyze.reporting.manager import (
+from reporting.manager import (
     ReportManager,
     ReportType,
     ReportStatus,
@@ -52,7 +52,7 @@ def demo_report_creation():
         title="2024年Q1销售数据分析报告",
         content=sample_content,
         report_type=ReportType.ANALYTICAL,
-        template_id="analytical",
+        temporarylate_id="analytical",
         metadata={
             "author": "数据分析团队",
             "tags": ["销售", "分析", "季度报告"],
@@ -140,15 +140,15 @@ def demo_report_export(report_id: str):
             print(f"{format_name}导出异常: {e}")
 
 
-def demo_template_system():
+def demo_temporarylate_system():
     """演示模板系统"""
     print("\n=== 模板系统演示 ===")
     
     manager = ReportManager()
     
     print("可用模板:")
-    for template_id, template in manager.default_templates.items():
-        print(f"  {template_id}: {template.name}")
+    for temporarylate_id, template in manager.default_temporarylates.items():
+        print(f"  {temporarylate_id}: {template.name}")
         print(f"    描述: {template.description}")
         print(f"    类型: {template.report_type.value}")
         print(f"    章节: {', '.join(template.sections)}")
@@ -205,7 +205,7 @@ def performance_test():
     
     print(f"创建10个报告耗时: {creation_time:.3f}秒")
     print(f"列出报告耗时: {list_time:.3f}秒")
-    print(f"平均每报告创建时间: {creation_time/10:.3f}秒")
+    print(f"平均每报告创建时间: {creation_time_10:.3f}秒")
     print(f"报告总数: {len(reports)}")
 
 
@@ -218,7 +218,7 @@ if __name__ == "__main__":
         report_id = demo_report_creation()
         demo_report_management(report_id)
         demo_report_export(report_id)
-        demo_template_system()
+        demo_temporarylate_system()
         demo_error_handling()
         performance_test()
         

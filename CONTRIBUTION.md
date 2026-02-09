@@ -9,8 +9,8 @@
 ## Contribution on Case Study
 
 - We also especially encourage you to share your use cases and feedback when using DeepAnalyze; these are extremely valuable for helping us improve DeepAnalyze.
-- You can place your use cases in a new folder under [`.example/`](.example/). We recommend following the folder structure of [`.example/analysis_on_student_loan/`](.example/analysis_on_student_loan/), which includes three parts:
+- You can place your use cases in a new folder under [`.data/examples/`](.data/examples/). We recommend following the folder structure of [`.data/examples/docs/analysis_on_student_loan/`](.data/examples/docs/analysis_on_student_loan/), which includes three parts:
     - `data/`: stores the uploaded files
     - `prompt.txt`: input instructions
     - `README.md`: documentation. We suggest including the input, DeepAnalyze’s output, outputs from other closed-source LLMs (optional, screenshots of the results are also acceptable.), and your evaluation/comments of the case.
-- We also welcome examples where DeepAnalyze performs slightly worse than closed-source LLMs — this will help us improve DeepAnalyze.
+- We also welcome data/exampless where DeepAnalyze performs slightly worse than closed-source LLMs — this will help us improve DeepAnalyze.

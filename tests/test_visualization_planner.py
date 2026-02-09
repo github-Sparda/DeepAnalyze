@@ -5,7 +5,7 @@ from pathlib import Path
 
 pd = pytest.importorskip("pandas")
 
-from deepanalyze.orchestration.visualization_planner import VisualizationPlanner
+from src.core.orchestration.visualization_planner import VisualizationPlanner
 
 
 def test_visualization_planner_generates_instructions(tmp_path: Path) -> None:

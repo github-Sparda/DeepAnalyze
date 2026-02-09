@@ -30,7 +30,7 @@ DeepAnalyze增强版AI助手提供了智能化的对话体验，具备上下文�
 ### 基本对话
 
 ```python
-from deepanalyze.assistant.engine import chat_with_assistant, ContextMode
+from src/core.assistant.engine import chat_with_assistant, ContextMode
 
 # 简单对话
 response = chat_with_assistant(
@@ -46,7 +46,7 @@ print(f"置信度: {response['confidence']:.2f}")
 ### 高级用法
 
 ```python
-from deepanalyze.assistant.engine import (
+from src/core.assistant.engine import (
     AIAssistantEngine,
     ContextMode,
     ResponseStyle
@@ -67,7 +67,7 @@ response = engine.process_message(
 ### 上下文管理
 
 ```python
-from deepanalyze.assistant.context_manager import ContextManager, MemoryType
+from src/core.assistant.context_manager import ContextManager, MemoryType
 
 cm = ContextManager()
 
@@ -161,7 +161,7 @@ response = chat_with_assistant("session_123", "今天天气怎么样？")
 
 ### 记忆类型
 ```python
-from deepanalyze.assistant.context_manager import MemoryType
+from src/core.assistant.context_manager import MemoryType
 
 # 对话历史记忆
 MemoryType.CONVERSATION
@@ -285,7 +285,7 @@ complete_message = "基于之前上传的sales_2024.csv文件，分析各产品�
 # 系统会自动清理，也可手动调用
 ```
 
-## API参考
+## src/api参考
 
 ### 主要类和函数
 

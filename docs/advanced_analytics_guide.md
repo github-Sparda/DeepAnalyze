@@ -35,13 +35,13 @@ DeepAnalyze高级数据分析模块提供了全面的数据分析能力，包括
 ### 基本数据分析
 
 ```python
-from deepanalyze.analytics.advanced_analyzer import analyze_dataset, AnalysisType
+from src/core.analytics.advanced_analyzer import analyze_dataset, AnalysisType
 
 # 简单数据分析
 report = analyze_dataset(
     file_path="data/sales.csv",
-    session_id="analysis_session_001",
-    analysis_types=[AnalysisType.DESCRIPTIVE, AnalysisType.INFERENTIAL]
+    session_id="docs/analysis_session_001",
+    docs/analysis_types=[AnalysisType.DESCRIPTIVE, AnalysisType.INFERENTIAL]
 )
 
 print(f"数据形状: {report['data_summary']['shape']}")
@@ -51,7 +51,7 @@ print(f"发现的洞察: {len(report['insights'])} 条")
 ### 详细分析流程
 
 ```python
-from deepanalyze.analytics.advanced_analyzer import (
+from src/core.analytics.advanced_analyzer import (
     AdvancedDataAnalyzer,
     StatisticalTest,
     DataQualityReport
@@ -155,7 +155,7 @@ results = analyzer.perform_statistical_tests(
 report = analyze_dataset(
     file_path="data.csv",
     session_id="session_001",
-    analysis_types=[AnalysisType.DESCRIPTIVE]
+    docs/analysis_types=[AnalysisType.DESCRIPTIVE]
 )
 # 包含：数据概览、基本统计、分布特征
 ```
@@ -165,7 +165,7 @@ report = analyze_dataset(
 report = analyze_dataset(
     file_path="data.csv",
     session_id="session_001",
-    analysis_types=[AnalysisType.INFERENTIAL]
+    docs/analysis_types=[AnalysisType.INFERENTIAL]
 )
 # 包含：统计检验、假设验证、显著性分析
 ```
@@ -179,7 +179,7 @@ report = analyze_dataset(
 
 ```python
 report = {
-    "session_id": "analysis_session_001",
+    "session_id": "docs/analysis_session_001",
     "generated_at": "2026-02-07T23:29:27.719729",
     "data_summary": {
         "shape": [1000, 7],
@@ -236,13 +236,13 @@ df = pd.DataFrame({
 # 根据数据特点选择分析类型
 if df.shape[0] < 100:
     # 小数据集：重点关注描述性分析
-    analysis_types = [AnalysisType.DESCRIPTIVE]
+    docs/analysis_types = [AnalysisType.DESCRIPTIVE]
 elif df.select_dtypes(include=[np.number]).shape[1] > 5:
     # 多变量：增加相关性分析
-    analysis_types = [AnalysisType.DESCRIPTIVE, AnalysisType.INFERENTIAL]
+    docs/analysis_types = [AnalysisType.DESCRIPTIVE, AnalysisType.INFERENTIAL]
 else:
     # 标准分析
-    analysis_types = [AnalysisType.DESCRIPTIVE, AnalysisType.INFERENTIAL]
+    docs/analysis_types = [AnalysisType.DESCRIPTIVE, AnalysisType.INFERENTIAL]
 ```
 
 ### 3. 结果解释
@@ -290,7 +290,7 @@ if sum(quality_report.missing_values.values()) > len(df) * 0.1:
 if len(df) > 100000:
     # 采样分析
     sample_df = df.sample(10000)
-    report = analyzer.generate_analysis_report(sample_df, session_id)
+    report = analyzer.generate_docs/analysis_report(sample_df, session_id)
     
     # 分批处理
     batch_size = 50000
@@ -307,7 +307,7 @@ df = pd.read_csv("large_file.csv",
                  nrows=100000)  # 限制行数
 ```
 
-## API参考
+## src/api参考
 
 ### 主要类和方法
 
@@ -315,7 +315,7 @@ df = pd.read_csv("large_file.csv",
 - `load_data()`: 加载数据文件
 - `assess_data_quality()`: 评估数据质量
 - `perform_statistical_tests()`: 执行统计检验
-- `generate_analysis_report()`: 生成综合分析报告
+- `generate_docs/analysis_report()`: 生成综合分析报告
 
 #### 枚举类型
 - `AnalysisType`: 分析类型枚举
