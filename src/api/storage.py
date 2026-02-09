@@ -14,7 +14,7 @@ from typing import List, Optional, Dict, Any
 from .models import (
     FileObject, ThreadObject, MessageObject
 )
-from .utils import get_thread_data/sessions/active, uniquify_path
+from .utils import get_thread_workspace, uniquify_path
 
 
 class Storage:
@@ -93,9 +93,9 @@ class Storage:
             self.messages[thread_id] = []
 
             # Create data/sessions/active for this thread
-            data/sessions/active_dir = get_thread_data/sessions/active(thread_id)
-            os.makedirs(data/sessions/active_dir, exist_ok=True)
-            os.makedirs(os.path.join(data/sessions/active_dir, "generated"), exist_ok=True)
+            workspace_dir = get_thread_workspace(thread_id)
+            os.makedirs(workspace_dir, exist_ok=True)
+            os.makedirs(os.path.join(workspace_dir, "generated"), exist_ok=True)
 
             # Copy files to thread data/sessions/active
             for fid in (file_ids or []):
@@ -103,7 +103,7 @@ class Storage:
                     file_data = self.files[fid]
                     src_path = file_data.get("filepath")
                     if src_path and os.path.exists(src_path):
-                        dst_path = uniquify_path(Path(data/sessions/active_dir) / file_data["filename"])
+                        dst_path = uniquify_path(Path(workspace_dir) / file_data["filename"])
                         shutil.copy2(src_path, dst_path)
 
             return ThreadObject(**thread)
@@ -125,9 +125,9 @@ class Storage:
                 if thread_id in self.messages:
                     del self.messages[thread_id]
                 # Clean up data/sessions/active
-                data/sessions/active_dir = get_thread_data/sessions/active(thread_id)
-                if os.path.exists(data/sessions/active_dir):
-                    shutil.rmtree(data/sessions/active_dir)
+                workspace_dir = get_thread_workspace(thread_id)
+                if os.path.exists(workspace_dir):
+                    shutil.rmtree(workspace_dir)
                 return True
             return False
 

@@ -4,7 +4,7 @@ from typing import Any
 
 from openai import OpenAI
 
-from src/api.config import (
+from src.api.config import (
     API_BASE,
     DEEPANALYZE_VLLM_API_KEY,
     DEFAULT_MODEL,

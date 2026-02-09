@@ -1,6 +1,6 @@
 """
 Utility functions for DeepAnalyze src/api Server
-Contains helper functions for file operations, data/sessions/active management, and more
+Contains helper functions for file operations, workspace management, and more
 """
 
 import os
@@ -10,7 +10,7 @@ import shutil
 import sys
 import traceback
 import subprocess
-import temporaryfile
+import tempfile
 import http.server
 import socketserver
 import asyncio
@@ -28,11 +28,11 @@ from .config import (
 )
 
 
-def get_thread_data/sessions/active(thread_id: str) -> str:
-    """Get data/sessions/active directory for a thread"""
-    data/sessions/active_dir = os.path.join(WORKSPACE_BASE_DIR, thread_id)
-    os.makedirs(data/sessions/active_dir, exist_ok=True)
-    return data/sessions/active_dir
+def get_thread_workspace(thread_id: str) -> str:
+    """Get workspace directory for a thread"""
+    workspace_dir = os.path.join(WORKSPACE_BASE_DIR, thread_id)
+    os.makedirs(workspace_dir, exist_ok=True)
+    return workspace_dir
 
 
 def build_download_url(thread_id: str, rel_path: str) -> str:
@@ -95,12 +95,12 @@ def collect_file_info(directory: str) -> str:
 
 def prepare_vllm_messages(
     messages: List[Dict[str, Any]],
-    data/sessions/active_dir: str,
+    workspace_dir: str,
 ) -> List[Dict[str, str]]:
     """
     Convert incoming messages to LLM format and inject DeepAnalyze temporarylate:
     - Always wrap user message with "# Instruction" heading
-    - Optionally append data/sessions/active file info under "# Data"
+    - Optionally append workspace file info under "# Data"
     """
     vllm_messages: List[Dict[str, str]] = []
     for msg in messages:
@@ -117,14 +117,14 @@ def prepare_vllm_messages(
             last_user_idx = idx
             break
 
-    data/sessions/active_file_info = collect_file_info(data/sessions/active_dir)
+    workspace_file_info = collect_file_info(workspace_dir)
 
     if last_user_idx is not None:
         user_content = str(vllm_messages[last_user_idx].get("content", "")).strip()
         instruction_body = user_content if user_content else "# Instruction"
-        if data/sessions/active_file_info:
+        if workspace_file_info:
             vllm_messages[last_user_idx]["content"] = (
-                f"# Instruction\n{instruction_body}\n\n# Data\n{data/sessions/active_file_info}"
+                f"# Instruction\n{instruction_body}\n\n# Data\n{workspace_file_info}"
             )
         else:
             vllm_messages[last_user_idx]["content"] = f"# Instruction\n{instruction_body}"
@@ -147,16 +147,16 @@ def _detect_disallowed_io(code_str: str) -> bool:
 
 
 def execute_code_safe(
-    code_str: str, data/sessions/active_dir: str, timeout_sec: int = 120
+    code_str: str, workspace_dir: str, timeout_sec: int = 120
 ) -> str:
     """Execute Python code in a separate process with timeout"""
-    exec_cwd = os.path.abspath(data/sessions/active_dir)
+    exec_cwd = os.path.abspath(workspace_dir)
     os.makedirs(exec_cwd, exist_ok=True)
     if _detect_disallowed_io(code_str):
-        return "[Error]: blocked file IO outside data/sessions/active"
+        return "[Error]: blocked file IO outside workspace"
     tmp_path = None
     try:
-        fd, tmp_path = temporaryfile.mkstemporary(suffix=".py", dir=exec_cwd)
+        fd, tmp_path = tempfile.mkstemporary(suffix=".py", dir=exec_cwd)
         os.close(fd)
         with open(tmp_path, "w", encoding="utf-8") as f:
             f.write(code_str)
@@ -189,14 +189,14 @@ def execute_code_safe(
 
 
 async def execute_code_safe_async(
-    code_str: str, data/sessions/active_dir: str, timeout_sec: int = 120
+    code_str: str, workspace_dir: str, timeout_sec: int = 120
 ) -> str:
     """Execute Python code in a separate process with timeout (async version)"""
-    exec_cwd = os.path.abspath(data/sessions/active_dir)
+    exec_cwd = os.path.abspath(workspace_dir)
     os.makedirs(exec_cwd, exist_ok=True)
     tmp_path = None
     try:
-        fd, tmp_path = temporaryfile.mkstemporary(suffix=".py", dir=exec_cwd)
+        fd, tmp_path = tempfile.mkstemporary(suffix=".py", dir=exec_cwd)
         os.close(fd)
         with open(tmp_path, "w", encoding="utf-8") as f:
             f.write(code_str)
@@ -320,10 +320,10 @@ def save_markdown_report(md_text: str, base_name: str, target_dir: Path) -> Path
 
 
 class WorkspaceTracker:
-    """Track data/sessions/active file changes and collect artifacts into generated/ folder."""
+    """Track workspace file changes and collect artifacts into generated/ folder."""
 
-    def __init__(self, data/sessions/active_dir: str, generated_dir: str):
-        self.data/sessions/active_dir = Path(data/sessions/active_dir).resolve()
+    def __init__(self, workspace_dir: str, generated_dir: str):
+        self.workspace_dir = Path(workspace_dir).resolve()
         self.generated_dir = Path(generated_dir).resolve()
         self.generated_dir.mkdir(parents=True, exist_ok=True)
         self.before_state = self._snapshot()
@@ -332,7 +332,7 @@ class WorkspaceTracker:
         try:
             return {
                 p.resolve(): (p.stat().st_size, p.stat().st_mtime_ns)
-                for p in self.data/sessions/active_dir.rglob("*")
+                for p in self.workspace_dir.rglob("*")
                 if p.is_file()
             }
         except Exception:
@@ -343,7 +343,7 @@ class WorkspaceTracker:
         try:
             after_state = {
                 p.resolve(): (p.stat().st_size, p.stat().st_mtime_ns)
-                for p in self.data/sessions/active_dir.rglob("*")
+                for p in self.workspace_dir.rglob("*")
                 if p.is_file()
             }
         except Exception:
@@ -384,7 +384,7 @@ class WorkspaceTracker:
 def generate_report_from_messages(
     original_messages: List[Dict[str, Any]],
     assistant_reply: str,
-    data/sessions/active_dir: str,
+    workspace_dir: str,
     thread_id: str,
     generated_files_sink: Optional[List[Dict[str, str]]] = None,
 ) -> str:
@@ -394,7 +394,7 @@ def generate_report_from_messages(
     Args:
         original_messages: Original message list from the src/api request
         assistant_reply: Complete assistant response text
-        data/sessions/active_dir: Workspace directory path
+        workspace_dir: Workspace directory path
         thread_id: Thread ID for building download URLs
         generated_files_sink: Optional list to append generated file metadata
 
@@ -419,14 +419,14 @@ def generate_report_from_messages(
                 "sections found.)"
             )
 
-        export_dir = Path(data/sessions/active_dir) / "generated"
+        export_dir = Path(workspace_dir) / "generated"
         export_dir.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         base_name = f"Conversation_Report_{timestamp}"
         report_path = save_markdown_report(md_text, base_name, export_dir)
 
         try:
-            rel = report_path.resolve().relative_to(Path(data/sessions/active_dir).resolve())
+            rel = report_path.resolve().relative_to(Path(workspace_dir).resolve())
             rel_path = rel.as_posix()
         except Exception:
             rel_path = report_path.name
@@ -442,7 +442,7 @@ def generate_report_from_messages(
         return ""
 def render_file_block(
     artifact_paths: List[Path],
-    data/sessions/active_dir: str,
+    workspace_dir: str,
     thread_id: str,
     generated_files_sink: Optional[List[Dict[str, str]]] = None,
 ) -> str:
@@ -453,7 +453,7 @@ def render_file_block(
 
     for p in artifact_paths:
         try:
-            rel = Path(p).resolve().relative_to(Path(data/sessions/active_dir).resolve()).as_posix()
+            rel = Path(p).resolve().relative_to(Path(workspace_dir).resolve()).as_posix()
         except Exception:
             rel = Path(p).name
         url = build_download_url(thread_id, rel)
@@ -478,8 +478,8 @@ def start_http_server():
         httpd.serve_forever()
 
 
-def build_artifact_list(data/sessions/active_dir: str, thread_id: str) -> List[Dict[str, Any]]:
-    manifest_path = Path(data/sessions/active_dir) / "manifest.json"
+def build_artifact_list(workspace_dir: str, thread_id: str) -> List[Dict[str, Any]]:
+    manifest_path = Path(workspace_dir) / "manifest.json"
     if not manifest_path.exists():
         return []
     try:
@@ -490,7 +490,7 @@ def build_artifact_list(data/sessions/active_dir: str, thread_id: str) -> List[D
     for entry in manifest:
         path = Path(entry.get("path", ""))
         try:
-            rel = path.resolve().relative_to(Path(data/sessions/active_dir).resolve()).as_posix()
+            rel = path.resolve().relative_to(Path(workspace_dir).resolve()).as_posix()
         except Exception:
             rel = path.name
         artifacts.append(

@@ -21,11 +21,22 @@ def main():
     print(f"Output report: {args.output}")
     print("=" * 50)
     
-    # Validate input file exists
-    input_path = Path(args.input)
+    # Validate input file exists with proper path resolution
+    input_path = Path(args.input).resolve()
+    project_root = Path(__file__).resolve().parent.parent
+    
+    # Check if file exists as absolute path
     if not input_path.exists():
-        print(f"❌ Error: Input file '{args.input}' not found")
-        return False
+        # Try relative to project root
+        input_path = (project_root / args.input).resolve()
+        if not input_path.exists():
+            print(f"❌ Error: Input file '{args.input}' not found")
+            print(f"   Checked paths:")
+            print(f"   - {Path(args.input).resolve()}")
+            print(f"   - {project_root / args.input}")
+            return False
+    
+    print(f"✅ Found input file: {input_path}")
     
     try:
         # Import and run the complete analysis
@@ -33,33 +44,47 @@ def main():
         import os
         
         # Change to project directory
-        os.chdir(Path(__file__).parent)
+        os.chdir(project_root)
+        print(f"📂 Working directory changed to: {project_root}")
         
-        # Run the complete analysis script
-        print("📊 Running complete analysis...")
+        # Run the complete analysis using our new pipeline
+        print("📊 Running complete analysis with enhanced pipeline...")
         result = subprocess.run([
-            "python", "generate_complete_report.py"
-        ], capture_output=True, text=True)
+            "python", "-c", f"""
+import sys
+sys.path.insert(0, '{project_root}')
+from src.core.analysis_pipeline import AnalysisPipeline
+
+pipeline = AnalysisPipeline()
+data_file = '{input_path}'
+results = pipeline.run_complete_analysis(data_file)
+print('Analysis completed successfully!')
+print(f'Plan ID: {{results["plan_id"]}}')
+print(f'Artifacts generated: {{len(results["artifacts"])}}')
+"""
+        ], capture_output=True, text=True, cwd=project_root)
         
         if result.returncode == 0:
             print("✅ Analysis completed successfully!")
+            print(result.stdout)
             
-            # Rename the output file to match user's requested name
-            if args.output != "analysis_report.html":
+            # Find the latest report
+            import glob
+            report_files = glob.glob("data/sessions/active/artifacts/*/report/analysis_report.html")
+            if report_files:
+                latest_report = sorted(report_files)[-1]  # Get most recent
                 import shutil
-                try:
-                    shutil.move("comprehensive_analysis_report.html", args.output)
-                    print(f"📄 Report saved as: {args.output}")
-                except Exception as e:
-                    print(f"⚠️  Could not rename report: {e}")
-                    print(f"📄 Report available as: comprehensive_analysis_report.html")
+                shutil.copy(latest_report, args.output)
+                print(f"📄 Report saved as: {args.output}")
             else:
-                print("📄 Report saved as: comprehensive_analysis_report.html")
+                print("⚠️  Could not find generated report file")
+                return False
                 
             print("\n📈 Generated outputs:")
             print("   • HTML Report with interactive visualizations")
-            print("   • PNG Charts showing data distributions")
-            print("   • JSON file with raw analysis results")
+            print("   • PNG Charts showing data distributions") 
+            print("   • JSON files with analysis results")
+            print("   • Complete analysis pipeline execution")
             
             print("\n🎯 Analysis completed! The report includes:")
             print("   ✓ Data overview and quality assessment")
@@ -67,11 +92,13 @@ def main():
             print("   ✓ Distribution visualizations")
             print("   ✓ Correlation analysis")
             print("   ✓ Interactive HTML format")
+            print("   ✓ AI-driven hypothesis generation")
             
             return True
         else:
             print(f"❌ Analysis failed:")
-            print(result.stderr)
+            print("STDOUT:", result.stdout)
+            print("STDERR:", result.stderr)
             return False
             
     except Exception as e:

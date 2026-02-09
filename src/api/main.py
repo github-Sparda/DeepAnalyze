@@ -1,6 +1,6 @@
 """
 Main application entry point for DeepAnalyze src/api Server
-Sets up the Fastsrc/api application and starts the server
+Sets up the FastAPI application and starts the server
 """
 
 import time
@@ -9,7 +9,7 @@ import signal
 import sys
 import atexit
 import os
-from fastapi import Fastsrc/api
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
@@ -19,11 +19,11 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 from .config import (
-    src/api_HOST,
-    src/api_PORT,
-    src/api_TITLE,
-    src/api_VERSION,
-    src/api_PUBLIC_BASE,
+    API_HOST,
+    API_PORT,
+    API_TITLE,
+    API_VERSION,
+    API_PUBLIC_BASE,
     HTTP_SERVER_BASE,
     CLEANUP_INTERVAL_MINUTES,
 )
@@ -37,9 +37,9 @@ from .storage import storage
 # CLEANUP_BACKOFF_SECONDS = 30
 
 
-def create_app() -> Fastsrc/api:
-    """Create and configure the Fastsrc/api application"""
-    app = Fastsrc/api(title=src/api_TITLE, version=src/api_VERSION)
+def create_app() -> FastAPI:
+    """Create and configure the FastAPI application"""
+    app = FastAPI(title=API_TITLE, version=API_VERSION)
 
     # Add CORS middleware
     app.add_middleware(
@@ -76,7 +76,7 @@ def create_app() -> Fastsrc/api:
 def main():
     """Main entry point to start the src/api server"""
     print("🚀 Starting DeepAnalyze OpenAI-Compatible src/api Server...")
-    print(f"   - src/api Server: {src/api_PUBLIC_BASE}")
+    print(f"   - src/api Server: {API_PUBLIC_BASE}")
     print(f"   - File Server: {HTTP_SERVER_BASE}")
     print(f"   - Workspace: data/sessions/active")
     print("\n📖 src/api Endpoints:")
@@ -89,11 +89,11 @@ def main():
     http_thread = threading.Thread(target=start_http_server, daemon=True)
     http_thread.start()
 
-    # Create and start the Fastsrc/api application
+    # Create and start the FastAPI application
     app = create_app()
 
     print("Starting src/api server...")
-    uvicorn.run(app, host=src/api_HOST, port=src/api_PORT)
+    uvicorn.run(app, host=API_HOST, port=API_PORT)
 
 
 if __name__ == "__main__":

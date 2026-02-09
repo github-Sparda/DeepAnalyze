@@ -1,5 +1,5 @@
 """
-Configuration module for DeepAnalyze src/api Server
+Configuration module for DeepAnalyze API Server
 Contains all configuration constants and environment setup
 """
 
@@ -44,13 +44,13 @@ def _get_bool_env(name: str, default: bool = False) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
-# src/api Configuration (LLM backend)
+# API Configuration (LLM backend)
 API_BASE = os.getenv("DEEPANALYZE_VLLM_BASE_URL", "http://localhost:48000/v1")
 VLLM_BASE_URL = API_BASE
 VLLM_BASE_URL_NO_V1 = API_BASE[:-3] if API_BASE.endswith("/v1") else API_BASE
 DEEPANALYZE_VLLM_API_KEY = os.getenv("DEEPANALYZE_VLLM_API_KEY", "")
 MODEL_PATH = os.getenv("DEEPANALYZE_MODEL_PATH", "default")
-DEEPANALYZE_VLLM_API_KEY = os.getenv("DEEPANALYZE_VLLM_API_KEY", "<Enter-Your-src/api-Key>")
+DEEPANALYZE_VLLM_API_KEY = os.getenv("DEEPANALYZE_VLLM_API_KEY", "<Enter-Your-API-Key>")
 
 
 # Workspace and file server
@@ -59,14 +59,14 @@ FILE_SERVER_HOST = os.getenv("DEEPANALYZE_FILE_SERVER_HOST", "localhost")
 HTTP_SERVER_PORT = _get_int_env("DEEPANALYZE_FILE_SERVER_PORT", 48100)
 HTTP_SERVER_BASE = f"http://{FILE_SERVER_HOST}:{HTTP_SERVER_PORT}"
 
-# src/api Server Configuration
-src/api_HOST = os.getenv("DEEPANALYZE_src/api_HOST", "0.0.0.0")
-src/api_PORT = _get_int_env("DEEPANALYZE_src/api_PORT", _get_int_env("src/api_PORT", 48200))
-src/api_PUBLIC_HOST = os.getenv("DEEPANALYZE_src/api_PUBLIC_HOST", "localhost")
-src/api_PUBLIC_BASE = f"http://{src/api_PUBLIC_HOST}:{src/api_PORT}"
-src/api_PUBLIC_BASE_V1 = f"{src/api_PUBLIC_BASE}/v1"
-src/api_TITLE = "DeepAnalyze OpenAI-Compatible src/api"
-src/api_VERSION = "1.0.0"
+# API Server Configuration
+API_HOST = os.getenv("DEEPANALYZE_API_HOST", "0.0.0.0")
+API_PORT = _get_int_env("DEEPANALYZE_API_PORT", _get_int_env("API_PORT", 48200))
+API_PUBLIC_HOST = os.getenv("DEEPANALYZE_API_PUBLIC_HOST", "localhost")
+API_PUBLIC_BASE = f"http://{API_PUBLIC_HOST}:{API_PORT}"
+API_PUBLIC_BASE_V1 = f"{API_PUBLIC_BASE}/v1"
+API_TITLE = "DeepAnalyze OpenAI-Compatible API"
+API_VERSION = "1.0.0"
 
 # Thread cleanup configuration
 CLEANUP_TIMEOUT_HOURS = 12
