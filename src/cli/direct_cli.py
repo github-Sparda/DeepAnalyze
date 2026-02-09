@@ -61,7 +61,7 @@ class DirectDeepAnalyzeCLI:
             self.current_session_id = None
             
     def analyze_data_direct(self, file_path: str, analysis_types: List[str] = None) -> Optional[Dict]:
-        """Direct data analysis without src/api server"""
+        """Direct data analysis without src/api server - supports both traditional and LLM orchestration"""
         try:
             file_path = Path(file_path).expanduser().resolve()
             if not file_path.exists():
@@ -70,6 +70,9 @@ class DirectDeepAnalyzeCLI:
                 
             console.print(f"[cyan]📊 Analyzing data: {file_path.name}[/cyan]")
             
+            # Check if LLM orchestration is enabled
+            from src.api.config import USE_ORCHESTRATOR
+            
             with Progress(
                 SpinnerColumn(),
                 TextColumn("[progress.description]{task.description}"),
@@ -77,12 +80,18 @@ class DirectDeepAnalyzeCLI:
             ) as progress:
                 task = progress.add_task("Processing...", total=None)
                 
-                # Direct call to analysis module
-                result = analyze_dataset(
-                    file_path=str(file_path),
-                    session_id=self.current_session_id,
-                    analysis_types=analysis_types
-                )
+                if USE_ORCHESTRATOR:
+                    console.print("[blue]🤖 Using LLM orchestration for analysis...[/blue]")
+                    # Use LLM orchestration
+                    result = self._run_llm_orchestrated_analysis(file_path, analysis_types)
+                else:
+                    console.print("[yellow]📋 Using traditional statistical analysis...[/yellow]")
+                    # Direct call to analysis module
+                    result = analyze_dataset(
+                        file_path=str(file_path),
+                        session_id=self.current_session_id,
+                        analysis_types=analysis_types
+                    )
                 
                 progress.update(task, completed=True)
                 
@@ -104,6 +113,48 @@ class DirectDeepAnalyzeCLI:
         except Exception as e:
             console.print(f"[red]❌ Data analysis error: {e}[/red]")
             return None
+            
+    def _run_llm_orchestrated_analysis(self, file_path: Path, analysis_types: List[str] = None) -> Optional[Dict]:
+        """Run LLM orchestrated analysis using the graph-based workflow"""
+        try:
+            from src.api.config import MAX_RECURSION_DEPTH, REPORT_FORMAT, REPORT_LANGUAGE
+            from src.core.orchestration.runner import run_orchestrated_docs_analysis
+            
+            console.print("[blue]🚀 Starting LLM orchestrated analysis...[/blue]")
+            
+            # Run the orchestrated analysis
+            state = run_orchestrated_docs_analysis(
+                session_id=self.current_session_id,
+                config={
+                    "max_depth": MAX_RECURSION_DEPTH,
+                    "report_format": REPORT_FORMAT,
+                    "report_language": REPORT_LANGUAGE,
+                    "docs/analysis_types": analysis_types or ["descriptive", "inferential", "correlation"]
+                }
+            )
+            
+            # Extract results
+            analysis_results = {
+                "session_id": self.current_session_id,
+                "orchestrated_analysis": True,
+                "plan": state.get("plan", ""),
+                "docs/analysis_results": state.get("docs/analysis_results", ""),
+                "report": state.get("report", ""),
+                "generated_at": time.strftime('%Y-%m-%d %H:%M:%S')
+            }
+            
+            console.print("[green]✅ LLM orchestrated analysis completed![/green]")
+            return analysis_results
+            
+        except Exception as e:
+            console.print(f"[red]❌ LLM orchestration error: {e}[/red]")
+            # Fall back to traditional analysis
+            console.print("[yellow]⚠️  Falling back to traditional analysis...[/yellow]")
+            return analyze_dataset(
+                file_path=str(file_path),
+                session_id=self.current_session_id,
+                analysis_types=analysis_types
+            )
             
     def generate_visualization_direct(self, data: Dict, chart_type: str = "auto", output_path: str = None) -> Optional[str]:
         """Direct visualization generation"""

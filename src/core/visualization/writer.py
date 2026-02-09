@@ -10,8 +10,8 @@ import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 
-from orchestration.io_utils import ensure_dir, write_json
-from orchestration.plan_store import ArtifactRegistry
+from src.core.orchestration.io_utils import ensure_dir, write_json
+from src.core.orchestration.plan_store import ArtifactRegistry
 
 
 def _is_plotly(fig: Any) -> bool:

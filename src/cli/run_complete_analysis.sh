@@ -10,7 +10,7 @@ echo "=============================="
 echo ""
 
 # 设置变量
-DATA_FILE="../../data/examples/simpson_paradox_docs/analysis/data/Simpson.csv"
+DATA_FILE="../../data/examples/simpson_paradox_analysis/data/Simpson.csv"
 CLI_SCRIPT="direct_cli.py"
 
 echo "📂 分析文件: $DATA_FILE"

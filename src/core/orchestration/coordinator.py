@@ -6,8 +6,12 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
-from src/api.utils import execute_code_safe
-from src/api.config import CODE_EXECUTION_TIMEOUT
+# Temporary fix for imports
+# from src.api.utils import execute_code_safe
+# from src.api.config import CODE_EXECUTION_TIMEOUT
+
+# Use mock values for now
+CODE_EXECUTION_TIMEOUT = 30
 
 from .io_utils import ensure_dir, write_json, write_text, record_artifact
 from .plan_store import ArtifactRegistry

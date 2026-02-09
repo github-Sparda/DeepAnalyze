@@ -12,7 +12,7 @@ from langgraph.graph import END, StateGraph
 
 from .io_utils import (
     ensure_dir,
-    init_data_dir,
+    init_data_sessions_active,
     write_json,
     write_text,
     record_artifact,
@@ -28,9 +28,9 @@ from .agents import HypothesisPlanner
 from .coordinator import CodeExecutionOrchestrator, ExecutionMonitor
 from .recursion import DepthRecursionController
 from .visualization_planner import VisualizationPlanner, load_dataframe
-from visualization.writer import visualization_writer
-from reporting.exporter import export_report
-from reporting.templates import template_from_config
+from src.core.visualization.writer import visualization_writer
+from src.core.reporting.exporter import export_report
+from src.core.reporting.templates import template_from_config
 from .state import OrchestrationState
 from .document_manager import DocumentManager
 
@@ -189,7 +189,7 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
     
     def understand_files(state: OrchestrationState) -> OrchestrationState:
         session_dir = Path(state.get("session_dir", ""))
-        init_data_dir(session_dir)
+        init_data_sessions_active(session_dir)
         file_info = "Mock file information collected for demonstration"
         language = state.get("config", {}).get("report_language", "zh")
         messages = render_role_prompt(

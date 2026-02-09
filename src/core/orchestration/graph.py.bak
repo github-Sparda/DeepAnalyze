@@ -38,9 +38,9 @@ from .agents import HypothesisPlanner
 from .coordinator import CodeExecutionOrchestrator, ExecutionMonitor
 from .recursion import DepthRecursionController
 from .visualization_planner import VisualizationPlanner, load_dataframe
-from visualization.writer import visualization_writer
-from reporting.exporter import export_report
-from reporting.temporarylates import temporarylate_from_config
+from src.core.visualization.writer import visualization_writer
+from src.core.reporting.exporter import export_report
+from src.core.reporting.templates import template_from_config
 from .state import OrchestrationState
 from .document_manager import DocumentManager
 
