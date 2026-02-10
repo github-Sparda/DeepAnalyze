@@ -805,4 +805,8 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
     return graph.compile()
 
 
-__all__ = ["create_graph"]
+def build_graph(llm: LLMClient, config: dict[str, Any]):
+    return create_graph(llm, config)
+
+
+__all__ = ["create_graph", "build_graph"]

@@ -4,18 +4,26 @@
 验证是否能成功连接到配置的LLM服务
 """
 
+import argparse
 import os
 import sys
 from pathlib import Path
 
-# 设置环境变量确保使用正确的配置
-os.environ['DEEPANALYZE_VLLM_BASE_URL'] = 'https://suvip.apihy.com/v1'
-os.environ['DEEPANALYZE_VLLM_API_KEY'] = 'sk-NTi6PiaxRct8Cmjc8rZ1lwCVWoYoJCGjCtKoPXqvXSbDhHGC'
+from dotenv import load_dotenv
 
 # 添加项目路径
-project_root = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(project_root))
-sys.path.insert(0, str(project_root / "src"))
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
+sys.path.insert(0, str(PROJECT_ROOT / "src"))
+
+parser = argparse.ArgumentParser(description="Test LLM API connectivity and run a small analysis.")
+parser.add_argument("--output-dir", default="outputs/llm_api_test", help="Directory to store outputs")
+args = parser.parse_args()
+
+load_dotenv(PROJECT_ROOT / ".env")
+
+output_dir = PROJECT_ROOT / args.output_dir
+output_dir.mkdir(parents=True, exist_ok=True)
 
 print("🔍 测试LLM API连接")
 print("=" * 40)
@@ -89,8 +97,8 @@ try:
         "api_endpoint": str(llm_client.client.base_url)
     }
     
-    result_file = f"llm_analysis_result_{int(time.time())}.json"
-    with open(result_file, 'w', encoding='utf-8') as f:
+    result_file = output_dir / f"llm_analysis_result_{int(time.time())}.json"
+    with result_file.open('w', encoding='utf-8') as f:
         json.dump(result_data, f, ensure_ascii=False, indent=2)
     
     print(f"\n💾 分析结果已保存到: {result_file}")

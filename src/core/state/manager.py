@@ -21,7 +21,17 @@ project_root = Path(__file__).resolve().parents[2]
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-from ..orchestration.state import OrchestrationState
+try:
+    from src.core.orchestration.state import OrchestrationState
+except Exception:  # pragma: no cover - fallback for legacy import paths
+    try:
+        from ..orchestration.state import OrchestrationState
+    except Exception:
+        from typing import TypedDict
+
+        class OrchestrationState(TypedDict, total=False):
+            """Fallback typing when orchestration state import fails."""
+            pass
 # 暂时使用默认值替代配置导入
 WORKSPACE_BASE_DIR = Path.home() / "deepanalyze_workspace"
 

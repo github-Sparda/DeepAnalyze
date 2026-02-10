@@ -31,7 +31,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'core'))
 
 # Import core modules
 from src.core.analytics.advanced_analyzer import analyze_dataset
-from src.core.visualization.plotter import render_distribution, render_correlation_heatmap
+from src.core.visualization.plotter import render_distribution, render_correlation_heatmap, render_trend, render_comparison
 from src.core.assistant.engine import AIAssistantEngine
 from src.core.reporting.manager import ReportManager, ReportType
 from src.core.state.manager import StateManager, create_new_session, get_session_state, update_session_state
@@ -117,7 +117,7 @@ class DirectDeepAnalyzeCLI:
                 
         except Exception as e:
             console.print(f"[red]❌ Data analysis error: {e}[/red]")
-                return None
+            return None
             
     def _run_llm_orchestrated_analysis(self, file_path: Path, analysis_types: List[str] = None) -> Optional[Dict]:
         """Run LLM orchestrated analysis using the graph-based workflow"""

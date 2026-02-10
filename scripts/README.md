@@ -78,9 +78,9 @@ Restart frontend only:
 ### Main Tools
 - `deepanalyze_cli.py` - Main CLI interface for DeepAnalyze (reusable-utility)
 - `config_manager.py` - Configuration management tool (reusable-utility)
-- `full_process_validation.py` - Complete process validation (validation-test)
 
 ### Testing and Validation
+- `test_analysis_pipeline.py` - AnalysisPipeline smoke test on sample data (validation-test)
 - `test_progress_system.py` - Progress system testing (validation-test)
 - `test_semantic_cache.py` - Semantic cache testing (validation-test)
 - `validate_artifacts.py` - Artifact validation (validation-test)

@@ -52,7 +52,7 @@ def test_data_access():
     
     # 测试示例数据访问
     example_data_path = project_root / "data" / "examples"
-    simpson_data = example_data_path / "simpson_paradox" / "data" / "Simpson.csv"
+    simpson_data = example_data_path / "simpson_paradox_analysis" / "data" / "Simpson.csv"
     
     tests = [
         ("数据目录存在", lambda: example_data_path.exists()),

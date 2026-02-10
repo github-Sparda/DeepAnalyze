@@ -58,7 +58,7 @@ def main() -> None:
     args = parser.parse_args()
     data_sessions_active_dir = Path(args.workspace_dir)
     summary = validate_registry(data_sessions_active_dir)
-    output_dir = data_sessions_active_dir / "outputs/logs" / "artifacts"
+    output_dir = data_sessions_active_dir / "outputs_logs" / "artifacts"
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / "summary.json"
     output_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")

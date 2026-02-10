@@ -3,7 +3,7 @@ set -euo pipefail
 
 PYTHON_BIN="/home/huangzw/miniforge3/envs/common/bin/python"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-API_DIR="$ROOT_DIR/API"
+API_DIR="$ROOT_DIR/src/api"
 
 if [ -f "$ROOT_DIR/.env" ]; then
   set -a
@@ -29,7 +29,7 @@ PY
 )
 EOF
 
-DATA_FILE="${1:-$ROOT_DIR/data/examples/docs/analysis_on_student_loan/data/enrolled.csv}"
+DATA_FILE="${1:-$ROOT_DIR/data/examples/analysis_on_student_loan/data/enrolled.csv}"
 
 if [ ! -f "$DATA_FILE" ]; then
   echo "Data file not found: $DATA_FILE"
@@ -70,7 +70,7 @@ CHAT_RESPONSE=$(curl -s -X POST "$API_PUBLIC_BASE_V1/chat/completions" \
     \"messages\": [
       {\"role\": \"user\", \"content\": \"请分析这份数据并给出关键结论\", \"file_ids\": [\"${FILE_ID}\"]}
     ],
-    \"data/cache/temperature\": 0.4
+    \"temperature\": 0.4
   }")
 
 echo "Response:"

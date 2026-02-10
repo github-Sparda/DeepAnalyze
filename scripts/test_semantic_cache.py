@@ -18,6 +18,11 @@ if src_root not in sys.path:
 def test_semantic_cache():
     """测试语义缓存功能"""
     print("🚀 开始语义缓存测试...")
+
+    enabled = os.environ.get("DEEPANALYZE_SEMANTIC_CACHE_ENABLED", "1").strip().lower()
+    if enabled in {"0", "false", "no", "off"}:
+        print("⚠️  语义缓存未启用，跳过测试。")
+        return True
     
     try:
         from core.cache.semantic_cache import SemanticCache

@@ -156,7 +156,7 @@ def execute_code_safe(
         return "[Error]: blocked file IO outside workspace"
     tmp_path = None
     try:
-        fd, tmp_path = tempfile.mkstemporary(suffix=".py", dir=exec_cwd)
+        fd, tmp_path = tempfile.mkstemp(suffix=".py", dir=exec_cwd)
         os.close(fd)
         with open(tmp_path, "w", encoding="utf-8") as f:
             f.write(code_str)
@@ -196,7 +196,7 @@ async def execute_code_safe_async(
     os.makedirs(exec_cwd, exist_ok=True)
     tmp_path = None
     try:
-        fd, tmp_path = tempfile.mkstemporary(suffix=".py", dir=exec_cwd)
+        fd, tmp_path = tempfile.mkstemp(suffix=".py", dir=exec_cwd)
         os.close(fd)
         with open(tmp_path, "w", encoding="utf-8") as f:
             f.write(code_str)
