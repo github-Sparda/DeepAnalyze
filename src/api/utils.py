@@ -1,5 +1,5 @@
 """
-Utility functions for DeepAnalyze src/api Server
+Utility functions for DeepAnalyze API Server
 Contains helper functions for file operations, workspace management, and more
 """
 

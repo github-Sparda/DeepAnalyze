@@ -1,5 +1,5 @@
 """
-Main application entry point for DeepAnalyze src/api Server
+Main application entry point for DeepAnalyze API Server
 Sets up the FastAPI application and starts the server
 """
 
@@ -74,16 +74,16 @@ def create_app() -> FastAPI:
 
 
 def main():
-    """Main entry point to start the src/api server"""
-    print("🚀 Starting DeepAnalyze OpenAI-Compatible src/api Server...")
-    print(f"   - src/api Server: {API_PUBLIC_BASE}")
+    """Main entry point to start the API server"""
+    print("🚀 Starting DeepAnalyze OpenAI-Compatible API Server...")
+    print(f"   - API Server: {API_PUBLIC_BASE}")
     print(f"   - File Server: {HTTP_SERVER_BASE}")
     print(f"   - Workspace: data/sessions/active")
-    print("\n📖 src/api Endpoints:")
-    print("   - Models src/api: /v1/models")
-    print("   - Files src/api: /v1/files")
-    print("   - Chat src/api: /v1/chat/completions")
-    print("   - Admin src/api: /v1/admin")
+    print("\n📖 API Endpoints:")
+    print("   - Models API: /v1/models")
+    print("   - Files API: /v1/files")
+    print("   - Chat API: /v1/chat/completions")
+    print("   - Admin API: /v1/admin")
 
     # Start HTTP file server in a separate thread
     http_thread = threading.Thread(target=start_http_server, daemon=True)
@@ -92,7 +92,7 @@ def main():
     # Create and start the FastAPI application
     app = create_app()
 
-    print("Starting src/api server...")
+    print("Starting API server...")
     uvicorn.run(app, host=API_HOST, port=API_PORT)
 
 

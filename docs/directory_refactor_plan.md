@@ -12,7 +12,7 @@
 DeepAnalyze/
 ├── src/                          # 核心源码（原src/core/）
 │   ├── core/                     # 核心分析引擎
-│   ├── api/                      # src/api接口（原src/api/）
+│   ├── api/                      # API接口（原API/）
 │   ├── cli/                      # 命令行工具（原src/cli/）
 │   ├── web/                      # Web界面（原src/web/）
 │   ├── jupyter/                  # Jupyter支持（原src/jupyter/）
@@ -35,7 +35,7 @@ DeepAnalyze/
 │   ├── docs/design/                   # 设计文档（原docs/design/）
 │   ├── specs/                    # 技术规范（原docs/specs/specs/）
 │   ├── guides/                   # 使用指南
-│   ├── api/                      # src/api文档
+│   ├── api/                      # API文档
 │   └── tutorials/                # 教程示例
 │
 ├── outputs/                      # 生成产物（统一outputs/功能）
@@ -61,7 +61,7 @@ DeepAnalyze/
 ### 源目录 → 目标目录
 ```
 src/core/           → src/core/
-src/api/                  → src/api/
+src/api/                  → API/
 src/cli/             → src/cli/
 src/web/            → src/web/
 src/jupyter/         → src/jupyter/

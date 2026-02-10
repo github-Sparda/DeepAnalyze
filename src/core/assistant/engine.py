@@ -30,7 +30,7 @@ from .context_manager import (
 from ..error.handler import ErrorHandler, ErrorSeverity, ErrorCategory
 from ..state.manager import get_session_state, update_session_state
 
-# 延迟导入src/api客户端以避免循环依赖
+# 延迟导入API客户端以避免循环依赖
 def get_api_client():
     # 暂时返回None，避免API依赖
     return None
@@ -80,7 +80,7 @@ class AIAssistantEngine:
     def __init__(self):
         self.context_manager = ContextManager()
         self.error_handler = ErrorHandler()
-        # 延迟初始化src/api客户端
+        # 延迟初始化API客户端
         self._api_client = None
         self.response_temporarylates = self._initialize_temporarylates()
     
@@ -323,7 +323,7 @@ class AIAssistantEngine:
     def _generate_llm_response(self, prompt: List[Dict[str, Any]], session_id: str) -> str:
         """调用LLM生成响应"""
         try:
-            # 使用统一src/api客户端
+            # 使用统一API客户端
             response = self.api_client.chat_completion(
                 messages=prompt,
                 model="default",
@@ -343,7 +343,7 @@ class AIAssistantEngine:
             return self._get_simulated_response(prompt[-1]['content'])
     
     def _get_simulated_response(self, user_message: str) -> str:
-        """获取模拟响应（当src/api不可用时）"""
+        """获取模拟响应（当API不可用时）"""
         message_lower = user_message.lower()
         
         if '分析' in message_lower:

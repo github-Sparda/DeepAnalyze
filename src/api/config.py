@@ -7,22 +7,19 @@ import os
 from pathlib import Path
 from urllib.parse import urlparse
 
+from dotenv import load_dotenv
+
 # Environment setup
 os.environ.setdefault("MPLBACKEND", "Agg")
 
 def _load_env_file() -> None:
-    env_path = Path(__file__).resolve().parents[1] / ".env"
-    if not env_path.exists():
-        return
-    for line in env_path.read_text(encoding="utf-8").splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#") or "=" not in stripped:
-            continue
-        key, value = stripped.split("=", 1)
-        key = key.strip()
-        value = value.strip().strip('"').strip("'")
-        if key and key not in os.environ:
-            os.environ[key] = value
+    env_candidates = [
+        Path(__file__).resolve().parents[2] / ".env",  # repo root .env
+        Path(__file__).resolve().parents[1] / ".env",  # src/.env
+    ]
+    for env_path in env_candidates:
+        if env_path.exists():
+            load_dotenv(env_path, override=False)
 
 
 _load_env_file()
@@ -49,7 +46,7 @@ API_BASE = os.getenv("DEEPANALYZE_VLLM_BASE_URL", "http://localhost:48000/v1")
 VLLM_BASE_URL = API_BASE
 VLLM_BASE_URL_NO_V1 = API_BASE[:-3] if API_BASE.endswith("/v1") else API_BASE
 DEEPANALYZE_VLLM_API_KEY = os.getenv("DEEPANALYZE_VLLM_API_KEY", "")
-MODEL_PATH = os.getenv("DEEPANALYZE_MODEL_PATH", "default")
+MODEL_NAME = os.getenv("DEEPANALYZE_MODEL_NAME", "default")
 DEEPANALYZE_VLLM_API_KEY = os.getenv("DEEPANALYZE_VLLM_API_KEY", "<Enter-Your-API-Key>")
 
 

@@ -13,7 +13,7 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-# 直接导入需要的模块，避免src/api包的复杂依赖
+# 直接导入需要的模块，避免API包的复杂依赖
 from src.api.progress_tracker import create_task, start_task, update_progress, complete_task, get_task_progress
 from src.api.websocket_handler import start_websocket_server, stop_websocket_server, notify_progress, notify_task_status
 

@@ -1,4 +1,4 @@
-# DeepAnalyze src/api 服务器
+# DeepAnalyze API 服务器
 
 ## 🚀 快速开始
 
@@ -17,11 +17,11 @@ cd src/api
 python start_server.py
 ```
 
-- **src/api 服务器**: `http://localhost:48200` (主 src/api)
+- **API 服务器**: `http://localhost:48200` (主 API)
 - **文件服务器**: `http://localhost:48100` (文件下载)
 - **健康检查**: `http://localhost:48200/health`
 
-src/api 服务器将在当前目录下创建一个新的 `data/sessions/active` 文件夹作为工作目录。对于每个对话，它将在该工作空间下生成一个 `thread` 子目录来执行数据分析并生成文件。
+API 服务器将在当前目录下创建一个新的 `data/sessions/active` 文件夹作为工作目录。对于每个对话，它将在该工作空间下生成一个 `thread` 子目录来执行数据分析并生成文件。
 
 ### 快速测试
 
@@ -31,7 +31,7 @@ python data/examplesRequest.py          # 请求示例
 python data/examplesOpenAI.py    # OpenAI 库示例
 ```
 
-## 📚 src/api 使用
+## 📚 API 使用
 
 ### 1. 文件上传
 
@@ -195,9 +195,9 @@ for chunk in stream:
 
 
 
-## 📋 src/api 参考
+## 📋 API 参考
 
-### 文件 src/api
+### 文件 API
 
 #### POST /v1/files
 上传文件进行分析。
@@ -272,7 +272,7 @@ DELETE /v1/files/{file_id}
 }
 ```
 
-### 聊天完成 src/api
+### 聊天完成 API
 
 #### POST /v1/chat/completions
 扩展聊天完成，支持文件功能。
@@ -337,10 +337,10 @@ data: [DONE]
 
 
 
-### 健康检查 src/api
+### 健康检查 API
 
 #### GET /health
-检查 src/api 服务器状态。
+检查 API 服务器状态。
 
 **请求:**
 ```http
@@ -359,7 +359,7 @@ GET /health
 
 ### 多端口设计
 
-- **端口 48200**: 主 src/api 服务器（Fastsrc/api）
+- **端口 48200**: 主 API 服务器（FastAPI）
 - **端口 48100**: 文件 HTTP 服务器用于下载
 
 ## 🔧 配置
@@ -367,8 +367,8 @@ GET /health
 ### 环境变量
 
 ```python
-# src/api 配置
-MODEL_PATH = "your-model-id"    # 模型名称
+# API 配置
+MODEL_NAME = "your-model-id"    # 模型名称
 WORKSPACE_BASE_DIR = "data/sessions/active"       # 文件存储
 HTTP_SERVER_PORT = 48100              # 文件服务器端口
 

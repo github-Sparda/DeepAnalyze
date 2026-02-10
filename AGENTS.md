@@ -22,7 +22,7 @@ Keep this managed block so 'docs/specs update' can refresh the instructions.
 These instructions supplement OpenSpec and apply to all Codex work in this repo.
 
 ## Project Context
-- Primary codebase is Python (DeepAnalyze core in `src/core/`, src/api in `src/api/`).
+- Primary codebase is Python (DeepAnalyze core in `src/core/`, API in `src/api/`).
 - Demos live under `demo/` (WebUI, JupyterUI, CLI).
 - Examples and case studies live under `data/examples/`.
 
@@ -33,7 +33,7 @@ These instructions supplement OpenSpec and apply to all Codex work in this repo.
 - Use Python conventions (snake_case, type hints where already used) and keep code readable.
 
 ## Testing and Validation
-- No top-level test runner is documented; if you add or change behavior, include a short manual verification plan in the proposal/tasks (CLI/src/api/UI steps as relevant).
+- No top-level test runner is documented; if you add or change behavior, include a short manual verification plan in the proposal/tasks (CLI/API/UI steps as relevant).
 - If you add tests, keep them minimal and targeted; do not introduce new frameworks unless necessary.
 
 ## Git / PR Expectations

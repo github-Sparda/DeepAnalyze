@@ -24,7 +24,7 @@ def check_llm_config():
     
     # 导入配置
     try:
-        from src.api.config import DEEPANALYZE_VLLM_API_KEY, VLLM_BASE_URL, MODEL_PATH
+        from src.api.config import DEEPANALYZE_VLLM_API_KEY, VLLM_BASE_URL, MODEL_NAME
     except ImportError as e:
         console.print(f"[red]❌ 配置导入失败: {e}[/red]")
         return False
@@ -32,7 +32,7 @@ def check_llm_config():
     # 显示配置信息
     console.print(f"[green]✓[/green] API密钥: {DEEPANALYZE_VLLM_API_KEY[:15]}..." if DEEPANALYZE_VLLM_API_KEY else "[red]✗ 未设置API密钥[/red]")
     console.print(f"[green]✓[/green] Base URL: {VLLM_BASE_URL}")
-    console.print(f"[green]✓[/green] 模型路径: {MODEL_PATH}")
+    console.print(f"[green]✓[/green] 模型路径: {MODEL_NAME}")
     
     # 测试连接
     if DEEPANALYZE_VLLM_API_KEY and VLLM_BASE_URL:
@@ -88,7 +88,7 @@ def show_current_config():
     config_items = [
         ("DEEPANALYZE_USE_ORCHESTRATOR", "AI编排开关"),
         ("DEEPANALYZE_MAX_DEPTH", "最大递归深度"),
-        ("DEEPANALYZE_MODEL_PATH", "模型路径"),
+        ("DEEPANALYZE_MODEL_NAME", "模型路径"),
         ("DEEPANALYZE_REPORT_FORMAT", "报告格式"),
         ("DEEPANALYZE_VISUAL_STYLE", "可视化风格"),
         ("DEEPANALYZE_CODEGEN_CONCURRENCY", "代码生成并发"),
@@ -210,7 +210,7 @@ def main():
     show_current_config()
     
     if not llm_ok:
-        console.print("\n[red]⚠️  LLM配置存在问题，请检查src/api密钥和网络连接[/red]")
+        console.print("\n[red]⚠️  LLM配置存在问题，请检查API密钥和网络连接[/red]")
     
     # 询问是否修改配置
     modify = input("\n是否要修改配置? (y/n): ").strip().lower()

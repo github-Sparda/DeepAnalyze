@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-DeepAnalyze src/api CLI - 轻量级美观的命令行界面 (中文版)
-使用 rich 包实现的 src/api 客户端，支持文件上传和数据分析任务
+DeepAnalyze API CLI - 轻量级美观的命令行界面 (中文版)
+使用 rich 包实现的 API 客户端，支持文件上传和数据分析任务
 """
 
 import os
@@ -101,7 +101,7 @@ class DeepAnalyzeCLI:
             return False
 
     def check_server(self) -> bool:
-        """检查src/api服务器是否运行"""
+        """检查API服务器是否运行"""
         try:
             import requests
             # 首先尝试检查健康端点
@@ -124,7 +124,7 @@ class DeepAnalyzeCLI:
         console.print(Panel(header_content, title="DeepAnalyze CLI", border_style="cyan"))
 
     def upload_file(self, file_path: str) -> Optional[str]:
-        """上传文件到src/api服务器"""
+        """上传文件到API服务器"""
         try:
             full_path = Path(file_path).expanduser().resolve()
             if not full_path.exists():
@@ -356,7 +356,7 @@ class DeepAnalyzeCLI:
                     temporary_file_path = temporary_file.name
 
                 try:
-                    # 上传到src/api
+                    # 上传到API
                     with open(temporary_file_path, 'rb') as f:
                         file_obj = self.client.files.create(
                             file=f,
@@ -681,8 +681,8 @@ class DeepAnalyzeCLI:
             # 统计
             output_files = [f for f in self.generated_files if f.get('type') == 'output']
             status_panel = Panel(
-                f"[bold]src/api服务器:[/bold] {server_status}\n"
-                f"[bold]src/api端点:[/bold] {self.api_base}\n"
+                f"[bold]API服务器:[/bold] {server_status}\n"
+                f"[bold]API端点:[/bold] {self.api_base}\n"
                 f"[bold]当前模型:[/bold] {self.model}\n"
                 f"[bold]上传文件:[/bold] {len(self.uploaded_files)}\n"
                 f"[bold]中间文件:[/bold] {len(self.intermediate_files)}\n"
@@ -896,14 +896,14 @@ class DeepAnalyzeCLI:
         try:
             # 检查服务器状态
             if not self.check_server():
-                console.print("[red]❌ src/api服务器未运行![/red]")
-                console.print("[yellow]请先启动src/api服务器: python backend/main.py[/yellow]")
+                console.print("[red]❌ API服务器未运行![/red]")
+                console.print("[yellow]请先启动API服务器: python backend/main.py[/yellow]")
                 return
 
             self.display_header()
-            console.print("[green]✅ src/api服务器连接成功[/green]")
+            console.print("[green]✅ API服务器连接成功[/green]")
             console.print(f"[dim]当前模型: {self.model}[/dim]")
-            console.print(f"[dim]src/api端点: {self.api_base}[/dim]\n")
+            console.print(f"[dim]API端点: {self.api_base}[/dim]\n")
 
             # 直接进入交互模式
             self.interactive_mode()

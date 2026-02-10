@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-DeepAnalyze src/api CLI - Lightweight and Beautiful Command Line Interface
-src/api client implemented with rich package, supporting file upload and data docs/analysis tasks
+DeepAnalyze API CLI - Lightweight and Beautiful Command Line Interface
+API client implemented with rich package, supporting file upload and data docs/analysis tasks
 """
 
 import os
@@ -29,7 +29,7 @@ from rich.filesize import decimal
 
 from pathlib import Path
 
-API_DIR = Path(__file__).resolve().parents[2] / "src/api"
+API_DIR = Path(__file__).resolve().parents[2] / "API"
 if str(API_DIR) not in sys.path:
     sys.path.append(str(API_DIR))
 
@@ -101,7 +101,7 @@ class DeepAnalyzeCLI:
             return False
 
     def check_server(self) -> bool:
-        """Check if src/api server is running"""
+        """Check if API server is running"""
         try:
             import requests
             # First try to check health endpoint
@@ -124,7 +124,7 @@ class DeepAnalyzeCLI:
         console.print(Panel(header_content, title="DeepAnalyze CLI", border_style="cyan"))
 
     def upload_file(self, file_path: str) -> Optional[str]:
-        """Upload file to src/api server"""
+        """Upload file to API server"""
         try:
             full_path = Path(file_path).expanduser().resolve()
             if not full_path.exists():
@@ -357,7 +357,7 @@ class DeepAnalyzeCLI:
                     temporary_file_path = temporary_file.name
 
                 try:
-                    # Upload to src/api
+                    # Upload to API
                     with open(temporary_file_path, 'rb') as f:
                         file_obj = self.client.files.create(
                             file=f,
@@ -681,8 +681,8 @@ class DeepAnalyzeCLI:
             # Statistics
             output_files = [f for f in self.generated_files if f.get('type') == 'output']
             status_panel = Panel(
-                f"[bold]src/api Server:[/bold] {server_status}\n"
-                f"[bold]src/api Endpoint:[/bold] {self.api_base}\n"
+                f"[bold]API Server:[/bold] {server_status}\n"
+                f"[bold]API Endpoint:[/bold] {self.api_base}\n"
                 f"[bold]Current Model:[/bold] {self.model}\n"
                 f"[bold]Uploaded Files:[/bold] {len(self.uploaded_files)}\n"
                 f"[bold]Intermediate Files:[/bold] {len(self.intermediate_files)}\n"
@@ -896,14 +896,14 @@ class DeepAnalyzeCLI:
         try:
             # Check server status
             if not self.check_server():
-                console.print("[red]❌ src/api server is not running![/red]")
-                console.print("[yellow]Please start the src/api server first: python backend/main.py[/yellow]")
+                console.print("[red]❌ API server is not running![/red]")
+                console.print("[yellow]Please start the API server first: python backend/main.py[/yellow]")
                 return
 
             self.display_header()
-            console.print("[green]✅ src/api server connection successful[/green]")
+            console.print("[green]✅ API server connection successful[/green]")
             console.print(f"[dim]Current model: {self.model}[/dim]")
-            console.print(f"[dim]src/api endpoint: {self.api_base}[/dim]\n")
+            console.print(f"[dim]API endpoint: {self.api_base}[/dim]\n")
 
             # Directly enter interactive mode
             self.interactive_mode()

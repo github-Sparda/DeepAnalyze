@@ -11,15 +11,15 @@ DeepAnalyze 提供三种 CLI 模式，满足不同使用场景需求：
 # 启动统一 CLI，选择模式
 python unified_cli.py --help
 
-# src/api 模式 - 需要运行服务器
+# API 模式 - 需要运行服务器
 python unified_cli.py --api-mode
 
 # 直接模式 - 无需服务器
 python unified_cli.py --direct-mode
 ```
 
-**2. src/api 模式**
-需要先启动 DeepAnalyze src/api 服务器：
+**2. API 模式**
+需要先启动 DeepAnalyze API 服务器：
 ```bash
 cd ../../src/api
 python start_server.py
@@ -46,20 +46,20 @@ python direct_cli.py --analyze data.csv --visualize --report
 
 ### 先决条件
 
-请先在 `src/api/config.py` 或 `.env` 中配置可用的 OpenAI 兼容 LLM 服务地址（仅 src/api 模式需要）。
+请先在 `src/api/config.py` 或 `.env` 中配置可用的 OpenAI 兼容 LLM 服务地址（仅 API 模式需要）。
 
 ## 📋 命令列表
 
 ### 统一 CLI 模式选择
 ```bash
-# 选择 src/api 模式（需要服务器）
+# 选择 API 模式（需要服务器）
 python unified_cli.py --api-mode [选项...]
 
 # 选择直接模式（无需服务器）  
 python unified_cli.py --direct-mode [选项...]
 ```
 
-### src/api 模式命令
+### API 模式命令
 
 #### 基础命令
 - `help` - 显示帮助信息  
@@ -104,7 +104,7 @@ python unified_cli.py --direct-mode [选项...]
 # 交互式选择模式
 python unified_cli.py
 
-# 直接指定 src/api 模式
+# 直接指定 API 模式
 python unified_cli.py --api-mode --interactive
 
 # 直接指定直接模式
@@ -114,7 +114,7 @@ python unified_cli.py --direct-mode --interactive
 python unified_cli.py --direct-mode --analyze data.csv --visualize --report
 ```
 
-### src/api 模式使用示例
+### API 模式使用示例
 
 #### 基础聊天
 ```
@@ -173,6 +173,6 @@ CLI 会自动以流式方式显示响应，在 DeepAnalyze 分析数据并生成
 
 ## 🔧 配置说明
 
-CLI 默认连接到 `http://localhost:48200/v1` 的 DeepAnalyze src/api 服务器。端口可在 `src/api/config.py` 中调整（见 `src/api_PUBLIC_BASE_V1`）。
+CLI 默认连接到 `http://localhost:48200/v1` 的 DeepAnalyze API 服务器。端口可在 `src/api/config.py` 中调整（见 `API_PUBLIC_BASE_V1`）。
 
 命令历史将分别保存至 `~/.deeppanalyze_history_en`（英文版）或 `~/.deeppanalyze_history_zh`（中文版）。

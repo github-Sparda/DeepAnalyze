@@ -8,7 +8,7 @@ A command-line interface for DeepAnalyze, powered by the Rich library. Provides 
 
 Please ensure that an OpenAI-compatible LLM endpoint is configured in `src/api/config.py` or `.env` before starting the CLI.
 
-1. **Start the DeepAnalyze src/api Server**:
+1. **Start the DeepAnalyze API Server**:
    ```bash
    cd ../../src/api
    python start_server.py
@@ -66,6 +66,6 @@ The CLI automatically streams responses, showing real-time progress as DeepAnaly
 
 ## 🔧 Configuration
 
-The CLI connects to the DeepAnalyze src/api server at `http://localhost:48200/v1` by default. You can change this in `src/api/config.py` (see `src/api_PUBLIC_BASE_V1`).
+The CLI connects to the DeepAnalyze API server at `http://localhost:48200/v1` by default. You can change this in `src/api/config.py` (see `API_PUBLIC_BASE_V1`).
 
 Command history is saved to `~/.deeppanalyze_history_en` (English) or `~/.deeppanalyze_history_zh` (Chinese).

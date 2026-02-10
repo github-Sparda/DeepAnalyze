@@ -3,7 +3,7 @@
 系统集成测试和性能优化验证
 System Integration Test and Performance Optimization
 
-改进版本 - 修正src/api调用错误，完善测试覆盖，优化代码质量
+改进版本 - 修正API调用错误，完善测试覆盖，优化代码质量
 """
 
 import sys
@@ -465,7 +465,7 @@ class SystemIntegrationTest:
     
     def test_api_compatibility(self):
         """测试src_api兼容性和边界条件"""
-        self.logger.info("\n🧪 测试src/api兼容性...")
+        self.logger.info("\n🧪 测试API兼容性...")
         start_time = time.time()
         
         try:
@@ -1082,7 +1082,7 @@ def main():
             tester.test_module_integration,
             tester.test_edge_cases,
             tester.test_concurrent_operations,
-            tester.test_api_compatibility,  # 新增src/api兼容性测试
+            tester.test_api_compatibility,  # 新增API兼容性测试
             tester.test_data_processing_pipeline,  # 新增数据处理管道测试
             tester.test_error_recovery
         ]

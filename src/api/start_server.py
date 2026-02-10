@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Simple startup script for DeepAnalyze src/api Server
+Simple startup script for DeepAnalyze API Server
 """
 
 import sys

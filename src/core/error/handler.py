@@ -41,7 +41,7 @@ class ErrorCategory(Enum):
     MEMORY = "memory"         # 内存相关错误
     TIMEOUT = "timeout"       # 超时错误
     CONFIGURATION = "configuration"  # 配置错误
-    EXTERNAL_src_api = "external_api"   # 外部src/api错误
+    EXTERNAL_src_api = "external_api"   # 外部API错误
     UNKNOWN = "unknown"       # 未知错误
 
 
@@ -271,7 +271,7 @@ class ErrorHandler:
     def _retry_network_operation(self, error_info: ErrorInfo) -> bool:
         """网络操作重试策略"""
         # 这里可以实现具体的重试逻辑
-        # 例如：等待一段时间后重试src/api调用
+        # 例如：等待一段时间后重试API调用
         time.sleep(error_info.recovery_attemporaryts * 2)  # 指数退避
         return True  # 表示重试机制已触发
     

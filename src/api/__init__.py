@@ -1,6 +1,6 @@
 """
-DeepAnalyze src/api Package
-OpenAI-compatible src/api server for DeepAnalyze model
+DeepAnalyze API Package
+OpenAI-compatible API server for DeepAnalyze model
 """
 
 import sys
@@ -12,7 +12,7 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 __version__ = "1.0.0"
-__title__ = "DeepAnalyze OpenAI-Compatible src/api"
+__title__ = "DeepAnalyze OpenAI-Compatible API"
 
 
 def create_app(*args, **kwargs):

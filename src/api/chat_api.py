@@ -1,5 +1,5 @@
 """
-Chat Completions src/api for DeepAnalyze src/api Server
+Chat Completions API for DeepAnalyze API Server
 Handles extended chat completion with file attachment support
 """
 
@@ -50,7 +50,7 @@ async def chat_completions(
     stream: Optional[bool] = Body(False),
 ):
     """
-    Extended chat completion src/api with file attachment support.
+    Extended chat completion API with file attachment support.
     Creates a temporaryorary conversation with associated files.
 
     Parameters:

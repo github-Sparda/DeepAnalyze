@@ -496,7 +496,7 @@ class EnhancedAIAssistant:
                 "content": user_message
             })
             
-            # 这里应该调用实际的LLM src/api
+            # 这里应该调用实际的LLM API
             # 暂时返回模拟响应
             response_content = self._generate_response(context_messages, session_id)
             
@@ -534,7 +534,7 @@ class EnhancedAIAssistant:
     
     def _generate_response(self, messages: List[Dict[str, Any]], session_id: str) -> str:
         """生成AI响应（模拟实现）"""
-        # 实际实现中这里会调用LLM src/api
+        # 实际实现中这里会调用LLM API
         last_user_message = messages[-1]['content'] if messages else ""
         
         # 基于消息内容生成适当的响应

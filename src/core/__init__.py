@@ -3,12 +3,24 @@
 
 __version__ = "1.0.0"
 
+import os
+
 # 导出主要子模块
 from . import orchestration
 from . import visualization
 from . import reporting
 from . import tools
-from . import cache
+
+_semantic_cache_enabled = os.getenv("DEEPANALYZE_SEMANTIC_CACHE_ENABLED", "1").strip().lower() not in {
+    "0",
+    "false",
+    "no",
+    "off",
+}
+if _semantic_cache_enabled:
+    from . import cache
+else:
+    cache = None
 
 try:
     from . import security
@@ -49,3 +61,5 @@ __all__ = [
 
 if security is None and "security" in __all__:
     __all__.remove("security")
+if cache is None and "cache" in __all__:
+    __all__.remove("cache")

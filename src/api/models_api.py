@@ -1,5 +1,5 @@
 """
-Models src/api for DeepAnalyze src/api Server
+Models API for DeepAnalyze API Server
 Handles model listing endpoints (OpenAI compatible)
 """
 
@@ -20,7 +20,7 @@ router = APIRouter(prefix="/v1/models", tags=["models"])
 async def list_models():
     """
     List available models (OpenAI compatible)
-    Returns a list of models that can be used with the src/api
+    Returns a list of models that can be used with the API
     """
     # Define available models
     available_models = [

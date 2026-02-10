@@ -1,5 +1,5 @@
 """
-Admin src/api for DeepAnalyze src/api Server
+Admin API for DeepAnalyze API Server
 Handles administrative endpoints like thread cleanup and statistics
 """
 
@@ -20,7 +20,7 @@ async def manual_cleanup_threads(
     timeout_hours: int = Query(CLEANUP_TIMEOUT_HOURS, description="Timeout in hours for thread cleanup")
 ):
     """
-    Manual trigger for thread cleanup (Admin src/api)
+    Manual trigger for thread cleanup (Admin API)
     Clean up threads that haven't been accessed for more than timeout_hours
     """
     try:
@@ -43,7 +43,7 @@ async def manual_cleanup_threads(
 @router.get("/threads-stats", response_model=ThreadStatsResponse)
 async def get_threads_stats():
     """
-    Get statistics about threads (Admin src/api)
+    Get statistics about threads (Admin API)
     """
     with storage._lock:
         total_threads = len(storage.threads)

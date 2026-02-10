@@ -4,7 +4,7 @@ set -euo pipefail
 PYTHON_BIN="/home/huangzw/miniforge3/envs/common/bin/python"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LOG_DIR="$ROOT_DIR/outputs/logs"
-src/api_DIR="$ROOT_DIR/src/api"
+API_DIR="$ROOT_DIR/src/api"
 
 if [ -f "$ROOT_DIR/.env" ]; then
   set -a
@@ -13,19 +13,19 @@ if [ -f "$ROOT_DIR/.env" ]; then
   set +a
 fi
 
-read -r src/api_PORT FILE_PORT FRONTEND_PORT <<EOF
+read -r API_PORT FILE_PORT FRONTEND_PORT <<EOF
 $(
-  src/api_DIR="$src/api_DIR" "$PYTHON_BIN" - <<'PY'
+  API_DIR="$API_DIR" "$PYTHON_BIN" - <<'PY'
 import os
 import sys
 
-api_dir = os.environ.get("src/api_DIR")
+api_dir = os.environ.get("API_DIR")
 if api_dir:
     sys.path.append(api_dir)
 
-from config import src/api_PORT, HTTP_SERVER_PORT, FRONTEND_PORT
+from config import API_PORT, HTTP_SERVER_PORT, FRONTEND_PORT
 
-print(src/api_PORT, HTTP_SERVER_PORT, FRONTEND_PORT)
+print(API_PORT, HTTP_SERVER_PORT, FRONTEND_PORT)
 PY
 )
 EOF
@@ -69,8 +69,8 @@ esac
 
 echo "DeepAnalyze service status"
 if [ "$TARGET" = "all" ] || [ "$TARGET" = "backend" ]; then
-  check_pid "Backend src/api" "$LOG_DIR/backend.pid"
-  check_port "src/api" "$src/api_PORT"
+  check_pid "Backend API" "$LOG_DIR/backend.pid"
+  check_port "API" "$API_PORT"
   check_port "File server" "$FILE_PORT"
 fi
 if [ "$TARGET" = "all" ] || [ "$TARGET" = "frontend" ]; then

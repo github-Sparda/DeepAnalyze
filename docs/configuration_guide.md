@@ -9,9 +9,9 @@
 ### LLM相关配置
 ```bash
 # 必需配置
-DEEPANALYZE_VLLM_src/api_KEY=your-api-key          # src/api密钥
-DEEPANALYZE_VLLM_BASE_URL=https://api.data/examples.com/v1  # src/api地址
-DEEPANALYZE_MODEL_PATH=model-name              # 模型名称
+DEEPANALYZE_VLLM_API_KEY=your-api-key          # API密钥
+DEEPANALYZE_VLLM_BASE_URL=https://api.data/examples.com/v1  # API地址
+DEEPANALYZE_MODEL_NAME=model-name              # 模型名称
 
 # 可选配置
 DEFAULT_MODEL=gpt-4                            # 默认模型
@@ -122,10 +122,10 @@ python -c "from src/api.config import USE_ORCHESTRATOR; print(USE_ORCHESTRATOR)"
 
 # 测试LLM连接
 python -c "
-from src/api.config import DEEPANALYZE_VLLM_src/api_KEY, VLLM_BASE_URL
+from src/api.config import DEEPANALYZE_VLLM_API_KEY, VLLM_BASE_URL
 import requests
 response = requests.get(f'{VLLM_BASE_URL}/models', 
-                       headers={'Authorization': f'Bearer {DEEPANALYZE_VLLM_src/api_KEY}'})
+                       headers={'Authorization': f'Bearer {DEEPANALYZE_VLLM_API_KEY}'})
 print('连接状态:', '成功' if response.status_code == 200 else '失败')
 "
 ```

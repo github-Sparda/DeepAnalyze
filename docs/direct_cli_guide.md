@@ -2,7 +2,7 @@
 
 ## 概述
 
-这是一个直接调用 DeepAnalyze 各个核心模块功能的命令行工具，无需启动 src/api 服务器即可直接使用数据分析、可视化、报告生成等功能。
+这是一个直接调用 DeepAnalyze 各个核心模块功能的命令行工具，无需启动 API 服务器即可直接使用数据分析、可视化、报告生成等功能。
 
 ## 🚀 快速开始
 
@@ -146,10 +146,10 @@ python scripts/src/core_cli.py --interactive
 1. **模块导入失败**：确保在项目根目录运行命令
 2. **数据文件不存在**：检查文件路径是否正确
 3. **可视化失败**：确认安装了必要的绘图库
-4. **AI助手无响应**：某些功能可能需要配置相应的 src/api 密钥
+4. **AI助手无响应**：某些功能可能需要配置相应的 API 密钥
 
 ## 📚 相关文档
 
-- [src/api CLI 使用说明](../src/cli/README.md) - 基于 src/api 的 CLI 工具
+- [API CLI 使用说明](../src/cli/README.md) - 基于 API 的 CLI 工具
 - [Jupyter CLI 使用说明](../src/jupyter/README.md) - Jupyter 界面 CLI
 - [技术文档索引](../DOCS.ZH.md) - 完整技术文档

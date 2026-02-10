@@ -57,7 +57,7 @@
 
 
 ## 🔥 News
-- **[2025.11.13]**: DeepAnalyze now supports OpenAI-style src/api endpointsis and is accessible through the Command Line Terminal UI. Thanks to the contributor [@LIUyizheSDU](https://github.com/LIUyizheSDU/)
+- **[2025.11.13]**: DeepAnalyze now supports OpenAI-style API endpointsis and is accessible through the Command Line Terminal UI. Thanks to the contributor [@LIUyizheSDU](https://github.com/LIUyizheSDU/)
 - **[2025.11.08]**: DeepAnalyze is now accessible through the JupyterUI, building based on [jupyter-mcp-server](https://github.com/datalayer/jupyter-mcp-server). Thanks to the contributor [@ChengJiale150](https://github.com/ChengJiale150).
 - **[2025.10.28]**: We welcome all contributions, including improving the DeepAnalyze and sharing use cases (see [`CONTRIBUTION.md`](CONTRIBUTION.md)). All merged PRs will be listed as contributors.
 - **[2025.10.27]**: DeepAnalyze has attracted widespread attention, gaining **1K+** GitHub stars and **200K+** Twitter views within a week.
@@ -102,7 +102,7 @@ Try DeepAnalyze through the command-line interface
 </p>
 
 
-- Start the src/api server and launch the CLI interface:
+- Start the API server and launch the CLI interface:
     ```bash
     cd src/api
     python start_server.py  # In one terminal
@@ -121,7 +121,7 @@ Try DeepAnalyze through the command-line interface
 
 > [!TIP]
 >
-> Clone this repository to deploy DeepAnalyze locally as your data analyst, completing any data science tasks without any workflow or closed-source src/apis.
+> Clone this repository to deploy DeepAnalyze locally as your data analyst, completing any data science tasks without any workflow or closed-source APIs.
 >
 > 🔥 The UI of the demo is an initial version. Welcome to further develop it, and we will include you as a contributor.
 
@@ -217,13 +217,13 @@ pip install -r requirements.txt
 
   > For more data/exampless and task completion details, please refer to [DeepAnalyze's homepage](https://ruc-src/core.github.io/).
 
-### src/api
+### API
 
   ```
   python src/api/start_server.py
   ```
 
-- src/api usage :
+- API usage :
 
   ```
   FILE_RESPONSE=$(curl -s -X POST "http://localhost:48200/v1/files" \

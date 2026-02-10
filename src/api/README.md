@@ -1,4 +1,4 @@
-# DeepAnalyze src/api Server
+# DeepAnalyze API Server
 
 ## 🚀 Quick Start
 
@@ -17,11 +17,11 @@ cd src/api
 python start_server.py
 ```
 
-- **src/api Server**: `http://localhost:48200` (Main src/api)
+- **API Server**: `http://localhost:48200` (Main API)
 - **File Server**: `http://localhost:48100` (File downloads)
 - **Health Check**: `http://localhost:48200/health`
 
-The src/api server will create a new `data/sessions/active` folder in the current directory as the working directory. For each conversation, it will generate a `thread` subdirectory under this data/sessions/active to perform data docs/analysis and generate files.
+The API server will create a new `data/sessions/active` folder in the current directory as the working directory. For each conversation, it will generate a `thread` subdirectory under this data/sessions/active to perform data docs/analysis and generate files.
 
 ### Quick Test
 
@@ -31,7 +31,7 @@ python data/examplesRequest.py          #  requests data/examples
 python data/examplesOpenAI.py    # OpenAI library data/examples
 ```
 
-## 📚 src/api Usage
+## 📚 API Usage
 
 ### 1. File Upload
 
@@ -194,9 +194,9 @@ for chunk in stream:
 ```
 
 
-## 📋 src/api Reference
+## 📋 API Reference
 
-### Files src/api
+### Files API
 
 #### POST /v1/files
 Upload a file for docs/analysis.
@@ -271,7 +271,7 @@ DELETE /v1/files/{file_id}
 }
 ```
 
-### Chat Completions src/api
+### Chat Completions API
 
 #### POST /v1/chat/completions
 Extended chat completion with file support.
@@ -335,10 +335,10 @@ data: [DONE]
 
 
 
-### Health Check src/api
+### Health Check API
 
 #### GET /health
-Check src/api server status.
+Check API server status.
 
 **Request:**
 ```http
@@ -357,7 +357,7 @@ GET /health
 
 ### Multi-Port Design
 
-- **Port 48200**: Main src/api server (Fastsrc/api)
+- **Port 48200**: Main API server (FastAPI)
 - **Port 48100**: File HTTP server for downloads
 
 ## 🔧 Configuration
@@ -365,8 +365,8 @@ GET /health
 ### Environment Variables
 
 ```python
-# src/api Configuration
-MODEL_PATH = "your-model-id"    # Model name
+# API Configuration
+MODEL_NAME = "your-model-id"    # Model name
 WORKSPACE_BASE_DIR = "data/sessions/active"       # File storage
 HTTP_SERVER_PORT = 48100              # File server port
 

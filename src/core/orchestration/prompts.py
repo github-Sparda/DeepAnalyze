@@ -163,6 +163,7 @@ def render_role_prompt(role: str, language: str, **kwargs) -> list[dict[str, str
     payload = {
         "system": system,
         "prompt": prompt,
+        "language": language,
         "plan_id": kwargs.get("plan_id", ""),
         "artifact_context": kwargs.get("artifact_context", ""),
         "history": kwargs.get("history", ""),

@@ -11,7 +11,7 @@ DeepAnalyze Jupyter 前端是 DeepAnalyze 数据科学智能体的 Jupyter Noteb
 ### 环境要求
 - uv (统一管理 Python 运行与依赖)
 - Node.js (用于运行 Jupyter MCP 服务器)
-- OpenAI 兼容的 src/api 服务器（在 `.env` 中配置）
+- OpenAI 兼容的 API 服务器（在 `.env` 中配置）
 
 ### 安装步骤
 
@@ -52,7 +52,7 @@ uv add xgboost
 4. 配置环境变量与配置文件
 ```bash
 cp .env.data/examples .env
-# 编辑 .env 文件，填入你的 src/api 配置
+# 编辑 .env 文件，填入你的 API 配置
 # 编辑 config.toml 文件，填入相关配置
 ```
 

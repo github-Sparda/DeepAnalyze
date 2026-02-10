@@ -1,5 +1,5 @@
 """
-File Management src/api for DeepAnalyze src/api Server
+File Management API for DeepAnalyze API Server
 Handles file upload, download, and management endpoints
 """
 

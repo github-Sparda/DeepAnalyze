@@ -1,5 +1,5 @@
 """
-Storage layer for DeepAnalyze src/api Server
+Storage layer for DeepAnalyze API Server
 Handles in-memory storage for OpenAI objects
 """
 

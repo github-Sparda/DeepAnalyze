@@ -6,7 +6,7 @@ from fastmcp.client.transports import StdioTransport
 
 def convert_to_backend_format(mcp_result: CallToolResult) -> str:
     """
-    Convert a CallToolResult object to the backend.py Execute src/api format.
+    Convert a CallToolResult object to the backend.py Execute API format.
     """
     text = []
     for content in mcp_result.content:

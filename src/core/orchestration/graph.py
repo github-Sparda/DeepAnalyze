@@ -696,7 +696,6 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
             "report",
             language,
             prompt_key="report",
-            language=language,
             format=report_format,
             mode=export_mode,
             outline=outline,

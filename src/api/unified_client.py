@@ -1,6 +1,6 @@
 """
-Unified src/api Client for DeepAnalyze
-Provides a consistent interface for all src/api interactions
+Unified API Client for DeepAnalyze
+Provides a consistent interface for all API interactions
 """
 
 import os
@@ -12,7 +12,7 @@ from openai import OpenAI
 import requests
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-from ..config import (
+from .config import (
     API_BASE,
     DEEPANALYZE_VLLM_API_KEY,
     DEFAULT_MODEL,
@@ -23,10 +23,10 @@ from ..config import (
 
 
 class UnifiedAPIClient:
-    """统一的src/api客户端，封装所有外部服务调用"""
+    """统一的API客户端，封装所有外部服务调用"""
     
     def __init__(self):
-        """初始化src/api客户端"""
+        """初始化API客户端"""
         # 初始化OpenAI兼容客户端
         self.openai_client = OpenAI(
             base_url=API_BASE,
@@ -84,7 +84,7 @@ class UnifiedAPIClient:
         purpose: str = "file-extract"
     ) -> Dict[str, Any]:
         """
-        上传文件到src/api服务
+        上传文件到API服务
         
         Args:
             file_path: 文件路径
@@ -181,5 +181,5 @@ api_client = UnifiedAPIClient()
 
 
 def get_api_client() -> UnifiedAPIClient:
-    """获取全局src/api客户端实例"""
+    """获取全局API客户端实例"""
     return api_client

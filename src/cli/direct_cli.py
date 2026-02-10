@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-DeepAnalyze Direct CLI - Direct module function calls without src/api server
+DeepAnalyze Direct CLI - Direct module function calls without API server
 Support direct access to core modules: data analysis, visualization, AI assistant, report generation
 """
 
@@ -63,7 +63,7 @@ class DirectDeepAnalyzeCLI:
             self.current_session_id = None
             
     def analyze_data_direct(self, file_path: str, analysis_types: List[str] = None) -> Optional[Dict]:
-        """Direct data analysis without src/api server - supports both traditional and LLM orchestration"""
+        """Direct data analysis without API server - supports both traditional and LLM orchestration"""
         try:
             file_path = Path(file_path).expanduser().resolve()
             if not file_path.exists():
@@ -656,7 +656,7 @@ class DirectDeepAnalyzeCLI:
     def interactive_mode(self):
         """Interactive mode for direct module access"""
         console.print("\n[bold green]🎯 Direct CLI Mode - Access modules directly[/bold green]")
-        console.print("[dim]No src/api server required - all modules called directly[/dim]")
+        console.print("[dim]No API server required - all modules called directly[/dim]")
         
         self.show_help()
         
@@ -842,7 +842,7 @@ def main():
     args = parser.parse_args()
     
     # Header
-    console.print(Panel("[bold cyan]🚀 DeepAnalyze Direct CLI[/bold cyan]\n[dim]Direct module access without src/api server[/dim]", 
+    console.print(Panel("[bold cyan]🚀 DeepAnalyze Direct CLI[/bold cyan]\n[dim]Direct module access without API server[/dim]", 
                        title="Direct CLI", border_style="cyan"))
     
     cli = DirectDeepAnalyzeCLI()

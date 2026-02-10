@@ -199,7 +199,7 @@ except Exception as e:
     print(f"更新失败: {e}")
 ```
 
-## src/api参考
+## API参考
 
 ### StateManager类
 

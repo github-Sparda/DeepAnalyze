@@ -7,9 +7,9 @@ import requests
 from pathlib import Path
 import sys
 
-src_api_DIR = Path(__file__).resolve().parents[1] / "src_api"
-if str(src/api_DIR) not in sys.path:
-    sys.path.append(str(src/api_DIR))
+API_DIR = Path(__file__).resolve().parents[1] / "src/api"
+if str(API_DIR) not in sys.path:
+    sys.path.append(str(API_DIR))
 
 from config import API_BASE
 
@@ -26,7 +26,7 @@ class DeepAnalyzeVLLM:
         max_rounds: int = 30,
     ):
         self.model_name = model_name
-        self.api_url = api_url or f"{src/api_BASE}/chat/completions"
+        self.api_url = api_url or f"{API_BASE}/chat/completions"
         self.max_rounds = max_rounds
 
     def execute_code(self, code_str: str) -> str:

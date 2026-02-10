@@ -52,7 +52,7 @@ class ChatCompletionResponse(BaseModel):
 
 @app.get("/v1/models")
 async def list_models():
-    """Mock OpenAI Model List src/api"""
+    """Mock OpenAI Model List API"""
     return {
         "object": "list",
         "data": [
@@ -67,7 +67,7 @@ async def list_models():
 
 @app.post("/v1/chat/completions")
 async def create_chat_completion(request: ChatCompletionRequest):
-    """Mock OpenAI Chat Completion src/api"""
+    """Mock OpenAI Chat Completion API"""
     global current_response_index, request_count
     
     request_count += 1
@@ -108,10 +108,10 @@ async def create_chat_completion(request: ChatCompletionRequest):
 @app.get("/")
 async def root():
     """Root path, check if server is running"""
-    return {"message": "Mock OpenAI src/api Server is running"}
+    return {"message": "Mock OpenAI API Server is running"}
 
 if __name__ == "__main__":
     port = get_vllm_port() or 48000
-    print(f"Starting Mock OpenAI src/api Server on http://localhost:{port}")
+    print(f"Starting Mock OpenAI API Server on http://localhost:{port}")
     print("This server provides test responses for DeepAnalyze testing")
     uvicorn.run(app, host="0.0.0.0", port=port)

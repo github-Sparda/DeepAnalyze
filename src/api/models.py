@@ -1,5 +1,5 @@
 """
-Data models for DeepAnalyze src/api Server
+Data models for DeepAnalyze API Server
 Contains all Pydantic models for OpenAI compatibility
 """
 

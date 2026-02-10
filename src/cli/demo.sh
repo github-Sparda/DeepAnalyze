@@ -15,7 +15,7 @@ fi
 
 echo "📋 可用的CLI模式:"
 echo "1. 统一CLI模式 - python unified_cli.py"
-echo "2. src/api模式 - python api_cli.py (需要运行服务器)"
+echo "2. API模式 - python api_cli.py (需要运行服务器)"
 echo "3. 直接模式 - python direct_cli.py (无需服务器)"
 echo ""
 
@@ -50,5 +50,5 @@ echo "✅ 演示完成!"
 echo ""
 echo "💡 使用建议:"
 echo "- 开发测试时使用直接模式，无需启动服务器"
-echo "- 生产环境使用src/api模式，获得完整功能"
+echo "- 生产环境使用API模式，获得完整功能"
 echo "- 统一模式便于切换和比较两种方式"

@@ -12,6 +12,7 @@ import os
 import shutil
 import sys
 import time
+import threading
 from pathlib import Path
 from typing import Any, Dict
 
@@ -66,6 +67,12 @@ def main() -> None:
         help="LLM analysis goal prompt",
     )
     parser.add_argument(
+        "--no-print-steps",
+        action="store_true",
+        default=False,
+        help="Print orchestrator node progress as it runs",
+    )
+    parser.add_argument(
         "--workspace-dir",
         default=None,
         help="Workspace base directory for session artifacts (defaults to <output-dir>/workspace)",
@@ -96,6 +103,32 @@ def main() -> None:
     session_dir.mkdir(parents=True, exist_ok=True)
     shutil.copy2(data_file, session_dir / data_file.name)
 
+    stop_event = threading.Event()
+    monitor_thread = None
+    if not args.no_print_steps:
+        nodes_dir = session_dir / "outputs_logs" / "nodes"
+        nodes_dir.mkdir(parents=True, exist_ok=True)
+
+        def _monitor_nodes() -> None:
+            seen: set[Path] = set()
+            while not stop_event.is_set():
+                for path in sorted(nodes_dir.glob("*.json")):
+                    if path in seen:
+                        continue
+                    seen.add(path)
+                    try:
+                        payload = json.loads(path.read_text(encoding="utf-8"))
+                        node = payload.get("node", "unknown")
+                        error = payload.get("error")
+                        status = "error" if error else "success"
+                        print(f"[step] {node}: {status}")
+                    except Exception:
+                        print(f"[step] {path.name}")
+                time.sleep(0.5)
+
+        monitor_thread = threading.Thread(target=_monitor_nodes, daemon=True)
+        monitor_thread.start()
+
     config = {
         "max_depth": max_depth,
         "report_format": args.report_format,
@@ -107,6 +140,10 @@ def main() -> None:
     }
 
     state = run_orchestrated_docs_analysis(session_id=session_id, config=config)
+    if stop_event:
+        stop_event.set()
+    if monitor_thread:
+        monitor_thread.join(timeout=2.0)
 
     _write_json(output_dir / "run_state.json", state)
 

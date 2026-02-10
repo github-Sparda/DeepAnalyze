@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-DeepAnalyze Unified CLI - Choose between src/api mode and Direct mode
-Unified entry point for both src/api-based and direct module access modes
+DeepAnalyze Unified CLI - Choose between API mode and Direct mode
+Unified entry point for both API-based and direct module access modes
 """
 
 import argparse
@@ -17,7 +17,7 @@ def show_welcome():
     welcome_text = """[bold cyan]🚀 DeepAnalyze Unified CLI[/bold cyan]
 
 Choose your preferred mode:
-• [green]src/api Mode[/green] - Connect to running src/api server for full features
+• [green]API Mode[/green] - Connect to running API server for full features
 • [blue]Direct Mode[/blue] - Direct module access without server (local only)
 
 [dim]Use --help for detailed usage information[/dim]"""
@@ -26,11 +26,11 @@ Choose your preferred mode:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="DeepAnalyze Unified CLI - Choose between src/api and Direct modes",
+        description="DeepAnalyze Unified CLI - Choose between API and Direct modes",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # src/api Mode - requires running server
+  # API Mode - requires running server
   python unified_cli.py --api-mode
   python unified_cli.py --api-mode --upload data.csv
   
@@ -47,16 +47,16 @@ Examples:
     # Mode selection
     mode_group = parser.add_mutually_exclusive_group(required=True)
     mode_group.add_argument('--api-mode', '-a', action='store_true', 
-                           help='Use src/api mode (requires running server)')
+                           help='Use API mode (requires running server)')
     mode_group.add_argument('--direct-mode', '-d', action='store_true',
                            help='Use direct mode (no server required)')
     
-    # src/api mode specific arguments
-    api_group = parser.add_argument_group('src/api Mode Options')
-    api_group.add_argument('--upload', help='Upload file in src/api mode')
-    api_group.add_argument('--chat', help='Send message in src/api mode')
+    # API mode specific arguments
+    api_group = parser.add_argument_group('API Mode Options')
+    api_group.add_argument('--upload', help='Upload file in API mode')
+    api_group.add_argument('--chat', help='Send message in API mode')
     api_group.add_argument('--api-interactive', action='store_true', 
-                          help='Interactive src/api mode')
+                          help='Interactive API mode')
     
     # Direct mode specific arguments  
     direct_group = parser.add_argument_group('Direct Mode Options')
@@ -85,7 +85,7 @@ Examples:
     
     try:
         if args.api_mode:
-            # Run src/api mode
+            # Run API mode
             run_api_mode(args)
         elif args.direct_mode:
             # Run direct mode  
@@ -102,11 +102,11 @@ Examples:
         sys.exit(1)
 
 def run_api_mode(args):
-    """Run src/api mode CLI"""
+    """Run API mode CLI"""
     api_cli_path = Path(__file__).parent / "api_cli.py"
     
     if not api_cli_path.exists():
-        console.print("[red]❌ src/api CLI module not found[/red]")
+        console.print("[red]❌ API CLI module not found[/red]")
         sys.exit(1)
         
     # Build command arguments
@@ -125,12 +125,12 @@ def run_api_mode(args):
     if not any([args.upload, args.chat, args.api_interactive]):
         cmd_args.append('--interactive')
         
-    # Execute src/api CLI
+    # Execute API CLI
     import subprocess
     try:
         subprocess.run(cmd_args, check=True)
     except subprocess.CalledProcessError as e:
-        console.print(f"[red]❌ src/api CLI execution failed with code {e.returncode}[/red]")
+        console.print(f"[red]❌ API CLI execution failed with code {e.returncode}[/red]")
         sys.exit(e.returncode)
 
 def run_direct_mode(args):

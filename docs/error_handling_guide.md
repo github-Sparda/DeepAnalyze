@@ -7,7 +7,7 @@ DeepAnalyze错误处理系统提供全面的错误管理、自动恢复和监控
 
 ### 1. 多级错误分类
 - **严重程度**: LOW, MEDIUM, HIGH, CRITICAL
-- **错误类别**: VALIDATION, EXECUTION, NETWORK, FILESYSTEM, MEMORY, TIMEOUT, CONFIGURATION, EXTERNAL_src/api, UNKNOWN
+- **错误类别**: VALIDATION, EXECUTION, NETWORK, FILESYSTEM, MEMORY, TIMEOUT, CONFIGURATION, EXTERNAL_API, UNKNOWN
 
 ### 2. 自动恢复机制
 - 智能恢复策略匹配
@@ -37,7 +37,7 @@ handler = ErrorHandler()
 # 处理各种错误
 try:
     # 网络操作
-    raise ConnectionError("src/api连接失败")
+    raise ConnectionError("API连接失败")
 except Exception as e:
     error_info = handler.handle_error(
         e,
@@ -79,7 +79,7 @@ from src/core.error.handler import safe_operation, critical_operation
 
 @safe_operation(max_retries=3, fallback_value="默认结果")
 def unreliable_api_call():
-    """不稳定的src/api调用"""
+    """不稳定的API调用"""
     import random
     if random.random() < 0.5:
         raise ConnectionError("网络不稳定")
@@ -116,7 +116,7 @@ handler = ErrorHandler()
 custom_strategy = RecoveryStrategy(
     name="custom_db_recovery",
     description="数据库连接恢复策略",
-    applicable_categories=[ErrorCategory.EXTERNAL_src/api],
+    applicable_categories=[ErrorCategory.EXTERNAL_API],
     applicable_severities=[ErrorSeverity.MEDIUM, ErrorSeverity.HIGH],
     max_atdata/cache/temporaryts=3,
     retry_delay=5.0,
@@ -274,7 +274,7 @@ logging.basicConfig(level=logging.WARNING)  # 减少日志输出
 handler.max_error_history = 500  # 默认1000
 ```
 
-## src/api参考
+## API参考
 
 ### ErrorHandler类
 

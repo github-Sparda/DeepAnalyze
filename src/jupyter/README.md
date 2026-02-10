@@ -11,7 +11,7 @@ The DeepAnalyze Jupyter Frontend is a Jupyter Notebook interface for the DeepAna
 ### Requirements
 - uv (Unified management of Python runtime and dependencies)
 - Node.js (For running Jupyter MCP server)
-- OpenAI-compatible src/api server (configured in `.env`)
+- OpenAI-compatible API server (configured in `.env`)
 
 ### Installation Steps
 
@@ -45,7 +45,7 @@ uv add xgboost
 4. Configure environment variables and configuration files
 ```bash
 cp .env.data/examples .env
-# Edit the .env file and fill in your src/api configuration
+# Edit the .env file and fill in your API configuration
 # Edit the config.toml file and fill in relevant configurations
 ```
 

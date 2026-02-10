@@ -379,7 +379,7 @@ def get_reports_paginated(session_id, page=1, page_size=20):
     return all_reports[start_idx:end_idx]
 ```
 
-## src/api参考
+## API参考
 
 ### 主要类和方法
 
