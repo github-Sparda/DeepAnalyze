@@ -62,7 +62,7 @@ class LightweightSandbox:
         
         try:
             # 创建临时文件存储代码
-            with temporaryfile.NamedTemporaryFile(mode='w', suffix='.py', 
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.py', 
                                            delete=False) as f:
                 f.write(code)
                 code_file = f.name
@@ -173,7 +173,7 @@ class LightweightSandbox:
                 resource.setrlimit(resource.RLIMIT_STACK, (stack_limit, stack_limit))
                 
                 # 更改工作目录到临时目录
-                temporary_dir = temporaryfile.mkdtemporary()
+                temporary_dir = tempfile.mkdtemp()
                 os.chdir(temporary_dir)
                 
                 # 限制文件描述符

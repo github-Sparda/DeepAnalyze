@@ -56,7 +56,7 @@ class ChatCompletionRequest(BaseModel):
     model: str
     messages: List[Dict[str, Any]]
     file_ids: Optional[List[str]] = Field(default=None)
-    temporaryerature: Optional[float] = Field(0.4)
+    temperature: Optional[float] = Field(0.4)
     stream: Optional[bool] = Field(False)
 
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-import temporaryfile
+import tempfile
 from pathlib import Path
 import sys
 
@@ -55,12 +55,14 @@ class FakeLLM:
 
 def main():
     fixture = Path(__file__).parent / "fixtures" / "sample.csv"
-    with temporaryfile.TemporaryDirectory() as tmpdir:
+    with tempfile.TemporaryDirectory() as tmpdir:
         data_sessions_active = Path(tmpdir)
-        (data_sessions/active / fixture.name).write_text(fixture.read_text(encoding="utf-8"), encoding="utf-8")
+        (data_sessions_active / fixture.name).write_text(
+            fixture.read_text(encoding="utf-8"), encoding="utf-8"
+        )
         state: OrchestrationState = {
             "session_id": "smoke",
-            "data_sessions_active_dir": str(data_sessions/active),
+            "data_sessions_active_dir": str(data_sessions_active),
             "depth": 1,
             "max_depth": 1,
             "config": {"report_format": "markdown", "report_language": "en"},

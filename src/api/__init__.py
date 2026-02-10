@@ -14,6 +14,17 @@ if project_root not in sys.path:
 __version__ = "1.0.0"
 __title__ = "DeepAnalyze OpenAI-Compatible src/api"
 
-from .main import create_app, main
+
+def create_app(*args, **kwargs):
+    from .main import create_app as _create_app
+
+    return _create_app(*args, **kwargs)
+
+
+def main(*args, **kwargs):
+    from .main import main as _main
+
+    return _main(*args, **kwargs)
+
 
 __all__ = ["create_app", "main"]

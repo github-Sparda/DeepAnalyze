@@ -182,7 +182,7 @@ class FullProcessValidator:
         )
         
         # Simpson悖论检测
-        simpson_docs/analysis = self._detect_simpson_paradox(df)
+        simpson_analysis = self._detect_simpson_paradox(df)
         
         programming_artifact = {
             "step": "programming_docs/analysis",
@@ -197,7 +197,7 @@ class FullProcessValidator:
                 }
                 for result in stat_results
             ],
-            "simpson_paradox_detection": simpson_docs/analysis,
+            "simpson_paradox_detection": simpson_analysis,
             "code_executed": [
                 "数据加载和预处理",
                 "统计检验执行",
@@ -211,11 +211,11 @@ class FullProcessValidator:
         
         print("✅ 编程分析完成")
         print(f"  执行了 {len(stat_results)} 个统计检验")
-        print(f"  Simpson悖论检测: {'发现' if simpson_docs/analysis['detected'] else '未发现'}")
+        print(f"  Simpson悖论检测: {'发现' if simpson_analysis['detected'] else '未发现'}")
         
         return programming_artifact
     
-    def step_4_detailed_docs/analysis(self, data_file: str) -> Dict:
+    def step_4_detailed_analysis(self, data_file: str) -> Dict:
         """步骤4: 详细分析"""
         print("\n📊 步骤4: 详细分析")
         print("-" * 30)
@@ -238,7 +238,7 @@ class FullProcessValidator:
         # 按收入分层分析
         income_bins = pd.qcut(df['income'], q=4, labels=['Low', 'Medium', 'High', 'Very_High'])
         df['income_level'] = income_bins
-        income_docs/analysis = df.groupby('income_level').agg({
+        income_analysis = df.groupby('income_level').agg({
             'success': ['count', 'mean'],
             'treatment': 'mean'
         }).round(3)
@@ -247,7 +247,7 @@ class FullProcessValidator:
             "step": "detailed_docs/analysis", 
             "timestamp": datetime.now().isoformat(),
             "department_docs/analysis": detailed_results,
-            "income_stratification": income_docs/analysis.to_dict(),
+            "income_stratification": income_analysis.to_dict(),
             "interaction_effects": self._analyze_interactions(df),
             "effect_sizes": self._calculate_effect_sizes(df)
         }
@@ -559,9 +559,9 @@ class FullProcessValidator:
             results = {}
             
             results['hypotheses'] = self.step_1_hypothesis_generation(data_file)
-            results['exploratory'] = self.step_2_exploratory_docs/analysis(data_file)  
-            results['programming'] = self.step_3_programming_docs/analysis(data_file)
-            results['detailed'] = self.step_4_detailed_docs/analysis(data_file)
+            results['exploratory'] = self.step_2_exploratory_analysis(data_file)
+            results['programming'] = self.step_3_programming_analysis(data_file)
+            results['detailed'] = self.step_4_detailed_analysis(data_file)
             results['iteration'] = self.step_5_iteration_refinement()
             results['conclusions'] = self.step_6_component_conclusions()
             results['final'] = self.step_7_final_report()

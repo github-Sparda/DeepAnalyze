@@ -140,7 +140,7 @@ python unified_cli.py --direct-mode --analyze data.csv --visualize --report
 python direct_cli.py --analyze sales_data.csv --visualize --report
 
 # 指定分析类型和输出格式
-python direct_cli.py --analyze data.csv --docs/analysis-types descriptive inferential --chart-type bar --report-type executive
+python direct_cli.py --analyze data.csv --analysis-types descriptive inferential --chart-type bar --report-type executive
 ```
 
 #### 交互式分析

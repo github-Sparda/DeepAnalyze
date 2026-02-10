@@ -110,13 +110,13 @@ def demonstrate_visualization_reporting():
             console.print("[green]✅ 数据分析完成[/green]")
             
             console.print("[cyan]2. 生成可视化图表...[/cyan]")
-            viz_result = cli.generate_visualization_direct(docs/analysis_result, "auto")
+            viz_result = cli.generate_visualization_direct(analysis_result, "auto")
             if viz_result:
                 console.print("[green]✅ 可视化图表生成完成[/green]")
             
             console.print("[cyan]3. 生成带可视化的增强报告...[/cyan]")
             report_result = cli.generate_report_direct(
-                docs/analysis_result, 
+                analysis_result,
                 "analytical", 
                 include_visualizations=True
             )

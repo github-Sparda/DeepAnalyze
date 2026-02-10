@@ -46,6 +46,7 @@ class DirectDeepAnalyzeCLI:
         self.assistant_engine = AIAssistantEngine()
         self.report_manager = ReportManager()
         self.current_session_id = None
+        self.last_data_file = None
         self.setup_session()
         
     def setup_session(self):
@@ -67,6 +68,8 @@ class DirectDeepAnalyzeCLI:
             if not file_path.exists():
                 console.print(f"[red]❌ File does not exist: {file_path}[/red]")
                 return None
+
+            self.last_data_file = str(file_path)
                 
             console.print(f"[cyan]📊 Analyzing data: {file_path.name}[/cyan]")
             
@@ -104,6 +107,7 @@ class DirectDeepAnalyzeCLI:
                     "data_file": str(file_path)
                 })
                 
+                result["data_file"] = str(file_path)
                 return result
             else:
                 error_msg = result.get("error", "Unknown error") if result else "Analysis failed"
@@ -159,22 +163,40 @@ class DirectDeepAnalyzeCLI:
     def generate_visualization_direct(self, data: Dict, chart_type: str = "auto", output_path: str = None) -> Optional[str]:
         """Direct visualization generation"""
         try:
-            # Extract DataFrame from analysis results
-            if isinstance(data, dict) and "data_summary" in data:
-                # Try to get DataFrame from session state or recreate from summary
-                import pandas as pd
-                import numpy as np
-                
-                # Create sample data for demonstration
-                sample_data = {
-                    'values': np.random.normal(100, 15, 100),
-                    'categories': np.random.choice(['A', 'B', 'C'], 100)
-                }
-                df = pd.DataFrame(sample_data)
-                column = 'values'
-            else:
-                console.print("[yellow]⚠️  No suitable data for visualization[/yellow]")
+            # Load DataFrame from the most recent data file
+            data_file = None
+            if isinstance(data, dict):
+                data_file = data.get("data_file")
+            data_file = data_file or self.last_data_file
+
+            if not data_file:
+                console.print("[yellow]⚠️  No data file available for visualization[/yellow]")
                 return None
+
+            data_path = Path(data_file).expanduser().resolve()
+            if not data_path.exists():
+                console.print(f"[red]❌ Data file not found: {data_path}[/red]")
+                return None
+
+            import pandas as pd
+            import numpy as np
+
+            if data_path.suffix.lower() in {".xlsx", ".xls"}:
+                df = pd.read_excel(data_path)
+            elif data_path.suffix.lower() == ".csv":
+                df = pd.read_csv(data_path)
+            elif data_path.suffix.lower() == ".json":
+                df = pd.read_json(data_path)
+            else:
+                console.print(f"[yellow]⚠️  Unsupported file format: {data_path.suffix}[/yellow]")
+                return None
+
+            numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+            if not numeric_cols:
+                console.print("[yellow]⚠️  No numeric columns available for visualization[/yellow]")
+                return None
+
+            column = numeric_cols[0]
                 
             console.print(f"[cyan]🎨 Generating visualization...[/cyan]")
             

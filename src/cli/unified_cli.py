@@ -61,7 +61,7 @@ Examples:
     # Direct mode specific arguments  
     direct_group = parser.add_argument_group('Direct Mode Options')
     direct_group.add_argument('--analyze', help='Analyze data file directly')
-    direct_group.add_argument('--docs/analysis-types', nargs='+', help='Analysis types')
+    direct_group.add_argument('--analysis-types', nargs='+', help='Analysis types')
     direct_group.add_argument('--visualize', action='store_true', help='Generate visualization')
     direct_group.add_argument('--chart-type', default='auto', help='Chart type')
     direct_group.add_argument('--report', action='store_true', help='Generate report')
@@ -146,8 +146,8 @@ def run_direct_mode(args):
     
     if args.analyze:
         cmd_args.extend(['--analyze', args.analyze])
-        if args.docs/analysis_types:
-            cmd_args.extend(['--docs/analysis-types'] + args.docs/analysis_types)
+        if args.analysis_types:
+            cmd_args.extend(['--analysis-types'] + args.analysis_types)
         if args.visualize:
             cmd_args.append('--visualize')
         if args.chart_type:

@@ -51,7 +51,7 @@ console = Console()
 class DeepAnalyzeCLI:
     def __init__(self):
         """初始化CLI客户端"""
-        self.api_base = src/api_PUBLIC_BASE_V1
+        self.api_base = API_PUBLIC_BASE_V1
         self.model = DEFAULT_MODEL
         self.client = None
         self.uploaded_files = []
@@ -92,7 +92,7 @@ class DeepAnalyzeCLI:
         """初始化OpenAI客户端"""
         try:
             self.client = openai.OpenAI(
-                api_key=DEEPANALYZE_VLLM_src/api_KEY,
+                api_key=DEEPANALYZE_VLLM_API_KEY,
                 base_url=self.api_base
             )
             return True
@@ -105,12 +105,12 @@ class DeepAnalyzeCLI:
         try:
             import requests
             # 首先尝试检查健康端点
-            response = requests.get(f"{src/api_PUBLIC_BASE}/health", timeout=5)
+            response = requests.get(f"{API_PUBLIC_BASE}/health", timeout=5)
             if response.status_code == 200:
                 return True
 
             # 如果健康端点不可用，尝试检查模型列表
-            temporary_client = openai.OpenAI(api_key=DEEPANALYZE_VLLM_src/api_KEY, base_url=self.api_base)
+            temporary_client = openai.OpenAI(api_key=DEEPANALYZE_VLLM_API_KEY, base_url=self.api_base)
             models = temporary_client.models.list()
             return True
         except:
@@ -118,8 +118,8 @@ class DeepAnalyzeCLI:
 
     def display_header(self):
         """显示程序头部信息"""
-        header_content = f"""[bold cyan]🚀 DeepAnalyze src/api 客户端[/bold cyan]
-[dim]src/api服务器: {src/api_PUBLIC_BASE} | 模型: {DEFAULT_MODEL}[/dim]"""
+        header_content = f"""[bold cyan]🚀 DeepAnalyze API 客户端[/bold cyan]
+[dim]API服务器: {API_PUBLIC_BASE} | 模型: {DEFAULT_MODEL}[/dim]"""
 
         console.print(Panel(header_content, title="DeepAnalyze CLI", border_style="cyan"))
 
@@ -344,14 +344,14 @@ class DeepAnalyzeCLI:
 
             # 尝试从URL下载文件内容并上传
             import requests
-            import temporaryfile
+            import tempfile
             import os
 
             # 下载文件
             response = requests.get(file_url)
             if response.status_code == 200:
                 # 创建临时文件
-                with temporaryfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(safe_file_name)[1]) as temporary_file:
+                with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(safe_file_name)[1]) as temporary_file:
                     temporary_file.write(response.content)
                     temporary_file_path = temporary_file.name
 
@@ -441,7 +441,7 @@ class DeepAnalyzeCLI:
             stream_response = self.client.chat.completions.create(
                 model=self.model,
                 messages=messages,
-                temporaryerature=0.3,
+                temperature=0.3,
                 stream=True,
                 extra_body={
                     "docs/analysis_depth": MAX_RECURSION_DEPTH,

@@ -14,8 +14,12 @@ from datetime import datetime, timedelta
 from enum import Enum
 from pathlib import Path
 
-from ..error.handler import ErrorHandler, ErrorSeverity, ErrorCategory
-from ..state.manager import get_session_state, update_session_state
+try:
+    from ..error.handler import ErrorHandler, ErrorSeverity, ErrorCategory
+    from ..state.manager import get_session_state, update_session_state
+except ImportError:
+    from error.handler import ErrorHandler, ErrorSeverity, ErrorCategory
+    from state.manager import get_session_state, update_session_state
 
 
 class PermissionLevel(Enum):
@@ -440,14 +444,14 @@ class CollaborationManager:
         filtered_outputs_logs = self.activity_outputs_logs
         
         if user_id:
-            filtered_outputs_logs = [log for log in filtered_outputs/logs if log.user_id == user_id]
+            filtered_outputs_logs = [log for log in filtered_outputs_logs if log.user_id == user_id]
         
         if resource_type:
-            filtered_outputs_logs = [log for log in filtered_outputs/logs if log.resource_type == resource_type]
+            filtered_outputs_logs = [log for log in filtered_outputs_logs if log.resource_type == resource_type]
         
         # 按时间倒序排列并限制数量
-        filtered_outputs/logs.sort(key=lambda x: x.timestamp, reverse=True)
-        return filtered_outputs/logs[:limit]
+        filtered_outputs_logs.sort(key=lambda x: x.timestamp, reverse=True)
+        return filtered_outputs_logs[:limit]
     
     def _log_activity(
         self,

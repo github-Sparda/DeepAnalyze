@@ -54,11 +54,11 @@ def validate_registry(data_sessions_active_dir: Path) -> dict[str, object]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Validate artifact registry entries.")
-    parser.add_argument("--data/sessions/active", default="data/sessions/active", help="Workspace directory")
+    parser.add_argument("--workspace-dir", default="data/sessions/active", help="Workspace directory")
     args = parser.parse_args()
-    data/sessions/active_dir = Path(args.data/sessions/active)
-    summary = validate_registry(data/sessions/active_dir)
-    output_dir = data/sessions/active_dir / "outputs/logs" / "artifacts"
+    data_sessions_active_dir = Path(args.workspace_dir)
+    summary = validate_registry(data_sessions_active_dir)
+    output_dir = data_sessions_active_dir / "outputs/logs" / "artifacts"
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / "summary.json"
     output_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")

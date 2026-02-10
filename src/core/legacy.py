@@ -69,7 +69,7 @@ class DeepAnalyzeVLLM:
         self,
         prompt: str,
         data_sessions_active: str,
-        temporaryerature: float = 0.5,
+        temperature: float = 0.5,
         max_tokens: int = 32768,
         top_p: float = None,
         top_k: int = None,
@@ -85,7 +85,7 @@ class DeepAnalyzeVLLM:
                 payload = {
                     "model": self.model_name,
                     "messages": messages,
-                    "temporaryerature": temporaryerature,
+                    "temperature": temperature,
                     "max_tokens": max_tokens,
                     "add_generation_prompt": False,
                     "stop": ["</Code>"],

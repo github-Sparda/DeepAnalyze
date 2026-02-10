@@ -24,32 +24,32 @@ def check_llm_config():
     
     # 导入配置
     try:
-        from src.api.config import DEEPANALYZE_VLLM_src.api_KEY, VLLM_BASE_URL, MODEL_PATH
+        from src.api.config import DEEPANALYZE_VLLM_API_KEY, VLLM_BASE_URL, MODEL_PATH
     except ImportError as e:
         console.print(f"[red]❌ 配置导入失败: {e}[/red]")
         return False
     
     # 显示配置信息
-    console.print(f"[green]✓[/green] src/api密钥: {DEEPANALYZE_VLLM_src/api_KEY[:15]}..." if DEEPANALYZE_VLLM_src/api_KEY else "[red]✗ 未设置src/api密钥[/red]")
+    console.print(f"[green]✓[/green] API密钥: {DEEPANALYZE_VLLM_API_KEY[:15]}..." if DEEPANALYZE_VLLM_API_KEY else "[red]✗ 未设置API密钥[/red]")
     console.print(f"[green]✓[/green] Base URL: {VLLM_BASE_URL}")
     console.print(f"[green]✓[/green] 模型路径: {MODEL_PATH}")
     
     # 测试连接
-    if DEEPANALYZE_VLLM_src/api_KEY and VLLM_BASE_URL:
+    if DEEPANALYZE_VLLM_API_KEY and VLLM_BASE_URL:
         try:
             headers = {
-                'Authorization': f'Bearer {DEEPANALYZE_VLLM_src/api_KEY}',
+                'Authorization': f'Bearer {DEEPANALYZE_VLLM_API_KEY}',
                 'Content-Type': 'application/json'
             }
             response = requests.get(f'{VLLM_BASE_URL}/models', headers=headers, timeout=10)
             if response.status_code == 200:
-                console.print("[green]✓ LLM src/api连接成功[/green]")
+                console.print("[green]✓ LLM API连接成功[/green]")
                 models = response.json()
                 available_models = [m.get("id") for m in models.get("data", [])[:5]]
                 console.print(f"[dim]可用模型: {', '.join(available_models)}[/dim]")
                 return True
             else:
-                console.print(f"[red]✗ LLM src/api连接失败: {response.status_code}[/red]")
+                console.print(f"[red]✗ LLM API连接失败: {response.status_code}[/red]")
                 console.print(f"[dim]响应: {response.text[:100]}[/dim]")
                 return False
         except Exception as e:

@@ -12,8 +12,12 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 
-from ..state.manager import StateManager, get_session_state, update_session_state
-from ..error.handler import ErrorHandler, ErrorSeverity, ErrorCategory
+try:
+    from ..state.manager import StateManager, get_session_state, update_session_state
+    from ..error.handler import ErrorHandler, ErrorSeverity, ErrorCategory
+except ImportError:
+    from state.manager import StateManager, get_session_state, update_session_state
+    from error.handler import ErrorHandler, ErrorSeverity, ErrorCategory
 
 
 class ContextMode(Enum):

@@ -6,7 +6,7 @@ Advanced Analytics Tests and Examples
 import pandas as pd
 import numpy as np
 from pathlib import Path
-import temporaryfile
+import tempfile
 
 from analytics.advanced_analyzer import (
     AdvancedDataAnalyzer,
@@ -52,7 +52,7 @@ def demo_data_loading():
     
     # 创建临时CSV文件
     df = create_sample_data()
-    with temporaryfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
         df.to_csv(f.name, index=False)
         temporary_file = f.name
     
@@ -197,7 +197,7 @@ def demo_error_handling():
     print(f"加载不存在文件: {'成功' if result is not None else '失败（正确）'}")
     
     # 测试不支持的格式
-    with temporaryfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
         f.write("这不是CSV格式的内容")
         temporary_file = f.name
     

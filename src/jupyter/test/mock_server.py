@@ -25,7 +25,7 @@ TEST_RESPONSES = [
 current_response_index = 0
 request_count = 0
 
-app = Fastsrc/api(title="Mock OpenAI src/api Server")
+app = FastAPI(title="Mock OpenAI API Server")
 
 class Message(BaseModel):
     role: str
@@ -34,7 +34,7 @@ class Message(BaseModel):
 class ChatCompletionRequest(BaseModel):
     model: str
     messages: List[Message]
-    temporaryerature: float = 0.7
+    temperature: float = 0.7
     stream: bool = False
     extra_body: Dict[str, Any] = {}
 

@@ -68,26 +68,28 @@ Restart frontend only:
 
 ## Utility Scripts
 
+## Classification Criteria
+- `reusable-utility`: Safe for repeated use in dev/ops workflows.
+- `one-shot-fix`: Intended for single-run remediation or migration; store in `scripts/one-shot/`.
+- `demo-example`: Demonstrates usage but should not be treated as validation.
+- `validation-test`: Verifies functionality or data integrity.
+- `mock-simulation`: Uses synthetic data or template outputs without asserting functionality; these should be removed.
+
 ### Main Tools
-- `deepanalyze_cli.py` - Main CLI interface for DeepAnalyze
-- `config_manager.py` - Configuration management tool
-- `full_process_validation.py` - Complete process validation
-- `refactor_directories.py` - Directory refactoring utilities
+- `deepanalyze_cli.py` - Main CLI interface for DeepAnalyze (reusable-utility)
+- `config_manager.py` - Configuration management tool (reusable-utility)
+- `full_process_validation.py` - Complete process validation (validation-test)
 
 ### Testing and Validation
-- `test_progress_system.py` - Progress system testing
-- `test_semantic_cache.py` - Semantic cache testing
-- `validate_artifacts.py` - Artifact validation
-- `validate_refactor.py` - Refactoring validation
-- `validate_semantic_cache.py` - Semantic cache validation
+- `test_progress_system.py` - Progress system testing (validation-test)
+- `test_semantic_cache.py` - Semantic cache testing (validation-test)
+- `validate_artifacts.py` - Artifact validation (validation-test)
+- `validate_refactor.py` - Refactoring validation (validation-test)
+- `validate_semantic_cache.py` - Semantic cache validation (validation-test)
 
 ### Demo and Examples
-- `demo_cli_usage.py` - CLI usage demonstration
-- `demo_security_system.py` - Security system demonstration
-- `visualization_demo.py` - Visualization demonstration
-
-### Maintenance
-- `clean_empty_workspace_dirs.py` - Clean empty workspace directories
+- `demo_cli_wrapper.py` - CLI demonstration wrapper for one-command analysis (demo-example)
+- `demo_security_system.py` - Security system demonstration (demo-example)
 
 ## Temporary Scripts
 
@@ -124,5 +126,5 @@ Key variables:
 - `DEEPANALYZE_REPORT_TOC`
 - `DEEPANALYZE_REPORT_FOOTER`
 ### Analysis Tools
-- `demo_cli_wrapper.py` - CLI demonstration wrapper for one-command analysis
-- `generate_complete_report.py` - Complete analysis report generator with visualizations
+- `demo_cli_wrapper.py` - CLI demonstration wrapper for one-command analysis (demo-example)
+- `run_serum_cli_analysis.py` - Serum dataset end-to-end CLI analysis runner (validation-test)

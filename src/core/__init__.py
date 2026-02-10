@@ -5,16 +5,35 @@ __version__ = "1.0.0"
 
 # 导出主要子模块
 from . import orchestration
-from . import visualization  
+from . import visualization
 from . import reporting
 from . import tools
 from . import cache
-from . import security
+
+try:
+    from . import security
+except Exception:  # Optional dependency (e.g., docker)
+    security = None
 
 # 导出核心功能
-from .orchestration.graph import create_graph
-from .visualization.plotter import create_plotter
-from .reporting.exporter import ReportExporter
+def create_graph(*args, **kwargs):
+    from .orchestration.graph import create_graph as _create_graph
+
+    return _create_graph(*args, **kwargs)
+
+
+def create_plotter(*args, **kwargs):
+    from .visualization.plotter import create_plotter as _create_plotter
+
+    return _create_plotter(*args, **kwargs)
+
+
+try:
+    from .reporting.exporter import ReportExporter as ReportExporter
+except Exception as _report_exc:  # Optional dependency errors handled lazily
+    class ReportExporter:  # type: ignore
+        def __init__(self, *args, **kwargs):
+            raise ImportError("ReportExporter unavailable") from _report_exc
 
 __all__ = [
     'orchestration',
@@ -27,3 +46,6 @@ __all__ = [
     'create_plotter',
     'ReportExporter'
 ]
+
+if security is None and "security" in __all__:
+    __all__.remove("security")

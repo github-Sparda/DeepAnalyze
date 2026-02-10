@@ -12,7 +12,7 @@ from .storage import storage
 
 
 # Create router for admin endpoints
-router = src/apiRouter(prefix="/v1/admin", tags=["admin"])
+router = APIRouter(prefix="/v1/admin", tags=["admin"])
 
 
 @router.post("/cleanup-threads", response_model=ThreadCleanupResponse)

@@ -34,11 +34,11 @@ from .utils import (
 
 
 # Initialize OpenAI clients for vllm
-vllm_client = openai.OpenAI(base_url=src/api_BASE, api_key=DEEPANALYZE_VLLM_src/api_KEY)
-vllm_client_async = openai.AsyncOpenAI(base_url=src/api_BASE, api_key=DEEPANALYZE_VLLM_src/api_KEY)
+vllm_client = openai.OpenAI(base_url=API_BASE, api_key=DEEPANALYZE_VLLM_API_KEY)
+vllm_client_async = openai.AsyncOpenAI(base_url=API_BASE, api_key=DEEPANALYZE_VLLM_API_KEY)
 
 # Create router for chat endpoints
-router = src/apiRouter(prefix="/v1/chat", tags=["chat"])
+router = APIRouter(prefix="/v1/chat", tags=["chat"])
 
 
 @router.post("/completions")
@@ -46,7 +46,7 @@ async def chat_completions(
     model: str = Body(...),
     messages: List[Dict[str, Any]] = Body(...),
     file_ids: Optional[List[str]] = Body(None),
-    temporaryerature: Optional[float] = Body(DEFAULT_TEMPERATURE),
+    temperature: Optional[float] = Body(DEFAULT_TEMPERATURE),
     stream: Optional[bool] = Body(False),
 ):
     """
@@ -57,7 +57,7 @@ async def chat_completions(
     - model: Model name
     - messages: List of message objects with role and content
     - file_ids: Optional list of file IDs to attach to the conversation
-    - temporaryerature: Sampling temporaryerature (default 0.4)
+    - temperature: Sampling temperature (default 0.4)
     - stream: Whether to stream the response (default False)
 
     Returns:
@@ -93,12 +93,12 @@ async def chat_completions(
             src_path = storage.files[fid].get("filepath")
             if src_path and os.path.exists(src_path):
                 from utils import uniquify_path
-                dst_path = uniquify_path(Path(data/sessions/active_dir) / file_obj.filename)
+                dst_path = uniquify_path(Path(data_sessions_active_dir) / file_obj.filename)
                 shutil.copy2(src_path, dst_path)
 
         # Build messages with DeepAnalyze prompt temporarylate
         vllm_messages: List[Dict[str, Any]] = prepare_vllm_messages(
-            messages, data/sessions/active_dir
+            messages, data_sessions_active_dir
         )
 
         # Track generated files
@@ -109,13 +109,13 @@ async def chat_completions(
             def generate_stream_with_execution():
                 assistant_reply = ""
                 finished = False
-                tracker = WorkspaceTracker(data/sessions/active_dir, generated_dir)
+                tracker = WorkspaceTracker(data_sessions_active_dir, generated_dir)
 
                 while not finished:
                     response = vllm_client.chat.completions.create(
                         model=model,
                         messages=vllm_messages,
-                        temporaryerature=temporaryerature,
+                        temperature=temperature,
                         stream=True,
                         extra_body={
                             "add_generation_prompt": False,
@@ -175,11 +175,11 @@ async def chat_completions(
 
                         code_str = extract_code_from_segment(cur_res)
                         if code_str:
-                            exe_output = execute_code_safe(code_str, data/sessions/active_dir)
+                            exe_output = execute_code_safe(code_str, data_sessions_active_dir)
                             artifacts = tracker.diff_and_collect()
                             exe_str = f"\n<Execute>\n```\n{exe_output}\n```\n</Execute>\n"
                             file_block = render_file_block(
-                                    artifacts, data/sessions/active_dir, temporary_thread.id, generated_files
+                                    artifacts, data_sessions_active_dir, temporary_thread.id, generated_files
                                 )
                             assistant_reply += exe_str + file_block
 
@@ -207,7 +207,7 @@ async def chat_completions(
 
                 # Generate and stream report
                 report_block = generate_report_from_messages(
-                    messages, assistant_reply, data/sessions/active_dir, temporary_thread.id, generated_files
+                    messages, assistant_reply, data_sessions_active_dir, temporary_thread.id, generated_files
                 )
                 if report_block:
                     for char in report_block:
@@ -259,14 +259,14 @@ async def chat_completions(
             assistant_reply = ""
             finished = False
             generated_files = []
-            tracker = WorkspaceTracker(data/sessions/active_dir, generated_dir)
+            tracker = WorkspaceTracker(data_sessions_active_dir, generated_dir)
 
             while not finished:
                 # Use async client to avoid blocking
                 response = await vllm_client_async.chat.completions.create(
                     model=model,
                     messages=vllm_messages,
-                    temporaryerature=temporaryerature,
+                    temperature=temperature,
                     stream=True,
                     extra_body={
                         "add_generation_prompt": False,
@@ -307,11 +307,11 @@ async def chat_completions(
                     code_str = extract_code_from_segment(cur_res)
                     if code_str:
                         # Use async version of execute_code_safe to avoid blocking
-                        exe_output = await execute_code_safe_async(code_str, data/sessions/active_dir)
+                        exe_output = await execute_code_safe_async(code_str, data_sessions_active_dir)
                         artifacts = tracker.diff_and_collect()
                         exe_str = f"\n<Execute>\n```\n{exe_output}\n```\n</Execute>\n"
                         file_block = render_file_block(
-                                    artifacts, data/sessions/active_dir, temporary_thread.id, generated_files
+                                    artifacts, data_sessions_active_dir, temporary_thread.id, generated_files
                                 )
                         assistant_reply += exe_str + file_block
                         vllm_messages.append({"role": "execute", "content": exe_output})
@@ -320,7 +320,7 @@ async def chat_completions(
 
             # Generate report
             report_block = generate_report_from_messages(
-                messages, assistant_reply, data/sessions/active_dir, temporary_thread.id, generated_files
+                messages, assistant_reply, data_sessions_active_dir, temporary_thread.id, generated_files
             )
             assistant_reply += report_block
 

@@ -26,7 +26,7 @@ class PlanStore:
     ) -> Tuple[str, Path]:
         plan_id = self._make_plan_id(plan_text)
         plan_dir = ensure_dir(self.plans_dir / plan_id)
-        plan_md = plan_dir / "docs/analysis_plan.md"
+        plan_md = plan_dir / "analysis_plan.md"
         write_text(plan_md, plan_text)
         plan_meta: dict[str, Any] = {
             "plan_id": plan_id,
@@ -35,13 +35,13 @@ class PlanStore:
         }
         if plan_json:
             plan_meta["structure"] = plan_json
-            write_json(plan_dir / "docs/analysis_plan.json", plan_json)
+            write_json(plan_dir / "analysis_plan.json", plan_json)
         write_json(plan_dir / "meta.json", plan_meta)
 
         artifact_dir = self._artifact_plan_dir(plan_id)
-        write_text(artifact_dir / "docs/analysis_plan.md", plan_text)
+        write_text(artifact_dir / "analysis_plan.md", plan_text)
         if plan_json:
-            write_json(artifact_dir / "docs/analysis_plan.json", plan_json)
+            write_json(artifact_dir / "analysis_plan.json", plan_json)
         write_json(artifact_dir / "meta.json", plan_meta)
 
         return plan_id, plan_dir
@@ -58,8 +58,8 @@ class PlanStore:
     def load_plan(self, plan_id: str) -> dict[str, Any]:
         plan_dir = self.plans_dir / plan_id
         payload: dict[str, Any] = {"plan_id": plan_id}
-        plan_md = plan_dir / "docs/analysis_plan.md"
-        plan_json = plan_dir / "docs/analysis_plan.json"
+        plan_md = plan_dir / "analysis_plan.md"
+        plan_json = plan_dir / "analysis_plan.json"
         meta_path = plan_dir / "meta.json"
         if plan_md.exists():
             payload["plan_text"] = plan_md.read_text(encoding="utf-8")

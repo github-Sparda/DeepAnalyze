@@ -27,8 +27,12 @@ from .context_manager import (
     get_ai_assistant,
     process_user_message
 )
-from ..error.handler import ErrorHandler, ErrorSeverity, ErrorCategory
-from ..state.manager import get_session_state, update_session_state
+try:
+    from ..error.handler import ErrorHandler, ErrorSeverity, ErrorCategory
+    from ..state.manager import get_session_state, update_session_state
+except ImportError:
+    from error.handler import ErrorHandler, ErrorSeverity, ErrorCategory
+    from state.manager import get_session_state, update_session_state
 
 # 延迟导入src/api客户端以避免循环依赖
 def get_api_client():
@@ -327,7 +331,7 @@ class AIAssistantEngine:
             response = self.api_client.chat_completion(
                 messages=prompt,
                 model="default",
-                temporaryerature=0.7,
+                temperature=0.7,
                 max_tokens=2000
             )
             

@@ -13,7 +13,7 @@ from .models import ModelObject, ModelsListResponse
 
 
 # Create router for models endpoints
-router = src/apiRouter(prefix="/v1/models", tags=["models"])
+router = APIRouter(prefix="/v1/models", tags=["models"])
 
 
 @router.get("", response_model=ModelsListResponse)

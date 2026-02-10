@@ -13,6 +13,9 @@ import hashlib
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
+src_root = os.path.join(project_root, "src")
+if src_root not in sys.path:
+    sys.path.insert(0, src_root)
 
 def simple_similarity_test():
     """使用简化的相似性计算进行测试"""
@@ -20,7 +23,7 @@ def simple_similarity_test():
     
     try:
         # 直接测试核心功能，避免大型模型加载
-        from data.cache.semantic_data.cache import SemanticCacheEntry
+        from core.cache.semantic_cache import SemanticCacheEntry
         
         print("\n=== 核心数据结构测试 ===")
         
@@ -73,7 +76,7 @@ def simple_similarity_test():
         traceback.print_exc()
         return False
 
-def mock_semantic_data/cache_test():
+def mock_semantic_cache_test():
     """模拟语义缓存功能测试"""
     print("\n=== 模拟语义缓存测试 ===")
     
@@ -128,7 +131,7 @@ def mock_semantic_data/cache_test():
                 return results[:top_k]
         
         # 测试模拟缓存
-        mock_data/cache = MockSemanticCache()
+        mock_cache = MockSemanticCache()
         
         # 存储测试数据
         test_data = [
@@ -139,7 +142,7 @@ def mock_semantic_data/cache_test():
         
         print("存储测试数据...")
         for text, result in test_data:
-            mock_data/cache.store(text, result)
+            mock_cache.store(text, result)
             print(f"  已存储: {text}")
         
         # 测试查询
@@ -147,7 +150,7 @@ def mock_semantic_data/cache_test():
         queries = ["求年龄平均", "销售走势", "价格最高"]
         
         for query in queries:
-            results = mock_data/cache.search_similar(query)
+            results = mock_cache.search_similar(query)
             print(f"\n查询: '{query}'")
             if results:
                 for text, similarity, result in results:
@@ -166,7 +169,7 @@ def mock_semantic_data/cache_test():
 
 if __name__ == "__main__":
     success1 = simple_similarity_test()
-    success2 = mock_semantic_data/cache_test()
+    success2 = mock_semantic_cache_test()
     
     if success1 and success2:
         print("\n🎉 所有语义缓存功能验证通过!")

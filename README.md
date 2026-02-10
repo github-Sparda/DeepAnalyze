@@ -46,6 +46,11 @@
 
 > 🔄 *项目持续迭代中，欢迎提出宝贵建议和贡献代码*
 
+## ✅ 开发约定
+- 代码中的函数名/变量名/参数名必须是有效的 Python 标识符（推荐 `snake_case`），不要使用 `/`、`.` 等路径分隔符。
+- 导入路径必须使用 Python 点分层（如 `pkg.module`），并确保对应目录具备 `__init__.py`。
+- 快速校验：运行 `python -m compileall -q src` 和 `pytest -q`。
+
 <p align="center" width="100%">
 <img src="./assets/src/core.jpg" alt="src/core" style="width: 70%; min-width: 300px; display: block; margin: auto;">
 </p>

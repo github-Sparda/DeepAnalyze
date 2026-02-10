@@ -48,7 +48,7 @@ AI自主分析流程:
   7. 最终报告 - 整合所有发现生成完整报告
 
 使用示例:
-  %(prog)s --data-file data.csv --docs/analysis-goal "分析销售趋势"
+  %(prog)s --data-file data.csv --analysis-goal "分析销售趋势"
   %(prog)s --data-file data.csv --interactive
   %(prog)s --session-id existing_session_123 --continue
             """
@@ -56,7 +56,7 @@ AI自主分析流程:
         
         # 主要功能参数
         parser.add_argument('--data-file', help='数据文件路径')
-        parser.add_argument('--docs/analysis-goal', help='分析目标/问题')
+        parser.add_argument('--analysis-goal', help='分析目标/问题')
         parser.add_argument('--max-depth', type=int, default=3, help='最大递归深度')
         parser.add_argument('--language', choices=['zh', 'en'], default='zh', help='报告语言')
         
@@ -93,12 +93,12 @@ AI自主分析流程:
         initial_state: OrchestrationState = {
             "session_id": session_id,
             "run_id": f"run_{int(datetime.now().timestamp())}",
-            "data/sessions/active_dir": str(self.state_manager._get_session_path(session_id)),
+            "data_sessions_active_dir": str(self.state_manager._get_session_path(session_id)),
             "input_files": [args.data_file] if args.data_file else [],
             "config": {
                 "report_language": args.language,
                 "max_depth": args.max_depth,
-                "docs/analysis_goal": args.docs/analysis_goal or "探索数据中的模式和洞察",
+                "analysis_goal": args.analysis_goal or "探索数据中的模式和洞察",
                 "generate_visualizations": not args.no_visualization
             }
         }
@@ -112,8 +112,8 @@ AI自主分析流程:
             initial_state["input_files"] = [str(data_path)]
             print(f"📂 分析文件: {data_path.name}")
         
-        if args.docs/analysis_goal:
-            print(f"🎯 分析目标: {args.docs/analysis_goal}")
+        if args.analysis_goal:
+            print(f"🎯 分析目标: {args.analysis_goal}")
         
         print(f"🧠 最大递归深度: {args.max_depth}")
         print(f"🌐 报告语言: {'中文' if args.language == 'zh' else 'English'}")
@@ -138,7 +138,7 @@ AI自主分析流程:
             
             print("\n✅ AI自主分析完成!")
             print(f"📁 会话ID: {session_id}")
-            print(f"📂 工作目录: {initial_state['data/sessions/active_dir']}")
+            print(f"📂 工作目录: {initial_state['data_sessions_active_dir']}")
             
             return True
             
@@ -283,7 +283,7 @@ AI自主分析流程:
                     session_id = command.split(' ', 1)[1]
                     args.session_id = session_id
                     args.continue_session = True
-                    if self.run_autonomous_docs/analysis(args):
+                    if self.run_autonomous_analysis(args):
                         current_session = session_id
                         print(f"✅ 继续会话: {session_id}")
                     else:
@@ -306,7 +306,7 @@ AI自主分析流程:
         if args.interactive:
             self.interactive_mode(args)
         elif args.data_file or (args.session_id and args.continue_session):
-            success = self.run_autonomous_docs/analysis(args)
+            success = self.run_autonomous_analysis(args)
             sys.exit(0 if success else 1)
         else:
             self.parser.print_help()

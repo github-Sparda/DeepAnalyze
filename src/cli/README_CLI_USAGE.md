@@ -32,13 +32,13 @@ python direct_cli.py --interactive
 ### 2. 批处理模式
 ```bash
 # 完整数据分析
-python direct_cli.py --analyze data.csv --docs/analysis-types descriptive inferential
+python direct_cli.py --analyze data.csv --analysis-types descriptive inferential
 
 # 生成报告
 python direct_cli.py --analyze data.csv --report
 
 # 数据质量检查
-python direct_cli.py --analyze data.csv --docs/analysis-types quality
+python direct_cli.py --analyze data.csv --analysis-types quality
 ```
 
 ### 3. 单独功能调用
@@ -64,7 +64,7 @@ cd /home/huangzw/Project/DeepAnalyze/src/cli
 
 # 方法2: 一步命令完成所有分析
 python direct_cli.py --analyze your_data.csv \
-    --docs/analysis-types descriptive inferential correlation quality \
+    --analysis-types descriptive inferential correlation quality \
     --report \
     --report-type analytical \
     --visualize
@@ -80,7 +80,7 @@ python direct_cli.py --interactive
 # 分析Simpson悖论数据集
 cd /home/huangzw/Project/DeepAnalyze/src/cli
 python direct_cli.py --analyze ../../data/examples/simpson_paradox_docs/analysis/data/Simpson.csv \
-    --docs/analysis-types descriptive inferential correlation \
+    --analysis-types descriptive inferential correlation \
     --report \
     --visualize
 
@@ -99,7 +99,7 @@ python direct_cli.py --session-info
 
 ### 主要参数
 - `--analyze FILE`: 分析指定数据文件
-- `--docs/analysis-types TYPES`: 指定分析类型（descriptive, inferential, correlation, quality）
+- `--analysis-types TYPES`: 指定分析类型（descriptive, inferential, correlation, quality）
 - `--query TEXT`: 向AI助手提问
 - `--report`: 生成分析报告
 - `--visualize`: 生成可视化图表

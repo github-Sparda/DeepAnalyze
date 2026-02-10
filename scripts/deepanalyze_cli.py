@@ -102,7 +102,7 @@ class DeepAnalyzeDirectCLI:
             
         # 转换分析类型
         if analysis_types:
-            docs/analysis_enum_types = []
+            analysis_enum_types = []
             type_mapping = {
                 'descriptive': self.modules['analytics']['AnalysisType'].DESCRIPTIVE,
                 'inferential': self.modules['analytics']['AnalysisType'].INFERENTIAL,
@@ -113,9 +113,9 @@ class DeepAnalyzeDirectCLI:
             
             for atype in analysis_types:
                 if atype.lower() in type_mapping:
-                    docs/analysis_enum_types.append(type_mapping[atype.lower()])
+                    analysis_enum_types.append(type_mapping[atype.lower()])
         else:
-            docs/analysis_enum_types = None
+            analysis_enum_types = None
             
         console.print(f"[cyan]🔍 开始分析文件: {file_path}[/cyan]")
         
@@ -128,7 +128,7 @@ class DeepAnalyzeDirectCLI:
             result = self.modules['analytics']['analyze_dataset'](
                 file_path=file_path,
                 session_id=session_id,
-                analysis_types=docs/analysis_enum_types
+                analysis_types=analysis_enum_types
             )
         
         if result and "error" not in result:

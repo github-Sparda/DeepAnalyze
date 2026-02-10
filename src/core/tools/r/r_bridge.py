@@ -76,7 +76,7 @@ class RBridgeTool(ToolInterface):
         # 如果有数据，将其传递给R
         if data is not None:
             # 将DataFrame保存为CSV并读入R
-            temporary_file = temporaryfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False)
+            temporary_file = tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False)
             data.to_csv(temporary_file.name, index=False)
             temporary_file.close()
             
@@ -104,7 +104,7 @@ class RBridgeTool(ToolInterface):
         """执行R脚本"""
         try:
             # 创建临时R脚本文件
-            with temporaryfile.NamedTemporaryFile(mode='w', suffix='.R', delete=False) as f:
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.R', delete=False) as f:
                 f.write(r_script)
                 script_path = f.name
             

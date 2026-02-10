@@ -15,7 +15,7 @@ from .storage import storage
 
 
 # Create router for file endpoints
-router = src/apiRouter(prefix="/v1/files", tags=["files"])
+router = APIRouter(prefix="/v1/files", tags=["files"])
 
 
 @router.post("", response_model=FileObject)

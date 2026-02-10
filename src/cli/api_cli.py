@@ -51,7 +51,7 @@ console = Console()
 class DeepAnalyzeCLI:
     def __init__(self):
         """Initialize CLI client"""
-        self.api_base = src/api_PUBLIC_BASE_V1
+        self.api_base = API_PUBLIC_BASE_V1
         self.model = DEFAULT_MODEL
         self.client = None
         self.uploaded_files = []
@@ -92,7 +92,7 @@ class DeepAnalyzeCLI:
         """Initialize OpenAI client"""
         try:
             self.client = openai.OpenAI(
-                api_key=DEEPANALYZE_VLLM_src/api_KEY,
+                api_key=DEEPANALYZE_VLLM_API_KEY,
                 base_url=self.api_base
             )
             return True
@@ -105,12 +105,12 @@ class DeepAnalyzeCLI:
         try:
             import requests
             # First try to check health endpoint
-            response = requests.get(f"{src/api_PUBLIC_BASE}/health", timeout=5)
+            response = requests.get(f"{API_PUBLIC_BASE}/health", timeout=5)
             if response.status_code == 200:
                 return True
 
             # If health endpoint is unavailable, try to check model list
-            temporary_client = openai.OpenAI(api_key=DEEPANALYZE_VLLM_src/api_KEY, base_url=self.api_base)
+            temporary_client = openai.OpenAI(api_key=DEEPANALYZE_VLLM_API_KEY, base_url=self.api_base)
             models = temporary_client.models.list()
             return True
         except:
@@ -118,8 +118,8 @@ class DeepAnalyzeCLI:
 
     def display_header(self):
         """Display program header information"""
-        header_content = f"""[bold cyan]🚀 DeepAnalyze src/api Client[/bold cyan]
-[dim]src/api Server: {src/api_PUBLIC_BASE} | Model: {DEFAULT_MODEL}[/dim]"""
+        header_content = f"""[bold cyan]🚀 DeepAnalyze API Client[/bold cyan]
+[dim]API Server: {API_PUBLIC_BASE} | Model: {DEFAULT_MODEL}[/dim]"""
 
         console.print(Panel(header_content, title="DeepAnalyze CLI", border_style="cyan"))
 
@@ -345,14 +345,14 @@ class DeepAnalyzeCLI:
 
             # Try to download file content from URL and upload
             import requests
-            import temporaryfile
+            import tempfile
             import os
 
             # Download file
             response = requests.get(file_url)
             if response.status_code == 200:
                 # Create temporaryorary file
-                with temporaryfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(safe_file_name)[1]) as temporary_file:
+                with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(safe_file_name)[1]) as temporary_file:
                     temporary_file.write(response.content)
                     temporary_file_path = temporary_file.name
 
@@ -442,7 +442,7 @@ class DeepAnalyzeCLI:
             stream_response = self.client.chat.completions.create(
                 model=self.model,
                 messages=messages,
-                temporaryerature=0.3,
+                temperature=0.3,
                 stream=True,
                 extra_body={
                     "docs/analysis_depth": MAX_RECURSION_DEPTH,

@@ -8,8 +8,9 @@ import sys
 from pathlib import Path
 
 # 添加项目路径
-project_root = Path(__file__).resolve().parents[1]
+project_root = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(project_root))
+sys.path.insert(0, str(project_root / "src" / "cli"))
 
 # 设置环境变量
 os.environ['DEEPANALYZE_USE_ORCHESTRATOR'] = '1'
@@ -22,7 +23,12 @@ import api.config
 importlib.reload(api.config)
 
 from src.api.config import USE_ORCHESTRATOR, MAX_RECURSION_DEPTH
-from direct_cli import DirectDeepAnalyzeCLI
+
+import pytest
+try:
+    from direct_cli import DirectDeepAnalyzeCLI
+except ModuleNotFoundError:
+    pytest.skip("Direct CLI dependencies not available (rich missing)", allow_module_level=True)
 
 print("=== LLM分析测试 ===")
 print(f"USE_ORCHESTRATOR: {USE_ORCHESTRATOR}")

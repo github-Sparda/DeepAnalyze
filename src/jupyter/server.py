@@ -69,8 +69,8 @@ from src.core.orchestration.runner import run_orchestrated_docs_analysis
 # Initialize OpenAI client
 print("Try to connect OpenAI client...")
 client = openai.OpenAI(
-    api_key=os.getenv("OPENAI_src/api_KEY", DEEPANALYZE_VLLM_src/api_KEY),
-    base_url=os.getenv("OPENAI_BASE_URL", src/api_BASE),
+    api_key=os.getenv("OPENAI_API_KEY", DEEPANALYZE_VLLM_API_KEY),
+    base_url=os.getenv("OPENAI_BASE_URL", API_BASE),
 )
 try:
     client.models.list()
@@ -107,7 +107,7 @@ if start_jupyter:
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
-        cwd=data/sessions/active_dir.as_posix()
+        cwd=data_sessions_active_dir.as_posix()
     )
     def start():
         for line in jupyter_process.stdout:
@@ -139,7 +139,7 @@ async def bot_stream(messages):
     Returns the complete response in OpenAI format as a dictionary array.
     """
     if USE_ORCHESTRATOR:
-        state = run_orchestrated_docs/analysis(
+        state = run_orchestrated_docs_analysis(
             session_id="jupyter",
             config={
                 "max_depth": MAX_RECURSION_DEPTH,
@@ -154,7 +154,7 @@ async def bot_stream(messages):
             {
                 "role": "assistant",
                 "content": state.get("report")
-                or state.get("docs/analysis_results")
+                or state.get("analysis_results")
                 or state.get("plan")
                 or "",
             }
@@ -164,7 +164,7 @@ async def bot_stream(messages):
     mcp_client = await connect_notebook(jupyter_port)
     
     # Get file context
-    file_info = await list_data/sessions/active_files(mcp_client)
+    file_info = await list_data_sessions_active_files(mcp_client)
     print(f"Workspace file info: \n{file_info}")
     
     # Process messages
@@ -186,7 +186,7 @@ async def bot_stream(messages):
         response = client.chat.completions.create(
             model=os.getenv("OPENAI_MODEL", DEFAULT_MODEL),
             messages=messages,
-            temporaryerature=DEFAULT_TEMPERATURE,
+            temperature=DEFAULT_TEMPERATURE,
             stream=False,  # Changed to False for non-streaming
             extra_body=extra_body,
         )

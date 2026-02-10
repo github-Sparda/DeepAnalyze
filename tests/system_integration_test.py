@@ -11,7 +11,7 @@ import os
 import time
 import json
 from pathlib import Path
-import temporaryfile
+import tempfile
 import shutil
 from typing import Dict, Any, List, Optional
 import logging
@@ -62,7 +62,7 @@ class SystemIntegrationTest:
     def setup(self):
         """设置测试环境"""
         self.logger.info("🔧 设置测试环境...")
-        self.temporary_dir = temporaryfile.mkdtemporary(prefix="src_core_test_")
+        self.temporary_dir = tempfile.mkdtemp(prefix="src_core_test_")
         
         # 初始化各个管理器
         try:
