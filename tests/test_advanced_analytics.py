@@ -8,7 +8,7 @@ import numpy as np
 from pathlib import Path
 import tempfile
 
-from analytics.advanced_analyzer import (
+from src.core.analytics.advanced_analyzer import (
     AdvancedDataAnalyzer,
     AnalysisType,
     StatisticalTest,

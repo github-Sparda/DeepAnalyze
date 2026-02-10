@@ -3,7 +3,7 @@ Enhanced Report System Tests and Examples
 增强版报告系统测试和示例
 """
 
-from reporting.manager import (
+from src.core.reporting.manager import (
     ReportManager,
     ReportType,
     ReportStatus,

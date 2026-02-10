@@ -4,9 +4,7 @@ import re
 import json
 from pathlib import Path
 
-import sys
-sys.path.insert(0, 'src_core')
-from orchestration.plan_store import PlanStore
+from src.core.orchestration.plan_store import PlanStore
 
 
 def test_plan_store_creates_plan_and_artifacts(tmp_path: Path) -> None:

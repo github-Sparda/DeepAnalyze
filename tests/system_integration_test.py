@@ -26,23 +26,23 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 # 导入各个模块
-from state.manager import (
+from src.core.state.manager import (
     StateManager, 
     create_new_session, 
     get_session_state, 
     update_session_state
 )
-from error.handler import (
+from src.core.error.handler import (
     ErrorHandler, 
     ErrorSeverity, 
     ErrorCategory, 
     safe_execute,
     handle_exception
 )
-from assistant.engine import AIAssistantEngine
-from analytics.advanced_analyzer import analyze_dataset
-from reporting.manager import ReportManager, ReportType
-from collaboration.manager import (
+from src.core.assistant.engine import AIAssistantEngine
+from src.core.analytics.advanced_analyzer import analyze_dataset
+from src.core.reporting.manager import ReportManager, ReportType
+from src.core.collaboration.manager import (
     CollaborationManager, 
     PermissionLevel,
     ShareType
@@ -67,7 +67,7 @@ class SystemIntegrationTest:
         # 初始化各个管理器
         try:
             # 使用全局StateManager确保一致性
-            from state.manager import get_state_manager
+            from src.core.state.manager import get_state_manager
             state_manager = get_state_manager()
             # 重新设置base_dir到测试目录
             state_manager.base_dir = Path(self.temporary_dir)
@@ -195,7 +195,7 @@ class SystemIntegrationTest:
             # 7. 验证状态更新 - 修复状态获取问题
             self.logger.info("  7️⃣ 验证状态更新...")
             # 强制刷新状态管理器缓存
-            from state.manager import get_state_manager
+            from src.core.state.manager import get_state_manager
             state_manager = get_state_manager()
             state_manager._data_cache.pop(session_id, None)  # 清除缓存
             

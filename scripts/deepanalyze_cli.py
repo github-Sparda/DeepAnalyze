@@ -37,14 +37,14 @@ class DeepAnalyzeDirectCLI:
         """加载核心模块"""
         try:
             # 数据分析模块
-            from analytics.advanced_analyzer import analyze_dataset, AnalysisType
+            from src.core.analytics.advanced_analyzer import analyze_dataset, AnalysisType
             self.modules['analytics'] = {
                 'analyze_dataset': analyze_dataset,
                 'AnalysisType': AnalysisType
             }
             
             # 状态管理模块
-            from state.manager import create_new_session, get_session_state, update_session_state
+            from src.core.state.manager import create_new_session, get_session_state, update_session_state
             self.modules['state'] = {
                 'create_new_session': create_new_session,
                 'get_session_state': get_session_state,
@@ -52,20 +52,20 @@ class DeepAnalyzeDirectCLI:
             }
             
             # 报告生成模块
-            from reporting.manager import ReportManager, ReportType
+            from src.core.reporting.manager import ReportManager, ReportType
             self.modules['reporting'] = {
                 'ReportManager': ReportManager,
                 'ReportType': ReportType
             }
             
             # AI助手模块
-            from assistant.engine import AIAssistantEngine
+            from src.core.assistant.engine import AIAssistantEngine
             self.modules['assistant'] = {
                 'AIAssistantEngine': AIAssistantEngine
             }
             
             # 可视化模块
-            from visualization import plotter
+            from src.core.visualization import plotter
             self.modules['visualization'] = {
                 'plotter': plotter
             }

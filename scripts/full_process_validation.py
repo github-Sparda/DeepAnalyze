@@ -19,10 +19,10 @@ project_root = Path(__file__).resolve().parents[1]
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-from analytics.advanced_analyzer import AdvancedDataAnalyzer, AnalysisType, StatisticalTest
-from state.manager import StateManager, create_new_session, update_session_state, get_session_state
-from orchestration.document_manager import DocumentManager
-from error.handler import ErrorHandler
+from src.core.analytics.advanced_analyzer import AdvancedDataAnalyzer, AnalysisType, StatisticalTest
+from src.core.state.manager import StateManager, create_new_session, update_session_state, get_session_state
+from src.core.orchestration.document_manager import DocumentManager
+from src.core.error.handler import ErrorHandler
 
 class FullProcessValidator:
     """完整分析流程验证器"""

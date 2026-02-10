@@ -9,8 +9,8 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.append(str(ROOT_DIR))
 
-from orchestration.graph import build_graph
-from orchestration.state import OrchestrationState
+from src.core.orchestration.graph import build_graph
+from src.core.orchestration.state import OrchestrationState
 
 
 class FakeLLM:

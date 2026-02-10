@@ -3,14 +3,14 @@ AI Assistant Enhancement Tests and Examples
 AI助手增强功能测试和示例
 """
 
-from assistant.engine import (
+from src.core.assistant.engine import (
     AIAssistantEngine,
     IntentType,
     ResponseStyle,
     ContextMode,
     chat_with_assistant
 )
-from assistant.context_manager import (
+from src.core.assistant.context_manager import (
     ContextManager,
     MemoryType,
     get_ai_assistant

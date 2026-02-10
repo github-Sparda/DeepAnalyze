@@ -7,7 +7,7 @@ import time
 import logging
 from pathlib import Path
 
-from error.handler import (
+from src.core.error.handler import (
     ErrorHandler,
     ErrorSeverity,
     ErrorCategory,

@@ -27,12 +27,8 @@ from .context_manager import (
     get_ai_assistant,
     process_user_message
 )
-try:
-    from ..error.handler import ErrorHandler, ErrorSeverity, ErrorCategory
-    from ..state.manager import get_session_state, update_session_state
-except ImportError:
-    from error.handler import ErrorHandler, ErrorSeverity, ErrorCategory
-    from state.manager import get_session_state, update_session_state
+from ..error.handler import ErrorHandler, ErrorSeverity, ErrorCategory
+from ..state.manager import get_session_state, update_session_state
 
 # 延迟导入src/api客户端以避免循环依赖
 def get_api_client():

@@ -21,12 +21,8 @@ project_root = Path(__file__).resolve().parents[2]
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-try:
-    from ..error.handler import ErrorHandler, ErrorSeverity, ErrorCategory
-    from ..state.manager import get_session_state, update_session_state
-except ImportError:
-    from error.handler import ErrorHandler, ErrorSeverity, ErrorCategory
-    from state.manager import get_session_state, update_session_state
+from ..error.handler import ErrorHandler, ErrorSeverity, ErrorCategory
+from ..state.manager import get_session_state, update_session_state
 
 
 class AnalysisType(Enum):

@@ -3,7 +3,7 @@ Enhanced Intent Router Test and Examples
 增强意图识别系统的测试用例和使用示例
 """
 
-from orchestration.enhanced_intent_router import (
+from src.core.orchestration.enhanced_intent_router import (
     EnhancedChatIntent,
     EnhancedRouterDecision,
     enhanced_classify_intent,
@@ -125,7 +125,7 @@ def demonstrate_migration_examples():
     # 旧系统的使用方式
     print("旧系统使用方式:")
     print("""
-    from orchestration.intent_router import classify_intent
+    from src.core.orchestration.intent_router import classify_intent
     
     decision = classify_intent("分析数据", manifest)
     if decision.intent == ChatIntent.GUIDED_ANALYSIS:
@@ -135,7 +135,7 @@ def demonstrate_migration_examples():
     
     print("\n新系统使用方式:")
     print("""
-    from orchestration.enhanced_intent_router import enhanced_classify_intent
+    from src.core.orchestration.enhanced_intent_router import enhanced_classify_intent
     
     decision = enhanced_classify_intent("分析数据", manifest)
     print(f"意图: {decision.intent.value}")

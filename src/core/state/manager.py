@@ -21,7 +21,7 @@ project_root = Path(__file__).resolve().parents[2]
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-from orchestration.state import OrchestrationState
+from ..orchestration.state import OrchestrationState
 # 暂时使用默认值替代配置导入
 WORKSPACE_BASE_DIR = Path.home() / "deepanalyze_workspace"
 

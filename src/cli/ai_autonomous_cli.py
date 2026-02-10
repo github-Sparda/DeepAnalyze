@@ -18,11 +18,11 @@ project_root = Path(__file__).resolve().parents[2]
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-from orchestration.graph import build_graph
-from orchestration.state import OrchestrationState
-from state.manager import StateManager, create_new_session
-from orchestration.llm import LLMClient
-from error.handler import ErrorHandler
+from src.core.orchestration.graph import build_graph
+from src.core.orchestration.state import OrchestrationState
+from src.core.state.manager import StateManager, create_new_session
+from src.core.orchestration.llm import LLMClient
+from src.core.error.handler import ErrorHandler
 
 class AIAutonomousAnalyzerCLI:
     """AI自主分析CLI工具"""
