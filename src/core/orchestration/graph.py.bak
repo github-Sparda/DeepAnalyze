@@ -719,7 +719,7 @@ def build_graph(llm: LLMClient, config: dict[str, Any]):
             output_dir=Path(state.get("session_dir", "")) / "report",
             report_format=report_format,
             export_mode=export_mode,
-            temporarylate=temporarylate_from_config(language),
+            template=template_from_config(language),
             base_name=f"report_v{version}",
         )
         record_artifact(state.get("session_dir", ""), report_path, "report", "generate_report")

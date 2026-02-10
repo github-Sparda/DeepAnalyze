@@ -118,7 +118,7 @@ custom_strategy = RecoveryStrategy(
     description="数据库连接恢复策略",
     applicable_categories=[ErrorCategory.EXTERNAL_API],
     applicable_severities=[ErrorSeverity.MEDIUM, ErrorSeverity.HIGH],
-    max_atdata/cache/temporaryts=3,
+    max_atdata/cache/tempts=3,
     retry_delay=5.0,
     recovery_function=custom_recovery_function
 )
@@ -159,7 +159,7 @@ handler.clear_error_history(older_than_hours=24)  # 清除24小时前的错误
     "recovery": {
       "successful": 8,
       "failed": 2,
-      "atdata/cache/temporaryts": 15
+      "atdata/cache/tempts": 15
     }
   },
   "recent_errors": [
@@ -170,7 +170,7 @@ handler.clear_error_history(older_than_hours=24)  # 清除24小时前的错误
       "category": "unknown",
       "type": "ValueError",
       "message": "值错误 0",
-      "recovery_atdata/cache/temporaryts": 1,
+      "recovery_atdata/cache/tempts": 1,
       "recovery_successful": true
     }
   ]

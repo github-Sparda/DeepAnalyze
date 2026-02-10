@@ -72,7 +72,7 @@ response = requests.post('http://localhost:48200/v1/chat/completions', json={
     "messages": [
         {"role": "user", "content": "Introduce Python programming language in one sentence"}
     ],
-    "data/cache/temporaryerature": 0.4
+    "data/cache/temperature": 0.4
 })
 
 content = response.json()['choices'][0]['message']['content']
@@ -87,7 +87,7 @@ response = client.chat.completions.create(
     messages=[
         {"role": "user", "content": "Introduce Python programming language in one sentence"}
     ],
-    data/cache/temporaryerature=0.4
+    data/cache/temperature=0.4
 )
 
 print(response.choices[0].message.content)
@@ -106,7 +106,7 @@ response = requests.post('http://localhost:48200/v1/chat/completions', json={
             "file_ids": [file_id]  
         }
     ],
-    "data/cache/temporaryerature": 0.4
+    "data/cache/temperature": 0.4
 })
 
 result = response.json()
@@ -129,7 +129,7 @@ response = client.chat.completions.create(
             "file_ids": [file_id]  
         }
     ],
-    data/cache/temporaryerature=0.4
+    data/cache/temperature=0.4
 )
 
 message = response.choices[0].message
@@ -288,7 +288,7 @@ Extended chat completion with file support.
     }
   ],
   "file_ids": ["file-def456"],     // Optional: file_ids parameter (backward compatibility)
-  "data/cache/temporaryerature": 0.4,
+  "data/cache/temperature": 0.4,
   "stream": false
 }
 ```
@@ -371,7 +371,7 @@ WORKSPACE_BASE_DIR = "data/sessions/active"       # File storage
 HTTP_SERVER_PORT = 48100              # File server port
 
 # Model Settings
-DEFAULT_TEMPERATURE = 0.4            # Default sampling data/cache/temporaryerature
+DEFAULT_TEMPERATURE = 0.4            # Default sampling data/cache/temperature
 MAX_NEW_TOKENS = 32768               # Maximum response tokens
 STOP_TOKEN_IDS = [32000, 32007]      # Special token IDs
 ```

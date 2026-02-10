@@ -235,7 +235,7 @@ class PerformanceOptimizerTool(ToolInterface):
         
         return suggestions
     
-    def _generate_explain_temporarylate(self, query: str) -> str:
+    def _generate_explain_template(self, query: str) -> str:
         """生成执行计划模板"""
         return f"EXPLAIN QUERY PLAN {query}"
     

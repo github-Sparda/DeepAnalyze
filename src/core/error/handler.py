@@ -56,7 +56,7 @@ class ErrorInfo:
     message: str
     traceback: str
     context: Dict[str, Any] = field(default_factory=dict)
-    recovery_attemporaryts: int = 0
+    recovery_attempts: int = 0
     recovery_successful: bool = False
     resolved: bool = False
 
@@ -68,7 +68,7 @@ class RecoveryStrategy:
     description: str
     applicable_categories: List[ErrorCategory]
     applicable_severities: List[ErrorSeverity]
-    max_attemporaryts: int
+    max_attempts: int
     retry_delay: float  # 秒
     recovery_function: Callable[[ErrorInfo], bool]
 
@@ -112,7 +112,7 @@ class ErrorHandler:
             description="网络超时错误重试策略",
             applicable_categories=[ErrorCategory.NETWORK, ErrorCategory.EXTERNAL_API],
             applicable_severities=[ErrorSeverity.LOW, ErrorSeverity.MEDIUM],
-            max_attemporaryts=3,
+            max_attempts=3,
             retry_delay=2.0,
             recovery_function=self._retry_network_operation
         )
@@ -124,7 +124,7 @@ class ErrorHandler:
             description="文件系统错误恢复策略",
             applicable_categories=[ErrorCategory.FILESYSTEM],
             applicable_severities=[ErrorSeverity.LOW, ErrorSeverity.MEDIUM],
-            max_attemporaryts=2,
+            max_attempts=2,
             retry_delay=1.0,
             recovery_function=self._recover_filesystem_error
         )
@@ -136,7 +136,7 @@ class ErrorHandler:
             description="代码执行错误隔离策略",
             applicable_categories=[ErrorCategory.EXECUTION],
             applicable_severities=[ErrorSeverity.HIGH],
-            max_attemporaryts=1,
+            max_attempts=1,
             retry_delay=0,
             recovery_function=self._isolate_execution_error
         )
@@ -194,7 +194,7 @@ class ErrorHandler:
         
         # 尝试自动恢复
         if recoverable:
-            self._attemporaryt_recovery(error_info)
+            self._attempt_recovery(error_info)
         
         return error_info
     
@@ -226,21 +226,21 @@ class ErrorHandler:
             # 保留最近的错误，删除最旧的
             self.errors = self.errors[-self.max_error_history:]
     
-    def _attemporaryt_recovery(self, error_info: ErrorInfo) -> bool:
+    def _attempt_recovery(self, error_info: ErrorInfo) -> bool:
         """尝试错误恢复"""
         recovery_success = False
         
         # 查找适用的恢复策略
         for strategy in self.recovery_strategies.values():
             if self._is_strategy_applicable(strategy, error_info):
-                self.logger.info(f"Attemporaryting recovery using strategy: {strategy.name}")
+                self.logger.info(f"Attempting recovery using strategy: {strategy.name}")
                 
                 try:
                     # 执行恢复
                     success = strategy.recovery_function(error_info)
                     
                     # 更新错误信息
-                    error_info.recovery_attemporaryts += 1
+                    error_info.recovery_attempts += 1
                     error_info.recovery_successful = success
                     
                     if success:
@@ -249,7 +249,7 @@ class ErrorHandler:
                         break
                     else:
                         self.logger.warning(
-                            f"Recovery attemporaryt {error_info.recovery_attemporaryts} failed "
+                            f"Recovery attempt {error_info.recovery_attempts} failed "
                             f"for error {error_info.error_id}"
                         )
                         
@@ -265,14 +265,14 @@ class ErrorHandler:
         return (
             error_info.category in strategy.applicable_categories and
             error_info.severity in strategy.applicable_severities and
-            error_info.recovery_attemporaryts < strategy.max_attemporaryts
+            error_info.recovery_attempts < strategy.max_attempts
         )
     
     def _retry_network_operation(self, error_info: ErrorInfo) -> bool:
         """网络操作重试策略"""
         # 这里可以实现具体的重试逻辑
         # 例如：等待一段时间后重试API调用
-        time.sleep(error_info.recovery_attemporaryts * 2)  # 指数退避
+        time.sleep(error_info.recovery_attempts * 2)  # 指数退避
         return True  # 表示重试机制已触发
     
     def _recover_filesystem_error(self, error_info: ErrorInfo) -> bool:
@@ -282,14 +282,14 @@ class ErrorHandler:
         # 重新创建缺失的目录
         try:
             # 示例：清理临时文件
-            temporary_dir = Path("/tmp")
-            if temporary_dir.exists():
+            temp_dir = Path("/tmp")
+            if temp_dir.exists():
                 # 清理超过1小时的临时文件
                 import os
                 current_time = time.time()
-                for temporary_file in temporary_dir.glob("*.tmp"):
-                    if current_time - temporary_file.stat().st_mtime > 3600:
-                        temporary_file.unlink()
+                for temp_file in temp_dir.glob("*.tmp"):
+                    if current_time - temp_file.stat().st_mtime > 3600:
+                        temp_file.unlink()
             return True
         except Exception:
             return False
@@ -309,7 +309,7 @@ class ErrorHandler:
         # 按类别统计
         category_stats = {}
         severity_stats = {}
-        recovery_stats = {"successful": 0, "failed": 0, "attemporaryts": 0}
+        recovery_stats = {"successful": 0, "failed": 0, "attempts": 0}
         
         for error in self.errors:
             # 类别统计
@@ -321,10 +321,10 @@ class ErrorHandler:
             severity_stats[severity] = severity_stats.get(severity, 0) + 1
             
             # 恢复统计
-            recovery_stats["attemporaryts"] += error.recovery_attemporaryts
+            recovery_stats["attempts"] += error.recovery_attempts
             if error.recovery_successful:
                 recovery_stats["successful"] += 1
-            elif error.recovery_attemporaryts > 0:
+            elif error.recovery_attempts > 0:
                 recovery_stats["failed"] += 1
         
         return {
@@ -351,7 +351,7 @@ class ErrorHandler:
                         "category": error.category.value,
                         "type": error.error_type,
                         "message": error.message,
-                        "recovery_attemporaryts": error.recovery_attemporaryts,
+                        "recovery_attempts": error.recovery_attempts,
                         "recovery_successful": error.recovery_successful
                     }
                     for error in self.errors[-50:]  # 最近50个错误
@@ -413,7 +413,7 @@ class SafeExecutor:
         Returns:
             函数执行结果或回退值
         """
-        for attemporaryt in range(max_retries + 1):
+        for attempt in range(max_retries + 1):
             try:
                 return func(*args, **kwargs)
             except Exception as e:
@@ -423,21 +423,21 @@ class SafeExecutor:
                     category=ErrorCategory.EXECUTION,
                     context={
                         "function": func.__name__,
-                        "attemporaryt": attemporaryt,
+                        "attempt": attempt,
                         "args": str(args)[:100],  # 限制长度避免日志过大
                         "kwargs": str(kwargs)[:100]
                     }
                 )
                 
-                if attemporaryt < max_retries:
-                    delay = 2 ** attemporaryt  # 指数退避
+                if attempt < max_retries:
+                    delay = 2 ** attempt  # 指数退避
                     self.error_handler.logger.warning(
-                        f"Attemporaryt {attemporaryt + 1} failed, retrying in {delay}s..."
+                        f"Attempt {attempt + 1} failed, retrying in {delay}s..."
                     )
                     time.sleep(delay)
                 else:
                     self.error_handler.logger.error(
-                        f"All {max_retries + 1} attemporaryts failed for {func.__name__}"
+                        f"All {max_retries + 1} attempts failed for {func.__name__}"
                     )
                     return fallback_value
     

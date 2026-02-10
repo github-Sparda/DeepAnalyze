@@ -25,6 +25,7 @@ requests>=2.31.0
 # 智能体编排
 langgraph>=0.0.39
 langchain-core>=0.1.0
+fastmcp
 
 # 报告生成
 markdown>=3.4.0

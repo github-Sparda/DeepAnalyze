@@ -82,7 +82,7 @@ class AIAssistantEngine:
         self.error_handler = ErrorHandler()
         # 延迟初始化API客户端
         self._api_client = None
-        self.response_temporarylates = self._initialize_temporarylates()
+        self.response_templates = self._initialize_templates()
     
     @property
     def api_client(self):
@@ -90,7 +90,7 @@ class AIAssistantEngine:
             self._api_client = get_api_client()
         return self._api_client
     
-    def _initialize_temporarylates(self) -> Dict[IntentType, ResponseTemplate]:
+    def _initialize_templates(self) -> Dict[IntentType, ResponseTemplate]:
         """初始化响应模板"""
         return {
             IntentType.DATA_ANALYSIS: ResponseTemplate(
@@ -250,7 +250,7 @@ class AIAssistantEngine:
         style_preference: Optional[ResponseStyle] = None
     ) -> List[Dict[str, Any]]:
         """构建增强版提示"""
-        template = self.response_temporarylates.get(intent, self.response_temporarylates[IntentType.GENERAL_CHAT])
+        template = self.response_templates.get(intent, self.response_templates[IntentType.GENERAL_CHAT])
         style = style_preference or template.style
         
         # 系统提示

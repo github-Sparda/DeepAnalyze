@@ -150,7 +150,7 @@ class DynamicScheduler:
             self._sort_task_queue()
         
         # 尝试立即调度
-        self._attemporaryt_schedule()
+        self._attempt_schedule()
         
         return task_id
     
@@ -161,7 +161,7 @@ class DynamicScheduler:
             x.created_at       # 相同优先级按创建时间排序
         ))
     
-    def _attemporaryt_schedule(self):
+    def _attempt_schedule(self):
         """尝试调度任务"""
         with self.lock:
             # 计算可调度的任务数
@@ -242,7 +242,7 @@ class DynamicScheduler:
                     self.completed_tasks.append(completed_task)
                 
                 # 尝试调度新任务
-                self._attemporaryt_schedule()
+                self._attempt_schedule()
                 
         except Exception as e:
             with self.lock:
@@ -251,7 +251,7 @@ class DynamicScheduler:
                 task.error = str(e)
                 self.stats['failed_tasks'] += 1
                 self.active_tasks.pop(task.task_id, None)
-                self._attemporaryt_schedule()
+                self._attempt_schedule()
     
     def _adaptation_loop(self):
         """自适应调整循环"""

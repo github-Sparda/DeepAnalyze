@@ -54,10 +54,10 @@ def demo_data_loading():
     df = create_sample_data()
     with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
         df.to_csv(f.name, index=False)
-        temporary_file = f.name
+        temp_file = f.name
     
     # 测试数据加载
-    loaded_df = analyzer.load_data(temporary_file)
+    loaded_df = analyzer.load_data(temp_file)
     if loaded_df is not None:
         print(f"成功加载数据: {loaded_df.shape}")
         print(f"列名: {list(loaded_df.columns)}")
@@ -66,7 +66,7 @@ def demo_data_loading():
         print("数据加载失败")
     
     # 清理临时文件
-    Path(temporary_file).unlink()
+    Path(temp_file).unlink()
     
     return loaded_df
 
@@ -199,12 +199,12 @@ def demo_error_handling():
     # 测试不支持的格式
     with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
         f.write("这不是CSV格式的内容")
-        temporary_file = f.name
+        temp_file = f.name
     
-    result = analyzer.load_data(temporary_file)
+    result = analyzer.load_data(temp_file)
     print(f"加载不支持格式: {'成功' if result is not None else '失败（正确）'}")
     
-    Path(temporary_file).unlink()
+    Path(temp_file).unlink()
 
 
 def performance_test():

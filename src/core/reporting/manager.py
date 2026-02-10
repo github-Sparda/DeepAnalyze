@@ -78,7 +78,7 @@ class ReportVersion:
 @dataclass
 class ReportTemplate:
     """报告模板"""
-    temporarylate_id: str
+    template_id: str
     name: str
     description: str
     report_type: ReportType
@@ -93,13 +93,13 @@ class ReportManager:
     def __init__(self, data_sessions_active_base: str = "data_sessions_active"):
         self.data_sessions_active_base = Path(data_sessions_active_base)
         self.error_handler = ErrorHandler()
-        self.default_temporarylates = self._load_default_temporarylates()
+        self.default_templates = self._load_default_templates()
     
-    def _load_default_temporarylates(self) -> Dict[str, ReportTemplate]:
+    def _load_default_templates(self) -> Dict[str, ReportTemplate]:
         """加载默认模板"""
         return {
             "analytical": ReportTemplate(
-                temporarylate_id="analytical",
+                template_id="analytical",
                 name="分析报告模板",
                 description="标准数据分析报告模板",
                 report_type=ReportType.ANALYTICAL,
@@ -111,7 +111,7 @@ class ReportManager:
                 }
             ),
             "executive": ReportTemplate(
-                temporarylate_id="executive",
+                template_id="executive",
                 name="执行报告模板",
                 description="高层管理决策报告模板",
                 report_type=ReportType.EXECUTIVE,
@@ -130,7 +130,7 @@ class ReportManager:
         title: str,
         content: str,
         report_type: ReportType = ReportType.ANALYTICAL,
-        temporarylate_id: Optional[str] = None,
+        template_id: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None
     ) -> ReportMetadata:
         """创建新报告"""
@@ -139,7 +139,7 @@ class ReportManager:
             report_id = f"report_{int(time.time())}_{hash(title) % 10000:04d}"
             
             # 获取模板
-            template = self.default_temporarylates.get(temporarylate_id or "analytical")
+            template = self.default_templates.get(template_id or "analytical")
             
             # 创建报告目录
             report_dir = self.data_sessions_active_base / session_id / "reports" / report_id
@@ -190,7 +190,7 @@ class ReportManager:
                 f"report_{report_id}": {
                     "metadata": metadata_dict,
                     "content_path": str(content_file),
-                    "temporarylate_used": template.temporarylate_id if template else None
+                    "template_used": template.template_id if template else None
                 }
             }
             update_session_state(session_id, state_updates)
@@ -418,7 +418,7 @@ class ReportManager:
     
     def _export_to_html(self, content: str, metadata: Dict[str, Any], output_path: str) -> str:
         """导出为HTML"""
-        html_temporarylate = f"""
+        html_template = f"""
 <!DOCTYPE html>
 <html>
 <head>
@@ -449,7 +449,7 @@ class ReportManager:
 </html>
         """
         
-        Path(output_path).write_text(html_temporarylate, encoding="utf-8")
+        Path(output_path).write_text(html_template, encoding="utf-8")
         return output_path
     
     def _export_to_pdf(self, content: str, metadata: Dict[str, Any], output_path: str) -> str:
@@ -531,12 +531,12 @@ def create_new_report(
     title: str,
     content: str,
     report_type: ReportType = ReportType.ANALYTICAL,
-    temporarylate_id: Optional[str] = None,
+    template_id: Optional[str] = None,
     metadata: Optional[Dict[str, Any]] = None
 ) -> ReportMetadata:
     """便捷函数：创建新报告"""
     manager = get_report_manager()
-    return manager.create_report(session_id, title, content, report_type, temporarylate_id, metadata)
+    return manager.create_report(session_id, title, content, report_type, template_id, metadata)
 
 
 def list_session_reports(session_id: str) -> List[ReportMetadata]:

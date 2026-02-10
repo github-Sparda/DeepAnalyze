@@ -110,8 +110,8 @@ class DeepAnalyzeCLI:
                 return True
 
             # If health endpoint is unavailable, try to check model list
-            temporary_client = openai.OpenAI(api_key=DEEPANALYZE_VLLM_API_KEY, base_url=self.api_base)
-            models = temporary_client.models.list()
+            temp_client = openai.OpenAI(api_key=DEEPANALYZE_VLLM_API_KEY, base_url=self.api_base)
+            models = temp_client.models.list()
             return True
         except:
             return False
@@ -351,14 +351,14 @@ class DeepAnalyzeCLI:
             # Download file
             response = requests.get(file_url)
             if response.status_code == 200:
-                # Create temporaryorary file
-                with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(safe_file_name)[1]) as temporary_file:
-                    temporary_file.write(response.content)
-                    temporary_file_path = temporary_file.name
+                # Create temporary file
+                with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(safe_file_name)[1]) as temp_file:
+                    temp_file.write(response.content)
+                    temp_file_path = temp_file.name
 
                 try:
                     # Upload to API
-                    with open(temporary_file_path, 'rb') as f:
+                    with open(temp_file_path, 'rb') as f:
                         file_obj = self.client.files.create(
                             file=f,
                             purpose="assistants"
@@ -376,8 +376,8 @@ class DeepAnalyzeCLI:
                     return file_obj.id
 
                 finally:
-                    # Delete temporaryorary file
-                    os.unlink(temporary_file_path)
+                    # Delete temporary file
+                    os.unlink(temp_file_path)
             else:
                 console.print(f"[red]❌ Failed to download intermediate file: {safe_file_name}[/red]")
                 return None

@@ -44,7 +44,7 @@ metadata = create_new_report(
     title="2024年销售数据分析报告",
     content="# 销售分析\n\n详细分析内容...",
     report_type=ReportType.ANALYTICAL,
-    data/cache/temporarylate_id="analytical",
+    data/cache/template_id="analytical",
     metadata={
         "author": "数据分析团队",
         "tags": ["销售", "分析", "2024"],
@@ -122,7 +122,7 @@ metadata = create_new_report(
     title="市场趋势分析报告",
     content=docs/analysis_content,
     report_type=ReportType.ANALYTICAL,
-    data/cache/temporarylate_id="analytical"
+    data/cache/template_id="analytical"
 )
 # 适用于：数据探索、统计分析、趋势研究
 ```
@@ -134,7 +134,7 @@ metadata = create_new_report(
     title="Q1业务执行报告",
     content=executive_content,
     report_type=ReportType.EXECUTIVE,
-    data/cache/temporarylate_id="executive"
+    data/cache/template_id="executive"
 )
 # 适用于：高层决策、业务汇报、战略规划
 ```
@@ -155,21 +155,21 @@ metadata = create_new_report(
 ### 预定义模板
 ```python
 # 分析报告模板
-data/cache/temporarylate = manager.default_data/cache/temporarylates["analytical"]
-print(f"模板名称: {data/cache/temporarylate.name}")
-print(f"包含章节: {data/cache/temporarylate.sections}")
-print(f"可用变量: {list(data/cache/temporarylate.variables.keys())}")
+data/cache/template = manager.default_data/cache/templates["analytical"]
+print(f"模板名称: {data/cache/template.name}")
+print(f"包含章节: {data/cache/template.sections}")
+print(f"可用变量: {list(data/cache/template.variables.keys())}")
 
 # 执行报告模板
-exec_data/cache/temporarylate = manager.default_data/cache/temporarylates["executive"]
+exec_data/cache/template = manager.default_data/cache/templates["executive"]
 ```
 
 ### 自定义模板创建
 ```python
 from src/core.reporting.manager import ReportTemplate
 
-custom_data/cache/temporarylate = ReportTemplate(
-    data/cache/temporarylate_id="custom_business",
+custom_data/cache/template = ReportTemplate(
+    data/cache/template_id="custom_business",
     name="商业分析模板",
     description="专为商业分析设计的报告模板",
     report_type=ReportType.ANALYTICAL,
@@ -182,7 +182,7 @@ custom_data/cache/temporarylate = ReportTemplate(
 )
 
 # 注册自定义模板
-manager.default_data/cache/temporarylates["custom_business"] = custom_data/cache/temporarylate
+manager.default_data/cache/templates["custom_business"] = custom_data/cache/template
 ```
 
 ## 元数据管理

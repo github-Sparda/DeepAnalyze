@@ -51,7 +51,7 @@ async def chat_completions(
 ):
     """
     Extended chat completion API with file attachment support.
-    Creates a temporaryorary conversation with associated files.
+    Creates a temporary conversation with associated files.
 
     Parameters:
     - model: Model name
@@ -64,9 +64,9 @@ async def chat_completions(
     - Standard OpenAI chat completion response
     - Additional field 'generated_files' with list of generated file URLs
     """
-    # Create temporaryorary thread
-    temporary_thread = storage.create_thread(metadata={"temporaryorary": True})
-    data_sessions_active_dir = get_thread_data_sessions_active(temporary_thread.id)
+    # Create temporary thread
+    temp_thread = storage.create_thread(metadata={"temporary": True})
+    data_sessions_active_dir = get_thread_data_sessions_active(temp_thread.id)
     generated_dir = os.path.join(data_sessions_active_dir, "generated")
     os.makedirs(generated_dir, exist_ok=True)
 
@@ -96,7 +96,7 @@ async def chat_completions(
                 dst_path = uniquify_path(Path(data_sessions_active_dir) / file_obj.filename)
                 shutil.copy2(src_path, dst_path)
 
-        # Build messages with DeepAnalyze prompt temporarylate
+        # Build messages with DeepAnalyze prompt template
         vllm_messages: List[Dict[str, Any]] = prepare_vllm_messages(
             messages, data_sessions_active_dir
         )
@@ -179,7 +179,7 @@ async def chat_completions(
                             artifacts = tracker.diff_and_collect()
                             exe_str = f"\n<Execute>\n```\n{exe_output}\n```\n</Execute>\n"
                             file_block = render_file_block(
-                                    artifacts, data_sessions_active_dir, temporary_thread.id, generated_files
+                                    artifacts, data_sessions_active_dir, temp_thread.id, generated_files
                                 )
                             assistant_reply += exe_str + file_block
 
@@ -207,7 +207,7 @@ async def chat_completions(
 
                 # Generate and stream report
                 report_block = generate_report_from_messages(
-                    messages, assistant_reply, data_sessions_active_dir, temporary_thread.id, generated_files
+                    messages, assistant_reply, data_sessions_active_dir, temp_thread.id, generated_files
                 )
                 if report_block:
                     for char in report_block:
@@ -311,7 +311,7 @@ async def chat_completions(
                         artifacts = tracker.diff_and_collect()
                         exe_str = f"\n<Execute>\n```\n{exe_output}\n```\n</Execute>\n"
                         file_block = render_file_block(
-                                    artifacts, data_sessions_active_dir, temporary_thread.id, generated_files
+                                    artifacts, data_sessions_active_dir, temp_thread.id, generated_files
                                 )
                         assistant_reply += exe_str + file_block
                         vllm_messages.append({"role": "execute", "content": exe_output})
@@ -320,7 +320,7 @@ async def chat_completions(
 
             # Generate report
             report_block = generate_report_from_messages(
-                messages, assistant_reply, data_sessions_active_dir, temporary_thread.id, generated_files
+                messages, assistant_reply, data_sessions_active_dir, temp_thread.id, generated_files
             )
             assistant_reply += report_block
 
@@ -358,5 +358,5 @@ async def chat_completions(
 
             return result
     finally:
-        # Clean up temporaryorary thread after some time (optional)
+        # Clean up temporary thread after some time (optional)
         pass

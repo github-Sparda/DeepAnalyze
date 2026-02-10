@@ -29,7 +29,7 @@ DeepAnalyze/
 │   └── data/cache/                    # 缓存数据（合并data/cache/和data/cache/temporary/）
 │       ├── semantic/             # 语义缓存
 │       ├── disk/                 # 磁盘缓存
-│       └── data/cache/temporaryorary/            # 临时文件
+│       └── data/cache/temporary/            # 临时文件
 │
 ├── docs/guides/                         # 所有文档（合并docs/guides/和docs/analysis/）
 │   ├── docs/design/                   # 设计文档（原docs/design/）
@@ -73,7 +73,7 @@ scripts/data/sessions/active/    → data/sessions/active/
 src/cli/data/sessions/active/   → data/sessions/active/
 
 data/cache/                → data/data/cache/
-data/cache/temporary/                 → data/data/cache/data/cache/temporaryorary/
+data/cache/temporary/                 → data/data/cache/data/cache/temporary/
 outputs/              → outputs/
 outputs/logs/                 → outputs/outputs/logs/
 

@@ -72,7 +72,7 @@ response = requests.post('http://localhost:48200/v1/chat/completions', json={
     "messages": [
         {"role": "user", "content": "用一句话介绍Python编程语言"}
     ],
-    "data/cache/temporaryerature": 0.4
+    "data/cache/temperature": 0.4
 })
 
 content = response.json()['choices'][0]['message']['content']
@@ -86,7 +86,7 @@ response = client.chat.completions.create(
     messages=[
         {"role": "user", "content": "用一句话介绍Python编程语言"}
     ],
-    data/cache/temporaryerature=0.4
+    data/cache/temperature=0.4
 )
 
 print(response.choices[0].message.content)
@@ -105,7 +105,7 @@ response = requests.post('http://localhost:48200/v1/chat/completions', json={
             "file_ids": [file_id]
         }
     ],
-    "data/cache/temporaryerature": 0.4
+    "data/cache/temperature": 0.4
 })
 
 result = response.json()
@@ -128,7 +128,7 @@ response = client.chat.completions.create(
             "file_ids": [file_id]
         }
     ],
-    data/cache/temporaryerature=0.4
+    data/cache/temperature=0.4
 )
 
 message = response.choices[0].message
@@ -289,7 +289,7 @@ DELETE /v1/files/{file_id}
     }
   ],
   "file_ids": ["file-def456"],     // 可选：file_ids 参数
-  "data/cache/temporaryerature": 0.4,
+  "data/cache/temperature": 0.4,
   "stream": false
 }
 ```

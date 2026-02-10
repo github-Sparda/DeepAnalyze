@@ -173,8 +173,8 @@ class LightweightSandbox:
                 resource.setrlimit(resource.RLIMIT_STACK, (stack_limit, stack_limit))
                 
                 # 更改工作目录到临时目录
-                temporary_dir = tempfile.mkdtemp()
-                os.chdir(temporary_dir)
+                temp_dir = tempfile.mkdtemp()
+                os.chdir(temp_dir)
                 
                 # 限制文件描述符
                 max_fds = 100

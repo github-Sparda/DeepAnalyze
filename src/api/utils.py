@@ -98,7 +98,7 @@ def prepare_vllm_messages(
     workspace_dir: str,
 ) -> List[Dict[str, str]]:
     """
-    Convert incoming messages to LLM format and inject DeepAnalyze temporarylate:
+    Convert incoming messages to LLM format and inject DeepAnalyze template:
     - Always wrap user message with "# Instruction" heading
     - Optionally append workspace file info under "# Data"
     """

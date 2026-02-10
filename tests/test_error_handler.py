@@ -147,7 +147,7 @@ def demo_recovery_strategies():
             category=ErrorCategory.NETWORK
         )
         print(f"网络错误处理: {error_info.error_id}")
-        print(f"恢复尝试次数: {error_info.recovery_attemporaryts}")
+        print(f"恢复尝试次数: {error_info.recovery_attempts}")
         print(f"恢复成功: {error_info.recovery_successful}")
 
 

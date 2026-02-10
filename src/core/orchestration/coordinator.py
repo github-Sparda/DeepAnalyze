@@ -22,7 +22,7 @@ class ExecutionMonitor:
         self.log_path = self.log_dir / f"{plan_id}.json"
         self.entries: list[dict[str, Any]] = []
 
-    def log_attemporaryt(self, step_name: str, status: str, error: str | None = None) -> None:
+    def log_attempt(self, step_name: str, status: str, error: str | None = None) -> None:
         entry = {
             "step": step_name,
             "status": status,
@@ -101,10 +101,10 @@ class CodeExecutionOrchestrator:
             code = path.read_text(encoding="utf-8") if path.exists() else ""
             output = ""
             statuses: list[str] = []
-            for attemporaryt in range(retries + 1):
+            for attempt in range(retries + 1):
                 output = execute_code_safe(code, str(self.data_sessions_active_dir), execution_timeout)
                 status = "success" if "Traceback" not in output and "[Error]" not in output else "error"
-                monitor.log_attemporaryt(step.get("name", "unknown"), status, output if status == "error" else None)
+                monitor.log_attempt(step.get("name", "unknown"), status, output if status == "error" else None)
                 statuses.append(status)
                 if status == "success":
                     break

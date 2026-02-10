@@ -141,7 +141,7 @@ curl -X POST http://localhost:48200/v1/chat/completions \
             \"file_ids\": [\"$FILE_ID\"]
           }
         ],
-        \"data/cache/temporaryerature\": 0.4
+        \"data/cache/temperature\": 0.4
       }"
 ```
 

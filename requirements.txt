@@ -20,3 +20,4 @@ python-docx
 python-dotenv
 plotly
 weasyprint
+fastmcp

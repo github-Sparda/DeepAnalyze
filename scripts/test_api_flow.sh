@@ -70,7 +70,7 @@ CHAT_RESPONSE=$(curl -s -X POST "$API_PUBLIC_BASE_V1/chat/completions" \
     \"messages\": [
       {\"role\": \"user\", \"content\": \"请分析这份数据并给出关键结论\", \"file_ids\": [\"${FILE_ID}\"]}
     ],
-    \"data/cache/temporaryerature\": 0.4
+    \"data/cache/temperature\": 0.4
   }")
 
 echo "Response:"

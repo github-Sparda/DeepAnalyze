@@ -53,7 +53,7 @@ class SystemIntegrationTest:
     """系统集成测试类 - 改进版"""
     
     def __init__(self):
-        self.temporary_dir = None
+        self.temp_dir = None
         self.managers = {}
         self.test_results = {}
         self.performance_metrics = {}
@@ -62,7 +62,7 @@ class SystemIntegrationTest:
     def setup(self):
         """设置测试环境"""
         self.logger.info("🔧 设置测试环境...")
-        self.temporary_dir = tempfile.mkdtemp(prefix="src_core_test_")
+        self.temp_dir = tempfile.mkdtemp(prefix="src_core_test_")
         
         # 初始化各个管理器
         try:
@@ -70,17 +70,17 @@ class SystemIntegrationTest:
             from src.core.state.manager import get_state_manager
             state_manager = get_state_manager()
             # 重新设置base_dir到测试目录
-            state_manager.base_dir = Path(self.temporary_dir)
+            state_manager.base_dir = Path(self.temp_dir)
             state_manager.base_dir.mkdir(parents=True, exist_ok=True)
             
             self.managers = {
                 'state': state_manager,  # 使用全局管理器
                 'error': ErrorHandler(),
                 'assistant': AIAssistantEngine(),
-                'report': ReportManager(self.temporary_dir),
-                'collaboration': CollaborationManager(self.temporary_dir)
+                'report': ReportManager(self.temp_dir),
+                'collaboration': CollaborationManager(self.temp_dir)
             }
-            self.logger.info(f"📁 测试工作目录: {self.temporary_dir}")
+            self.logger.info(f"📁 测试工作目录: {self.temp_dir}")
             self.logger.info("✅ 测试环境设置完成")
             return True
         except Exception as e:
@@ -89,9 +89,9 @@ class SystemIntegrationTest:
     
     def teardown(self):
         """清理测试环境"""
-        if self.temporary_dir and os.path.exists(self.temporary_dir):
+        if self.temp_dir and os.path.exists(self.temp_dir):
             try:
-                shutil.rmtree(self.temporary_dir)
+                shutil.rmtree(self.temp_dir)
                 self.logger.info("🧹 测试环境已清理")
             except Exception as e:
                 self.logger.warning(f"⚠️ 清理测试环境时出现问题: {e}")
@@ -125,7 +125,7 @@ class SystemIntegrationTest:
             
             # 3. 模拟数据分析
             self.logger.info("  3️⃣ 执行数据分析...")
-            sample_data_path = Path(self.temporary_dir) / "sample_data.csv"
+            sample_data_path = Path(self.temp_dir) / "sample_data.csv"
             sample_data_content = """name,age,salary,department
 张三,25,8000,技术部
 李四,30,12000,销售部
@@ -335,7 +335,7 @@ class SystemIntegrationTest:
             
             # 测试大文件处理
             self.logger.info("  📁 测试大文件处理...")
-            large_data_path = Path(self.temporary_dir) / "large_data.csv"
+            large_data_path = Path(self.temp_dir) / "large_data.csv"
             large_data_content = "id,value,name\n" + "\n".join([
                 f"{i},{i*2},用户{i}" for i in range(1000)
             ])
@@ -583,7 +583,7 @@ class SystemIntegrationTest:
                         file_extension = "csv"
                     else:
                         file_extension = file_type.split('_')[0] if '_' in file_type else 'txt'
-                    file_path = Path(self.temporary_dir) / f"test_{file_type}.{file_extension}"
+                    file_path = Path(self.temp_dir) / f"test_{file_type}.{file_extension}"
                     file_path.write_text(content, encoding='utf-8')
                     
                     # 分析数据
@@ -1101,8 +1101,8 @@ def main():
         report = tester.generate_test_report()
         
         # 保存测试报告
-        if tester.temporary_dir:
-            report_file = Path(tester.temporary_dir) / "integration_test_report_detailed.json"
+        if tester.temp_dir:
+            report_file = Path(tester.temp_dir) / "integration_test_report_detailed.json"
             with open(report_file, 'w', encoding='utf-8') as f:
                 json.dump(report, f, ensure_ascii=False, indent=2)
             logger.info(f"\n💾 详细测试报告已保存到: {report_file}")

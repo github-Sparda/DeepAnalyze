@@ -7,5 +7,5 @@ START_JUPYTER = true
 JUPYTER_PORT = 8888
 
 [PROMPT]
-# Name of the prompt data/cache/temporarylate file (all files in `prompt/`)
+# Name of the prompt data/cache/template file (all files in `prompt/`)
 PROMPT_TEMPLATE = "general"

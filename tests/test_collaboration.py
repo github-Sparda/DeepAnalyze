@@ -28,10 +28,10 @@ def test_collaboration_manager_initialization():
     """测试协作管理器初始化"""
     print("🧪 测试协作管理器初始化...")
     
-    with tempfile.TemporaryDirectory() as temporary_dir:
-        manager = CollaborationManager(temporary_dir)
+    with tempfile.TemporaryDirectory() as temp_dir:
+        manager = CollaborationManager(temp_dir)
         
-        assert manager.data_sessions_active_base == Path(temporary_dir)
+        assert manager.data_sessions_active_base == Path(temp_dir)
         assert isinstance(manager.share_links, dict)
         assert isinstance(manager.collaborators, dict)
         assert isinstance(manager.comments, dict)
@@ -43,8 +43,8 @@ def test_add_collaborator():
     """测试添加协作者功能"""
     print("\n🧪 测试添加协作者...")
     
-    with tempfile.TemporaryDirectory() as temporary_dir:
-        manager = CollaborationManager(temporary_dir)
+    with tempfile.TemporaryDirectory() as temp_dir:
+        manager = CollaborationManager(temp_dir)
         session_id = "test_session_123"
         
         # 添加协作者
@@ -75,8 +75,8 @@ def test_remove_collaborator():
     """测试移除协作者功能"""
     print("\n🧪 测试移除协作者...")
     
-    with tempfile.TemporaryDirectory() as temporary_dir:
-        manager = CollaborationManager(temporary_dir)
+    with tempfile.TemporaryDirectory() as temp_dir:
+        manager = CollaborationManager(temp_dir)
         session_id = "test_session_123"
         
         # 先添加协作者
@@ -102,8 +102,8 @@ def test_create_share_link():
     """测试创建分享链接功能"""
     print("\n🧪 测试创建分享链接...")
     
-    with tempfile.TemporaryDirectory() as temporary_dir:
-        manager = CollaborationManager(temporary_dir)
+    with tempfile.TemporaryDirectory() as temp_dir:
+        manager = CollaborationManager(temp_dir)
         session_id = "test_session_123"
         
         # 创建分享链接
@@ -129,8 +129,8 @@ def test_validate_share_link():
     """测试验证分享链接功能"""
     print("\n🧪 测试验证分享链接...")
     
-    with tempfile.TemporaryDirectory() as temporary_dir:
-        manager = CollaborationManager(temporary_dir)
+    with tempfile.TemporaryDirectory() as temp_dir:
+        manager = CollaborationManager(temp_dir)
         session_id = "test_session_123"
         
         # 创建分享链接
@@ -162,8 +162,8 @@ def test_comments_functionality():
     """测试评论功能"""
     print("\n🧪 测试评论功能...")
     
-    with tempfile.TemporaryDirectory() as temporary_dir:
-        manager = CollaborationManager(temporary_dir)
+    with tempfile.TemporaryDirectory() as temp_dir:
+        manager = CollaborationManager(temp_dir)
         resource_id = "report_001"
         
         # 添加评论
@@ -218,8 +218,8 @@ def test_activity_logging():
     """测试活动日志功能"""
     print("\n🧪 测试活动日志功能...")
     
-    with tempfile.TemporaryDirectory() as temporary_dir:
-        manager = CollaborationManager(temporary_dir)
+    with tempfile.TemporaryDirectory() as temp_dir:
+        manager = CollaborationManager(temp_dir)
         session_id = "test_session_123"
         
         # 执行一些操作来生成日志
@@ -267,8 +267,8 @@ def test_data_persistence():
     """测试数据持久化功能"""
     print("\n🧪 测试数据持久化...")
     
-    with tempfile.TemporaryDirectory() as temporary_dir:
-        data_sessions_active_path = Path(temporary_dir)
+    with tempfile.TemporaryDirectory() as temp_dir:
+        data_sessions_active_path = Path(temp_dir)
         manager = CollaborationManager(str(data_sessions_active_path))
         session_id = "test_session_123"
         

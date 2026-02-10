@@ -76,15 +76,15 @@ class RBridgeTool(ToolInterface):
         # 如果有数据，将其传递给R
         if data is not None:
             # 将DataFrame保存为CSV并读入R
-            temporary_file = tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False)
-            data.to_csv(temporary_file.name, index=False)
-            temporary_file.close()
+            temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False)
+            data.to_csv(temp_file.name, index=False)
+            temp_file.close()
             
-            script_lines.append(f'data_py <- read.csv("{temporary_file.name}")')
+            script_lines.append(f'data_py <- read.csv("{temp_file.name}")')
             script_lines.append('rm(list=ls(pattern="^data_py$"))')  # 清理临时文件
             
             # 删除临时文件
-            script_lines.append(f'unlink("{temporary_file.name}")')
+            script_lines.append(f'unlink("{temp_file.name}")')
         
         # 添加用户R代码
         script_lines.append(r_code)

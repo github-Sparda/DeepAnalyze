@@ -110,8 +110,8 @@ class DeepAnalyzeCLI:
                 return True
 
             # 如果健康端点不可用，尝试检查模型列表
-            temporary_client = openai.OpenAI(api_key=DEEPANALYZE_VLLM_API_KEY, base_url=self.api_base)
-            models = temporary_client.models.list()
+            temp_client = openai.OpenAI(api_key=DEEPANALYZE_VLLM_API_KEY, base_url=self.api_base)
+            models = temp_client.models.list()
             return True
         except:
             return False
@@ -351,13 +351,13 @@ class DeepAnalyzeCLI:
             response = requests.get(file_url)
             if response.status_code == 200:
                 # 创建临时文件
-                with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(safe_file_name)[1]) as temporary_file:
-                    temporary_file.write(response.content)
-                    temporary_file_path = temporary_file.name
+                with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(safe_file_name)[1]) as temp_file:
+                    temp_file.write(response.content)
+                    temp_file_path = temp_file.name
 
                 try:
                     # 上传到API
-                    with open(temporary_file_path, 'rb') as f:
+                    with open(temp_file_path, 'rb') as f:
                         file_obj = self.client.files.create(
                             file=f,
                             purpose="assistants"
@@ -376,7 +376,7 @@ class DeepAnalyzeCLI:
 
                 finally:
                     # 删除临时文件
-                    os.unlink(temporary_file_path)
+                    os.unlink(temp_file_path)
             else:
                 console.print(f"[red]❌ 下载中间文件失败: {safe_file_name}[/red]")
                 return None
