@@ -133,13 +133,15 @@ class CodeExecutionOrchestrator:
             }
 
         workers = max(1, int(self.config.get("execution_concurrency", 1)))
-        if workers > 1 and len(steps) > 1:
-            async def _run_all() -> list[dict[str, Any]]:
-                tasks = [asyncio.to_thread(_run, step) for step in steps]
-                return await asyncio.gather(*tasks)
+        try:
+            if workers > 1 and len(steps) > 1:
+                async def _run_all() -> list[dict[str, Any]]:
+                    tasks = [asyncio.to_thread(_run, step) for step in steps]
+                    return await asyncio.gather(*tasks)
 
-            recorded = asyncio.run(_run_all())
-        else:
-            recorded = [_run(step) for step in steps]
-        monitor.finalize()
-        return recorded
+                recorded = asyncio.run(_run_all())
+            else:
+                recorded = [_run(step) for step in steps]
+            return recorded
+        finally:
+            monitor.finalize()

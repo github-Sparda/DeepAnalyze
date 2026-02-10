@@ -13,12 +13,17 @@ import shutil
 import sys
 import time
 import threading
+import warnings
 from pathlib import Path
 from typing import Any, Dict
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+
+os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
+warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", category=DeprecationWarning, message=".*swig.*")
 
 from src.api.config import (
     WORKSPACE_BASE_DIR,
@@ -69,7 +74,7 @@ def main() -> None:
     parser.add_argument(
         "--no-print-steps",
         action="store_true",
-        default=False,
+        default=True,
         help="Print orchestrator node progress as it runs",
     )
     parser.add_argument(

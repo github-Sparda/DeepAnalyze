@@ -10,6 +10,7 @@ import argparse
 import json
 import os
 import sys
+import warnings
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -19,6 +20,10 @@ if str(PROJECT_ROOT) not in sys.path:
 CLI_DIR = PROJECT_ROOT / "src" / "cli"
 if str(CLI_DIR) not in sys.path:
     sys.path.insert(0, str(CLI_DIR))
+
+os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
+warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", category=DeprecationWarning, message=".*swig.*")
 
 
 def _write_json(path: Path, payload: Dict[str, Any]) -> None:

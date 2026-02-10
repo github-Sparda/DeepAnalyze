@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import time
 from collections import Counter
@@ -44,11 +45,92 @@ from .state import OrchestrationState
 from .document_manager import DocumentManager
 
 
-def _safe_json_load(raw: str) -> dict[str, Any]:
+def _extract_json_candidates(raw: str) -> list[str]:
+    if not raw:
+        return []
+    candidates: list[str] = []
+    fence = re.compile(r"```(?:json)?\\s*([\\s\\S]*?)```", re.IGNORECASE)
+    for match in fence.findall(raw):
+        candidates.append(match.strip())
+    obj_match = re.search(r"(\\{[\\s\\S]*\\})", raw)
+    if obj_match:
+        candidates.append(obj_match.group(1))
+    arr_match = re.search(r"(\\[[\\s\\S]*\\])", raw)
+    if arr_match:
+        candidates.append(arr_match.group(1))
+    return candidates
+
+
+def _safe_json_any(raw: str) -> Any:
     try:
         return json.loads(raw)
     except Exception:
-        return {}
+        pass
+    for candidate in _extract_json_candidates(raw):
+        try:
+            return json.loads(candidate)
+        except Exception:
+            continue
+    return {}
+
+
+def _safe_json_load(raw: str) -> dict[str, Any]:
+    payload = _safe_json_any(raw)
+    return payload if isinstance(payload, dict) else {}
+
+
+def _parse_plan_markdown(plan: str) -> dict[str, Any]:
+    hypotheses: list[dict[str, Any]] = []
+    if not plan:
+        return {"hypotheses": hypotheses}
+
+    lines = plan.splitlines()
+    hypothesis_titles: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("*") and "假设" in stripped:
+            title = stripped.strip("* ").strip()
+            hypothesis_titles.append(title)
+
+    current_title = ""
+    current_steps: list[str] = []
+    current_artifacts: list[dict[str, str]] = []
+
+    def _flush() -> None:
+        nonlocal current_title, current_steps, current_artifacts
+        if current_title or current_steps or current_artifacts:
+            hypotheses.append(
+                {
+                    "title": current_title or f"hypothesis_{len(hypotheses)+1}",
+                    "steps": current_steps,
+                    "artifacts": current_artifacts,
+                }
+            )
+        current_title = ""
+        current_steps = []
+        current_artifacts = []
+
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("####"):
+            _flush()
+            current_title = stripped.lstrip("#").strip()
+            continue
+        step_match = re.match(r"^\\d+\\.\\s+(.+)", stripped)
+        if step_match:
+            current_steps.append(step_match.group(1).strip())
+            continue
+        if stripped.startswith("*") and ("图" in stripped or "表" in stripped):
+            artifact_text = stripped.strip("* ").strip()
+            current_artifacts.append({"description": artifact_text})
+
+    _flush()
+
+    if not hypotheses and hypothesis_titles:
+        for title in hypothesis_titles:
+            hypotheses.append({"title": title, "steps": [], "artifacts": []})
+
+    return {"hypotheses": hypotheses}
 
 
 def _extract_hypotheses(plan_text: str) -> list[str]:
@@ -91,6 +173,66 @@ def _extract_visualization_goals(plan_json: dict[str, Any] | None) -> list[str]:
                 if isinstance(value, str):
                     goals.append(value)
     return goals
+
+
+def _fallback_analysis_code() -> str:
+    return (
+        "import json\n"
+        "from pathlib import Path\n"
+        "import pandas as pd\n"
+        "import numpy as np\n"
+        "import matplotlib.pyplot as plt\n"
+        "\n"
+        "workspace = Path.cwd()\n"
+        "input_files = list(workspace.glob('*.xlsx')) + list(workspace.glob('*.csv')) + list(workspace.glob('*.tsv'))\n"
+        "if not input_files:\n"
+        "    raise SystemExit('No input data file found in workspace')\n"
+        "data_path = input_files[0]\n"
+        "if data_path.suffix.lower() == '.xlsx':\n"
+        "    df = pd.read_excel(data_path)\n"
+        "elif data_path.suffix.lower() == '.tsv':\n"
+        "    df = pd.read_csv(data_path, sep='\\t')\n"
+        "else:\n"
+        "    df = pd.read_csv(data_path)\n"
+        "\n"
+        "result_dir = workspace / 'result'\n"
+        "charts_dir = workspace / 'charts'\n"
+        "result_dir.mkdir(parents=True, exist_ok=True)\n"
+        "charts_dir.mkdir(parents=True, exist_ok=True)\n"
+        "\n"
+        "summary = {\n"
+        "    'rows': int(df.shape[0]),\n"
+        "    'columns': int(df.shape[1]),\n"
+        "    'columns_list': df.columns.tolist(),\n"
+        "    'missing_total': int(df.isna().sum().sum()),\n"
+        "}\n"
+        "(result_dir / 'summary.json').write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding='utf-8')\n"
+        "\n"
+        "numeric_cols = df.select_dtypes(include='number').columns\n"
+        "if len(numeric_cols) > 0:\n"
+        "    desc = df[numeric_cols].describe().T\n"
+        "    desc.to_csv(result_dir / 'numeric_summary.csv')\n"
+        "    corr = df[numeric_cols].corr()\n"
+        "    corr.to_csv(result_dir / 'correlation.csv')\n"
+        "\n"
+        "group_col = None\n"
+        "for candidate in ['Group', 'group', 'label', 'Label']:\n"
+        "    if candidate in df.columns:\n"
+        "        group_col = candidate\n"
+        "        break\n"
+        "if group_col and len(numeric_cols) > 0:\n"
+        "    grouped = df.groupby(group_col)[numeric_cols].mean()\n"
+        "    grouped.to_csv(result_dir / 'group_means.csv')\n"
+        "\n"
+        "if len(numeric_cols) > 0:\n"
+        "    fig, ax = plt.subplots(figsize=(8, 4))\n"
+        "    col = numeric_cols[0]\n"
+        "    df[col].dropna().hist(ax=ax, bins=30, color='#4C78A8')\n"
+        "    ax.set_title(f'Distribution of {col}')\n"
+        "    fig.tight_layout()\n"
+        "    fig.savefig(charts_dir / 'distribution.png', dpi=200)\n"
+        "    plt.close(fig)\n"
+    )
 
 
 def _telemetry_context(
@@ -307,7 +449,23 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
         ]
         plan_json_raw = llm.chat(struct_messages, max_tokens=2048)
         plan_json = _safe_json_load(plan_json_raw)
+        fallback_plan = _parse_plan_markdown(plan)
         if not plan_json:
+            plan_json = fallback_plan
+        if not plan_json.get("hypotheses"):
+            plan_json["hypotheses"] = fallback_plan.get("hypotheses", [])
+        for idx, hypothesis in enumerate(plan_json.get("hypotheses", [])):
+            if not hypothesis.get("steps"):
+                fallback_steps = []
+                if idx < len(fallback_plan.get("hypotheses", [])):
+                    fallback_steps = fallback_plan["hypotheses"][idx].get("steps", [])
+                hypothesis["steps"] = fallback_steps
+            if not hypothesis.get("artifacts"):
+                fallback_artifacts = []
+                if idx < len(fallback_plan.get("hypotheses", [])):
+                    fallback_artifacts = fallback_plan["hypotheses"][idx].get("artifacts", [])
+                hypothesis["artifacts"] = fallback_artifacts
+        if not plan_json.get("hypotheses"):
             plan_json = {
                 "hypotheses": [
                     {"title": "hypothesis_1", "steps": [], "artifacts": []}
@@ -330,14 +488,22 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
         artifact_registry.register(plan_id, "plan", artifact_plan_md, {"phase": "plan_analysis"})
         if artifact_plan_json.exists():
             artifact_registry.register(plan_id, "plan", artifact_plan_json, {"phase": "plan_analysis"})
+        viz_plan_path = Path(state.get("session_dir", "")) / "plan" / "visualization_plan.json"
+        if viz_plan_path.exists():
+            visual_style = state.get("config", {}).get("visual_style", "academic")
+            viz_artifact_dir = artifact_dir(state.get("session_dir", ""), plan_id, "visualizations") / visual_style
+            viz_artifact_dir.mkdir(parents=True, exist_ok=True)
+            copied_viz_plan = copy_artifact(viz_plan_path, viz_artifact_dir)
+            artifact_registry.register(
+                plan_id,
+                "visualization_plan",
+                copied_viz_plan,
+                {"phase": "visualization_plan", "style": visual_style},
+            )
         data_quality_path = state.get("data_quality_path")
         if data_quality_path:
             copied = copy_artifact(data_quality_path, artifact_dir(state.get("session_dir", ""), plan_id, "data"))
             artifact_registry.register(plan_id, "data", copied, {"phase": "data_quality"})
-        viz_plan_path = Path(state.get("session_dir", "")) / "plan" / "visualization_plan.json"
-        if viz_plan_path.exists():
-            viz_copied = copy_artifact(viz_plan_path, artifact_dir(state.get("session_dir", ""), plan_id, "plan"))
-            artifact_registry.register(plan_id, "plan", viz_copied, {"phase": "visualization_plan"})
         return {"plan": plan, "plan_json": plan_json, "hypotheses": cleaned_hypotheses, "plan_id": plan_id}
 
     def parallel_generation(state: OrchestrationState) -> OrchestrationState:
@@ -350,6 +516,7 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
         artifact_registry = ArtifactRegistry(session_dir)
         telemetry_context = _telemetry_context(state, artifact_registry, plan_id)
         artifact_context = _artifact_context(artifact_registry, plan_id) if plan_id else ""
+        errors: list[str] = []
 
         steps: list[dict[str, Any]] = []
         hypotheses = plan_json.get("hypotheses", []) if isinstance(plan_json, dict) else []
@@ -384,19 +551,40 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
                     },
                 ]
             code_json = llm.chat(messages, max_tokens=4096)
-            payload = _safe_json_load(code_json)
-            if isinstance(payload, dict) and payload.get("steps"):
-                entry = payload["steps"][0]
-            else:
+            payload = _safe_json_any(code_json)
+            entry: dict[str, Any] | None = None
+            if isinstance(payload, dict):
+                steps_payload = payload.get("steps")
+                if isinstance(steps_payload, list) and steps_payload:
+                    entry = steps_payload[0]
+                elif payload.get("code"):
+                    entry = payload
+            elif isinstance(payload, list) and payload:
+                if isinstance(payload[0], dict):
+                    entry = payload[0]
+            if not entry or not entry.get("code"):
                 entry = {
                     "name": step["name"],
                     "filename": f"{step['name']}.py",
-                    "code": "# TODO",
+                    "code": _fallback_analysis_code(),
                 }
+            entry.setdefault("name", step["name"])
+            entry.setdefault("filename", f"{step['name']}.py")
             return entry
 
         orchestrator = CodeExecutionOrchestrator(llm, config, session_dir, plan_id)
-        recorded = orchestrator.generate(steps, _generate)
+        recorded: list[dict[str, Any]] = []
+        try:
+            recorded = orchestrator.generate(steps, _generate)
+        except Exception as exc:
+            errors.append(f"parallel_generation generate failed: {exc}")
+        if not recorded:
+            fallback_entry = {
+                "name": "analysis_step",
+                "filename": "analysis_step.py",
+                "code": _fallback_analysis_code(),
+            }
+            recorded = [orchestrator._write_code(fallback_entry)]
         legacy_code_dir = ensure_dir(session_dir / "code")
         write_json(legacy_code_dir / "steps.json", recorded)
         record_artifact(session_dir, legacy_code_dir / "steps.json", "code", "parallel_generation")
@@ -406,12 +594,24 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
             artifact_registry.register(plan_id, "code", steps_path, {"phase": "parallel_generation"})
 
         monitor = ExecutionMonitor(session_dir, plan_id)
-        exec_results = orchestrator.execute(
-            recorded,
-            int(config.get("code_execution_timeout", CODE_EXECUTION_TIMEOUT)),
-            monitor,
-            retries,
-        )
+        try:
+            exec_results = orchestrator.execute(
+                recorded,
+                int(config.get("code_execution_timeout", CODE_EXECUTION_TIMEOUT)),
+                monitor,
+                retries,
+            )
+        except Exception as exc:
+            errors.append(f"parallel_generation execute failed: {exc}")
+            monitor.log_attempt("execution", "error", str(exc))
+            exec_results = [
+                {
+                    "step": "execution",
+                    "output": str(exc),
+                    "path": "",
+                    "statuses": ["error"],
+                }
+            ]
         execution_entries = list(monitor.entries)
         legacy_results_dir = ensure_dir(session_dir / "result")
         write_json(legacy_results_dir / "exec_results.json", exec_results)
@@ -420,10 +620,13 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
             exec_path = artifact_dir(session_dir, plan_id, "result") / "exec_results.json"
             write_json(exec_path, exec_results)
             artifact_registry.register(plan_id, "result", exec_path, {"phase": "parallel_generation"})
+        existing_errors = list(state.get("errors", []))
+        existing_errors.extend(errors)
         return {
             "code_steps": recorded,
             "exec_results": exec_results,
             "execution_entries": execution_entries,
+            "errors": existing_errors,
         }
 
     def execution_guard(state: OrchestrationState) -> OrchestrationState:
@@ -471,12 +674,24 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
         artifact_context = _artifact_context(artifact_registry, plan_id) if plan_id else ""
         prompt = get_prompt("analysis", language)
         telemetry_context = _telemetry_context(state, artifact_registry, plan_id)
+        execution_warning = ""
+        if not outputs:
+            execution_warning = "执行告警：未检测到可执行脚本输出，分析结果可能缺少编程验证。"
+        else:
+            failed = 0
+            for item in outputs:
+                statuses = item.get("statuses", [])
+                if statuses and statuses[-1] == "error":
+                    failed += 1
+            if failed == len(outputs):
+                execution_warning = "执行告警：所有代码步骤执行失败，分析结果仅基于规划信息生成。"
+        warning_block = f"{execution_warning}\n" if execution_warning else ""
         messages = render_role_prompt(
             "analysis",
             language,
             prompt_key="analysis",
             outputs=(
-                f"Visual style: {visual_style}\nInteractive: {visual_interactive}\n\n{summary}"
+                f"{warning_block}Visual style: {visual_style}\nInteractive: {visual_interactive}\n\n{summary}"
             ),
             plan_id=plan_id,
             artifact_context=artifact_context,
@@ -488,12 +703,14 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
                 {
                     "role": "user",
                     "content": (
-                        f"{prompt}\n\nVisual style: {visual_style}\n"
+                        f"{prompt}\n\n{warning_block}Visual style: {visual_style}\n"
                         f"Interactive: {visual_interactive}\n\nOutputs:\n{summary}"
                     ),
                 },
             ]
         analysis_text = llm.chat(messages, max_tokens=4096)
+        if execution_warning:
+            analysis_text = f"{execution_warning}\n\n{analysis_text}"
         analysis_path = Path(state.get("session_dir", "")) / "result" / "analysis_results.md"
         write_text(analysis_path, analysis_text)
         record_artifact(state.get("session_dir", ""), analysis_path, "result", "analyze_results")
@@ -582,7 +799,7 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
             name = instruction.get("name") or f"{instruction.get('type', 'visual')}_{idx+1}"
             entries = visualization_writer(
                 fig,
-                session_dir=session_dir,
+                data_sessions_active_dir=session_dir,
                 plan_id=plan_id,
                 style=visual_style,
                 name=name,
@@ -683,6 +900,7 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
     def generate_report(state: OrchestrationState) -> OrchestrationState:
         outline = state.get("report_outline", "")
         analysis_text = state.get("docs_analysis_results", "")
+        exec_results = state.get("exec_results", [])
         language = state.get("config", {}).get("report_language", "zh")
         report_format = state.get("config", {}).get("report_format", "html")
         export_mode = state.get("config", {}).get("report_export_mode", "html_convert")
@@ -692,6 +910,18 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
         artifact_registry = ArtifactRegistry(Path(state.get("session_dir", "")))
         artifact_context = _artifact_context(artifact_registry, plan_id) if plan_id else ""
         telemetry_context = _telemetry_context(state, artifact_registry, plan_id)
+        execution_warning = ""
+        if not exec_results:
+            execution_warning = "执行告警：未检测到可执行脚本输出，报告可能缺少编程验证内容。"
+        else:
+            failed = 0
+            for item in exec_results:
+                statuses = item.get("statuses", [])
+                if statuses and statuses[-1] == "error":
+                    failed += 1
+            if failed == len(exec_results):
+                execution_warning = "执行告警：所有代码步骤执行失败，报告仅基于规划信息生成。"
+        warning_block = f"{execution_warning}\n\n" if execution_warning else ""
         messages = render_role_prompt(
             "report",
             language,
@@ -699,7 +929,7 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
             format=report_format,
             mode=export_mode,
             outline=outline,
-            analysis=f"{analysis_text}\n\nPrevious report:\n{previous_report}",
+            analysis=f"{warning_block}{analysis_text}\n\nPrevious report:\n{previous_report}",
             plan_id=plan_id,
             artifact_context=artifact_context,
             telemetry_context=telemetry_context,
@@ -712,7 +942,7 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
                     "content": (
                         f"{prompt}\n\nLanguage: {language}\nFormat: {report_format}\n"
                         f"Export mode: {export_mode}\n"
-                        f"Outline:\n{outline}\n\nAnalysis:\n{analysis_text}\n\n"
+                        f"Outline:\n{outline}\n\nAnalysis:\n{warning_block}{analysis_text}\n\n"
                         f"Previous report (if any):\n{previous_report}"
                     ),
                 },
