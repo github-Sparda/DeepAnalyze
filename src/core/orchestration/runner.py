@@ -19,7 +19,8 @@ def run_orchestrated_docs_analysis(
     session_id: str,
     config: dict[str, Any],
 ) -> OrchestrationState:
-    data_sessions_active_dir = Path(WORKSPACE_BASE_DIR) / session_id
+    workspace_base_dir = Path(config.get("workspace_base_dir", WORKSPACE_BASE_DIR))
+    data_sessions_active_dir = workspace_base_dir / session_id
     data_sessions_active_dir.mkdir(parents=True, exist_ok=True)
     data_sessions_active_dirs = init_data_sessions_active(data_sessions_active_dir)
 
@@ -64,6 +65,7 @@ def run_orchestrated_docs_analysis(
         "run_id": run_id,
         "trace_id": trace_id,
         "data_sessions_active_dir": str(data_sessions_active_dir),
+        "session_dir": str(data_sessions_active_dir),
         "data_sessions_active_dirs": {k: str(v) for k, v in data_sessions_active_dirs.items()},
         "depth": initial_depth,
         "max_depth": max_depth,

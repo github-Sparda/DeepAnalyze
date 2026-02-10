@@ -74,17 +74,14 @@ https://github.com/user-attachments/assets/04184975-7ee7-4ae0-8761-7a7550c5c8fe
 Upload the data, DeepAnalyze can perform data-oriented deep research 🔍 and any data-centric tasks 🛠
 </p>
 
-- Run these scripts to launch the src/api and interface, and then interact through the browser (http://localhost:4000 by default; see `src/api/config.py` `FRONTEND_PORT`):
+- Run the service scripts to launch the orchestrator backend + WebUI, then open the browser (http://localhost:4000 by default; see `src/api/config.py` `FRONTEND_PORT`):
     ```bash
-    cd src/web
-    npm install
-    cd ..
-    bash start.sh
+    ./scripts/start_services.sh
     
-    # stop the api and interface
-    bash stop.sh
+    # stop the backend and interface
+    ./scripts/stop_services.sh
     ```
-- If you want to deploy under a specific IP, please replace localhost with your IP address in [./demo/backend.py](./demo/backend.py) and [./src/web/lib/config.ts](./src/web/lib/config.ts)
+- If you want to deploy under a specific IP, please replace localhost with your IP address in `src/api/orchestrator_backend.py` and `src/web/lib/config.ts`
 
 ### JupyterUI
 
@@ -133,7 +130,7 @@ Try DeepAnalyze through the command-line interface
 
 ### Service scripts (no LLM startup)
 
-If you already have an external LLM endpoint configured in `.env`, you can start the demo backend + frontend:
+If you already have an external LLM endpoint configured in `.env`, you can start the orchestrator backend + WebUI:
 
 ```bash
 ./scripts/start_services.sh

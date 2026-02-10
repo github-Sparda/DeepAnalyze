@@ -9,6 +9,7 @@ class OrchestrationState(TypedDict, total=False):
      trace_id: str
      data_sessions_active_dir: str
      data_sessions_active_dirs: dict[str, str]
+     session_dir: str
      input_files: list[str]
      file_summary: str
      plan: str

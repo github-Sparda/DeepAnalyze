@@ -4,7 +4,7 @@ This directory contains various utility scripts for the DeepAnalyze project.
 
 ## Service Management Scripts
 
-These scripts start/stop the DeepAnalyze demo backend + frontend only (no LLM model).
+These scripts start/stop the DeepAnalyze orchestrator backend + WebUI only (no LLM model).
 
 ### Start
 ```bash

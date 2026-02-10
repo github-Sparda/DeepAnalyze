@@ -4,9 +4,7 @@ set -euo pipefail
 PYTHON_BIN="/home/huangzw/miniforge3/envs/common/bin/python"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 src/api_DIR="$ROOT_DIR/src/api"
-DEMO_DIR="$ROOT_DIR/demo"
-DEMO_DIR="$ROOT_DIR/demo"
-CHAT_DIR="$DEMO_DIR/chat"
+WEB_DIR="$ROOT_DIR/src/web"
 LOG_DIR="$ROOT_DIR/outputs/logs"
 
 mkdir -p "$LOG_DIR"
@@ -81,8 +79,8 @@ if [ "$TARGET" = "all" ] || [ "$TARGET" = "backend" ]; then
   if [ -f "$LOG_DIR/backend.pid" ] && kill -0 "$(cat "$LOG_DIR/backend.pid")" >/dev/null 2>&1; then
     echo "Backend already running (PID: $(cat "$LOG_DIR/backend.pid"))."
   else
-    echo "Starting backend src/api (demo backend)..."
-    nohup "$PYTHON_BIN" "$DEMO_DIR/backend.py" > "$LOG_DIR/backend.log" 2>&1 &
+    echo "Starting backend src/api (orchestrator backend)..."
+    nohup "$PYTHON_BIN" "$src/api_DIR/orchestrator_backend.py" > "$LOG_DIR/backend.log" 2>&1 &
     BACKEND_PID=$!
     echo "$BACKEND_PID" > "$LOG_DIR/backend.pid"
   fi
@@ -92,9 +90,9 @@ if [ "$TARGET" = "all" ] || [ "$TARGET" = "frontend" ]; then
   if [ -f "$LOG_DIR/frontend.pid" ] && kill -0 "$(cat "$LOG_DIR/frontend.pid")" >/dev/null 2>&1; then
     echo "Frontend already running (PID: $(cat "$LOG_DIR/frontend.pid"))."
   else
-    if [ ! -d "$CHAT_DIR/node_modules" ]; then
+    if [ ! -d "$WEB_DIR/node_modules" ]; then
       echo "Installing frontend dependencies..."
-      (cd "$CHAT_DIR" && npm install)
+      (cd "$WEB_DIR" && npm install)
     fi
 
     echo "Starting frontend..."
@@ -109,7 +107,7 @@ if [ "$TARGET" = "all" ] || [ "$TARGET" = "frontend" ]; then
     export NEXT_PUBLIC_REPORT_EXPORT_MODE="$REPORT_EXPORT_MODE"
     export NEXT_PUBLIC_VISUAL_STYLE="$VISUAL_STYLE"
     export NEXT_PUBLIC_VISUAL_INTERACTIVE="$VISUAL_INTERACTIVE"
-    cd "$CHAT_DIR"
+    cd "$WEB_DIR"
     nohup npm run dev -- -p "$FRONTEND_PORT" > "$LOG_DIR/frontend.log" 2>&1 &
     echo $! > "$LOG_DIR/frontend.pid"
   )

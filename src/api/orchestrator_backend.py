@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pathlib import Path
 from typing import Any, Mapping
+import time
 
 import sys
 import os
@@ -24,7 +25,7 @@ from src.api.config import (
 )
 from src.api.utils import execute_code_safe
 from src.core.orchestration.document_manager import DocumentManager
-from src.core.orchestration.intent_router import ChatIntent, classify_intent, RouterDecision
+from src.core.orchestration.intent_router import ChatIntent, classify_intent
 from src.core.orchestration.runner import run_orchestrated_docs_analysis
 
 app = FastAPI(title="DeepAnalyze Orchestrator")
@@ -63,7 +64,7 @@ async def orchestrated_chat(body: dict = Body(...)):
         message = f"Reusing existing {preview.get('kind')} “{preview.get('name', '')}”."
         return _reuse_response(session_id, message, preview)
 
-    state = run_orchestrated_docs/analysis(
+    state = run_orchestrated_docs_analysis(
         session_id=session_id,
         config={
             "max_depth": max_depth,
@@ -107,10 +108,10 @@ async def orchestrated_chat(body: dict = Body(...)):
 async def execute_code(body: dict = Body(...)):
     session_id = body.get("session_id", "default")
     code = body.get("code", "")
-    data/sessions/active_dir = Path(WORKSPACE_BASE_DIR) / session_id
-    data/sessions/active_dir.mkdir(parents=True, exist_ok=True)
+    data_sessions_active_dir = Path(WORKSPACE_BASE_DIR) / session_id
+    data_sessions_active_dir.mkdir(parents=True, exist_ok=True)
     try:
-        output = execute_code_safe(code, str(data/sessions/active_dir))
+        output = execute_code_safe(code, str(data_sessions_active_dir))
         return {"result": output}
     except Exception as exc:  # pragma: no cover
         return {
@@ -121,8 +122,8 @@ async def execute_code(body: dict = Body(...)):
 
 @app.get("/documents/summary")
 async def documents_summary(session_id: str = Query("default")):
-    data/sessions/active_dir = Path(WORKSPACE_BASE_DIR) / session_id
-    manager = DocumentManager(data/sessions/active_dir)
+    data_sessions_active_dir = Path(WORKSPACE_BASE_DIR) / session_id
+    manager = DocumentManager(data_sessions_active_dir)
     manifest = manager.manifest()
     return manifest
 

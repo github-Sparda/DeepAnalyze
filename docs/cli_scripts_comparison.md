@@ -88,7 +88,7 @@ python direct_cli.py --analyze test_data.csv --report
 - CLI脚本：`direct_cli.py`
 
 **独有依赖**：
-- `run_complete_demo.sh` 需要：`test_data.csv`（在demo目录下）
+- `run_complete_demo.sh` 需要：`test_data.csv`（在 `src/cli/` 目录下）
 
 ## 📝 文档覆盖情况
 

@@ -1,11 +1,27 @@
 "use client";
 
 import React, { useState } from "react";
-import { EnhancedLayout, DashboardView } from "@/components/enhanced-layout";
+import { DashboardView } from "@/components/enhanced-layout";
 import { EnhancedChatInterface } from "@/components/enhanced-chat";
 import { EnhancedAnalysisView } from "@/components/enhanced-analysis";
 import { EnhancedReportView } from "@/components/enhanced-report";
 import { EnhancedWorkspaceView } from "@/components/enhanced-workspace";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import {
+  Home,
+  BarChart3,
+  MessageCircle,
+  FileText,
+  Folder,
+  Upload,
+  Plus,
+  Settings,
+  Moon,
+  Sun,
+  Menu,
+  X,
+} from "lucide-react";
 
 type ViewMode = 'dashboard' | 'analyze' | 'chat' | 'reports' | 'workspace';
 
@@ -30,12 +46,12 @@ export default function EnhancedHomePage() {
   };
 
   return (
-    <EnhancedLayout 
+    <EnhancedHomeLayout 
       activeView={activeView} 
       onViewChange={setActiveView}
     >
       {renderActiveView()}
-    </EnhancedLayout>
+    </EnhancedHomeLayout>
   );
 }
 
@@ -46,7 +62,7 @@ interface EnhancedLayoutProps {
   onViewChange: (view: ViewMode) => void;
 }
 
-function EnhancedLayout({ 
+function EnhancedHomeLayout({ 
   children, 
   activeView, 
   onViewChange 
@@ -258,25 +274,6 @@ function getViewDescription(viewId: ViewMode): string {
   };
   return descriptions[viewId];
 }
-
-// 导入所需的图标组件
-import { 
-  Home, 
-  BarChart3, 
-  MessageCircle, 
-  FileText, 
-  Folder,
-  Upload,
-  Plus,
-  Settings,
-  Moon,
-  Sun,
-  Menu,
-  X
-} from "lucide-react";
-
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 
 // 占位组件（后续实现具体功能）
 function EnhancedAnalysisView() {

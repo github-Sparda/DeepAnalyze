@@ -598,6 +598,7 @@ export function ThreePanelInterface() {
   }, [sessionId]);
 
   useEffect(() => {
+    if (!sessionId) return;
     const id = setInterval(() => {
       if (!isUploading) {
         loadWorkspaceTree();
@@ -606,7 +607,7 @@ export function ThreePanelInterface() {
       }
     }, 4000);
     return () => clearInterval(id);
-  }, [isUploading]);
+  }, [isUploading, sessionId]);
 
   useEffect(() => {
     const el = treeContainerRef.current;
@@ -1304,8 +1305,8 @@ export function ThreePanelInterface() {
     if (/^\/workspace\//.test(rel)) return `${safeBase}${rel}`;
     if (/^workspace\//.test(rel)) return `${safeBase}/${rel}`;
 
-  // 其它相对路径或文件名，也认为位于文件服务器根目录
-  return `${safeBase}/${rel.replace(/^\//, "")}`;
+    // 其它相对路径或文件名，也认为位于文件服务器根目录
+    return `${safeBase}/${rel.replace(/^\//, "")}`;
   };
 
   const buildWorkspaceDownloadUrl = (relativePath: string): string => {
@@ -1327,6 +1328,10 @@ export function ThreePanelInterface() {
   // 若 URL 缺少 generated 目录，则在 session 段后注入 /generated
   const ensureGeneratedInUrl = (url: string): string => {
     try {
+      const base =
+        (API_CONFIG as any).FILE_SERVER_BASE || "http://localhost:48100";
+      const safeBase = base.replace(/\/$/, "");
+      const baseUrl = new URL(safeBase + "/");
       const u = new URL(url);
       // 仅处理指向文件服务器的链接
       if (

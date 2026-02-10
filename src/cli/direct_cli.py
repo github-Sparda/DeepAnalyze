@@ -7,6 +7,7 @@ Support direct access to core modules: data analysis, visualization, AI assistan
 import os
 import sys
 import json
+import shutil
 import time
 import argparse
 from pathlib import Path
@@ -116,7 +117,7 @@ class DirectDeepAnalyzeCLI:
                 
         except Exception as e:
             console.print(f"[red]❌ Data analysis error: {e}[/red]")
-            return None
+                return None
             
     def _run_llm_orchestrated_analysis(self, file_path: Path, analysis_types: List[str] = None) -> Optional[Dict]:
         """Run LLM orchestrated analysis using the graph-based workflow"""
@@ -159,6 +160,76 @@ class DirectDeepAnalyzeCLI:
                 session_id=self.current_session_id,
                 analysis_types=analysis_types
             )
+
+    def run_orchestrated_analysis(self, file_path: str, analysis_goal: str, max_depth: int | None) -> Optional[Dict]:
+        """Run full LLM-orchestrated analysis with hypothesis -> codegen -> execution -> report."""
+        try:
+            from src.api.config import (
+                WORKSPACE_BASE_DIR,
+                REPORT_FORMAT,
+                REPORT_LANGUAGE,
+                REPORT_EXPORT_MODE,
+                MAX_RECURSION_DEPTH,
+            )
+            from src.core.orchestration.runner import run_orchestrated_docs_analysis
+        except Exception as exc:
+            console.print(f"[red]❌ Orchestrator import failed: {exc}[/red]")
+            return None
+
+        data_path = Path(file_path).expanduser().resolve()
+        if not data_path.exists():
+            console.print(f"[red]❌ Data file not found: {data_path}[/red]")
+            return None
+
+        os.environ["DEEPANALYZE_USE_ORCHESTRATOR"] = "1"
+
+        depth = max_depth if max_depth is not None else MAX_RECURSION_DEPTH
+        depth = max(0, min(int(depth), 3))
+
+        session_dir = Path(WORKSPACE_BASE_DIR) / self.current_session_id
+        session_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(data_path, session_dir / data_path.name)
+
+        config = {
+            "max_depth": depth,
+            "report_format": REPORT_FORMAT,
+            "report_language": REPORT_LANGUAGE,
+            "report_export_mode": REPORT_EXPORT_MODE,
+            "analysis_goal": analysis_goal,
+            "docs/analysis_goal": analysis_goal,
+        }
+
+        state = run_orchestrated_docs_analysis(
+            session_id=self.current_session_id,
+            config=config,
+        )
+
+        report_text = state.get("report") or state.get("docs/analysis_results") or ""
+        if report_text:
+            console.print("[green]✅ Orchestrated analysis completed.[/green]")
+        else:
+            console.print("[yellow]⚠️  Orchestrated analysis completed, but report is empty.[/yellow]")
+
+        depth_prompt = state.get("depth_prompt", "")
+        continuation_required = state.get("continuation_required", False)
+
+        if depth == 0 and (continuation_required or depth_prompt):
+            if depth_prompt:
+                console.print(Panel(depth_prompt, title="🔁 深度分析建议", border_style="yellow"))
+            choice = Prompt.ask("是否继续进行一次更深度的分析？", choices=["y", "n"], default="n")
+            if choice == "y":
+                followup_config = {
+                    **config,
+                    "max_depth": 1,
+                    "depth_decision": "continue",
+                }
+                state = run_orchestrated_docs_analysis(
+                    session_id=self.current_session_id,
+                    config=followup_config,
+                )
+                console.print("[green]✅ 深度分析完成。[/green]")
+
+        return state
             
     def generate_visualization_direct(self, data: Dict, chart_type: str = "auto", output_path: str = None) -> Optional[str]:
         """Direct visualization generation"""
@@ -642,6 +713,24 @@ class DirectDeepAnalyzeCLI:
             else:
                 console.print("[yellow]Usage: analyze <file_path> [analysis_types...]") 
             return True
+
+        # Orchestrated LLM analysis
+        elif cmd in ['orchestrate', 'llm']:
+            if len(cmd_parts) >= 2:
+                file_path = cmd_parts[1]
+                max_depth = None
+                goal_start = 2
+                if len(cmd_parts) >= 3:
+                    try:
+                        max_depth = int(cmd_parts[2])
+                        goal_start = 3
+                    except ValueError:
+                        max_depth = None
+                analysis_goal = " ".join(cmd_parts[goal_start:]) if len(cmd_parts) > goal_start else "对数据进行完整的假设驱动分析"
+                self.run_orchestrated_analysis(file_path, analysis_goal, max_depth)
+            else:
+                console.print("[yellow]Usage: orchestrate <file_path> [max_depth] [analysis_goal...]")
+            return True
             
         # Visualization
         elif cmd in ['viz', 'plot']:
@@ -696,6 +785,7 @@ class DirectDeepAnalyzeCLI:
 
 [data analysis]
 • [yellow]analyze <file_path> [types...][/yellow] - Analyze data file directly
+• [yellow]orchestrate <file_path> [max_depth] [goal...][/yellow] - LLM-orchestrated analysis flow
 • [yellow]viz [chart_type][/yellow] - Generate visualization from analysis results
 • [yellow]report [report_type] [--with-viz|--no-viz][/yellow] - Generate report with/without visualizations
 • [yellow]results[/yellow] - List analysis results and insights
@@ -709,7 +799,10 @@ class DirectDeepAnalyzeCLI:
         
     def run_batch_mode(self, args):
         """Run in batch mode with command line arguments"""
-        if args.analyze:
+        if args.orchestrated:
+            analysis_goal = args.analysis_goal or "对数据进行完整的假设驱动分析"
+            self.run_orchestrated_analysis(args.orchestrated, analysis_goal, args.max_depth)
+        elif args.analyze:
             result = self.analyze_data_direct(args.analyze, args.analysis_types)
             if result and args.visualize:
                 self.generate_visualization_direct(result, args.chart_type)
@@ -731,6 +824,9 @@ def main():
     """Main entry point"""
     parser = argparse.ArgumentParser(description="DeepAnalyze Direct CLI - Access modules directly")
     parser.add_argument('--analyze', help='Analyze data file directly')
+    parser.add_argument('--orchestrated', help='Run LLM-orchestrated analysis on data file')
+    parser.add_argument('--analysis-goal', help='LLM analysis goal prompt')
+    parser.add_argument('--max-depth', type=int, help='Max recursion depth for orchestrated analysis')
     parser.add_argument('--analysis-types', nargs='+', help='Analysis types to perform')
     parser.add_argument('--visualize', action='store_true', help='Generate visualization')
     parser.add_argument('--chart-type', default='auto', help='Chart type for visualization')
@@ -752,7 +848,7 @@ def main():
     cli = DirectDeepAnalyzeCLI()
     
     # Run in appropriate mode
-    if args.interactive or not any([args.analyze, args.query, args.session_info, args.results]):
+    if args.interactive or not any([args.analyze, args.orchestrated, args.query, args.session_info, args.results]):
         cli.interactive_mode()
     else:
         cli.run_batch_mode(args)

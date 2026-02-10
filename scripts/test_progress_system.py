@@ -93,10 +93,9 @@ def main():
         return
     
     print('\n📝 测试说明:')
-    print('1. 打开 demo/progress_test.html 文件')
-    print('2. 在页面中输入下面显示的任务ID')
-    print('3. 点击"连接WebSocket"按钮')
-    print('4. 观察实时进度更新')
+    print('1. 使用任意 WebSocket 客户端连接 ws://localhost:8765')
+    print('2. 连接路径使用 /progress/<任务ID> (任务ID下方会显示)')
+    print('3. 观察实时进度更新')
     print('=' * 50)
     
     # 运行分析模拟

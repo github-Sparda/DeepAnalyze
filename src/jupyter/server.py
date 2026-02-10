@@ -135,7 +135,7 @@ print(f"Jupyter Lab server is running on http://localhost:{jupyter_port}")
 async def bot_stream(messages):
     """
     Bot function that processes messages and executes code in Jupyter notebook.
-    This is adapted from demo.backend.py but modified to work with Jupyter notebook.
+    This is adapted from src/api/orchestrator_backend.py but modified to work with Jupyter notebook.
     Returns the complete response in OpenAI format as a dictionary array.
     """
     if USE_ORCHESTRATOR:
