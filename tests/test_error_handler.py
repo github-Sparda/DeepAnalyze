@@ -36,7 +36,7 @@ def demo_basic_error_handling():
     # 模拟不同类型错误
     try:
         # 网络错误
-        raise ConnectionError("无法连接到src_api服务器")
+        raise ConnectionError("无法连接到API服务器")
     except Exception as e:
         error_info = handler.handle_error(
             e,
@@ -139,7 +139,7 @@ def demo_recovery_strategies():
     
     # 模拟网络超时错误
     try:
-        raise TimeoutError("src_api请求超时")
+        raise TimeoutError("API请求超时")
     except Exception as e:
         error_info = handle_exception(
             e,

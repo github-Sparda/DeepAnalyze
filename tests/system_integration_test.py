@@ -464,7 +464,7 @@ class SystemIntegrationTest:
             return False
     
     def test_api_compatibility(self):
-        """测试src_api兼容性和边界条件"""
+        """测试API兼容性和边界条件"""
         self.logger.info("\n🧪 测试API兼容性...")
         start_time = time.time()
         
@@ -529,7 +529,7 @@ class SystemIntegrationTest:
                 }
             }
             
-            self.logger.info(f"✅ src_api兼容性测试完成: {successful_tests}/{total_tests} 成功 (耗时: {execution_time:.3f}秒)")
+            self.logger.info(f"✅ API兼容性测试完成: {successful_tests}/{total_tests} 成功 (耗时: {execution_time:.3f}秒)")
             return successful_tests >= total_tests * 0.8
             
         except Exception as e:
@@ -538,7 +538,7 @@ class SystemIntegrationTest:
                 'error': str(e),
                 'execution_time': time.time() - start_time
             }
-            self.logger.error(f"❌ src_api兼容性测试失败: {str(e)}")
+            self.logger.error(f"❌ API兼容性测试失败: {str(e)}")
             return False
     
     def test_data_processing_pipeline(self):

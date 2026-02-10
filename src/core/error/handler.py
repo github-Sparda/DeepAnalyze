@@ -41,7 +41,7 @@ class ErrorCategory(Enum):
     MEMORY = "memory"         # 内存相关错误
     TIMEOUT = "timeout"       # 超时错误
     CONFIGURATION = "configuration"  # 配置错误
-    EXTERNAL_src_api = "external_api"   # 外部API错误
+    EXTERNAL_API = "external_api"   # 外部API错误
     UNKNOWN = "unknown"       # 未知错误
 
 
@@ -110,7 +110,7 @@ class ErrorHandler:
         network_retry_strategy = RecoveryStrategy(
             name="network_retry",
             description="网络超时错误重试策略",
-            applicable_categories=[ErrorCategory.NETWORK, ErrorCategory.EXTERNAL_src_api],
+            applicable_categories=[ErrorCategory.NETWORK, ErrorCategory.EXTERNAL_API],
             applicable_severities=[ErrorSeverity.LOW, ErrorSeverity.MEDIUM],
             max_attemporaryts=3,
             retry_delay=2.0,
