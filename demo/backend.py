@@ -1,4 +1,4 @@
-from fastapi import Fastsrc/api, Body, Query
+from fastapi import FastAPI, Body, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pathlib import Path
@@ -12,7 +12,7 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-from src/api.config import (
+from src.api.config import (
     MAX_RECURSION_DEPTH,
     REPORT_FORMAT,
     REPORT_LANGUAGE,
@@ -22,12 +22,12 @@ from src/api.config import (
     USE_ORCHESTRATOR,
     WORKSPACE_BASE_DIR,
 )
-from src/api.utils import execute_code_safe
-from orchestration.document_manager import DocumentManager
-from orchestration.intent_router import ChatIntent, classify_intent, RouterDecision
-from orchestration.runner import run_orchestrated_docs/analysis
+from src.api.utils import execute_code_safe
+from src.core.orchestration.document_manager import DocumentManager
+from src.core.orchestration.intent_router import ChatIntent, classify_intent, RouterDecision
+from src.core.orchestration.runner import run_orchestrated_docs_analysis
 
-app = Fastsrc/api(title="DeepAnalyze Orchestrator")
+app = FastAPI(title="DeepAnalyze Orchestrator")
 
 app.add_middleware(
     CORSMiddleware,
@@ -45,8 +45,8 @@ async def orchestrated_chat(body: dict = Body(...)):
             {"error": "Orchestrator disabled"}, status_code=501
         )
     session_id = body.get("session_id", "default")
-    data/sessions/active_dir = Path(WORKSPACE_BASE_DIR) / session_id
-    document_manager = DocumentManager(data/sessions/active_dir)
+    data_sessions_active_dir = Path(WORKSPACE_BASE_DIR) / session_id
+    document_manager = DocumentManager(data_sessions_active_dir)
     manifest = document_manager.load_manifest()
     messages = body.get("messages", [])
     user_text = _last_user_message(messages)

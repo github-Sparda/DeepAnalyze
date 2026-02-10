@@ -6,7 +6,7 @@ Handles file upload, download, and management endpoints
 import os
 from typing import Optional
 
-from fastapi import src/apiRouter, File, UploadFile, Form, HTTPException, Query, Response
+from fastapi import APIRouter, File, UploadFile, Form, HTTPException, Query, Response
 from fastapi.responses import JSONResponse
 
 from .config import VALID_FILE_PURPOSES, FILE_STORAGE_DIR

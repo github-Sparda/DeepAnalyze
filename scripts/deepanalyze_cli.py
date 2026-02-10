@@ -89,7 +89,7 @@ class DeepAnalyzeDirectCLI:
         console.print(f"[green]✅ 会话创建成功: {session_id}[/green]")
         return session_id
     
-    def analyze_data(self, file_path: str, docs/analysis_types: List[str] = None):
+    def analyze_data(self, file_path: str, analysis_types: List[str] = None):
         """直接数据分析"""
         if 'analytics' not in self.modules:
             console.print("[red]❌ 数据分析模块未加载[/red]")
@@ -101,7 +101,7 @@ class DeepAnalyzeDirectCLI:
             session_id = self.current_session
             
         # 转换分析类型
-        if docs/analysis_types:
+        if analysis_types:
             docs/analysis_enum_types = []
             type_mapping = {
                 'descriptive': self.modules['analytics']['AnalysisType'].DESCRIPTIVE,
@@ -111,7 +111,7 @@ class DeepAnalyzeDirectCLI:
                 'prescriptive': self.modules['analytics']['AnalysisType'].PRESCRIPTIVE
             }
             
-            for atype in docs/analysis_types:
+            for atype in analysis_types:
                 if atype.lower() in type_mapping:
                     docs/analysis_enum_types.append(type_mapping[atype.lower()])
         else:
@@ -128,7 +128,7 @@ class DeepAnalyzeDirectCLI:
             result = self.modules['analytics']['analyze_dataset'](
                 file_path=file_path,
                 session_id=session_id,
-                docs/analysis_types=docs/analysis_enum_types
+                analysis_types=docs/analysis_enum_types
             )
         
         if result and "error" not in result:

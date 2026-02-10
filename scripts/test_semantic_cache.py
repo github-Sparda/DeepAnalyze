@@ -17,7 +17,7 @@ def test_semantic_data/cache():
     print("🚀 开始语义缓存测试...")
     
     try:
-        from data/cache import SemanticCache
+        from data.cache import SemanticCache
         
         # 创建语义缓存实例
         print("\n=== 创建语义缓存实例 ===")

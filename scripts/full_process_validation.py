@@ -111,7 +111,7 @@ class FullProcessValidator:
             
         return hypothesis_artifact
     
-    def step_2_exploratory_docs/analysis(self, data_file: str) -> Dict:
+    def step_2_exploratory_analysis(self, data_file: str) -> Dict:
         """步骤2: 探索性分析"""
         print("\n🔍 步骤2: 探索性分析")
         print("-" * 30)
@@ -158,7 +158,7 @@ class FullProcessValidator:
             
         return exploratory_artifact
     
-    def step_3_programming_docs/analysis(self, data_file: str) -> Dict:
+    def step_3_programming_analysis(self, data_file: str) -> Dict:
         """步骤3: 编程分析"""
         print("\n💻 步骤3: 编程分析")
         print("-" * 30)

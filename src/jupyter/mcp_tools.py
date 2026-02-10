@@ -41,7 +41,7 @@ async def connect_notebook(jupyter_port: int) -> Client:
     
     return client
 
-async def list_data/sessions/active_files(client: Client) -> str:
+async def list_data_sessions_active_files(client: Client) -> str:
     """
     List all files in the data/sessions/active directory.
     """

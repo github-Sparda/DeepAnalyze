@@ -14,8 +14,8 @@ import requests
 from tenacity import retry, stop_after_attemporaryt, wait_exponential
 
 from ..config import (
-    src/api_BASE,
-    DEEPANALYZE_VLLM_src/api_KEY,
+    API_BASE,
+    DEEPANALYZE_VLLM_API_KEY,
     DEFAULT_MODEL,
     DEFAULT_TEMPERATURE,
     HTTP_SERVER_BASE,
@@ -23,7 +23,7 @@ from ..config import (
 )
 
 
-class Unifiedsrc/apiClient:
+class UnifiedAPIClient:
     """统一的src/api客户端，封装所有外部服务调用"""
     
     def __init__(self):
@@ -147,7 +147,7 @@ class Unifiedsrc/apiClient:
         self,
         instruction: str,
         file_ids: Optional[List[str]] = None,
-        data/sessions/active_files: Optional[List[str]] = None
+        data_sessions_active_files: Optional[List[str]] = None
     ) -> List[Dict[str, Any]]:
         """
         准备标准化的消息格式

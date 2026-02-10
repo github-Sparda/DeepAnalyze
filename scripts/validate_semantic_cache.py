@@ -20,7 +20,7 @@ def simple_similarity_test():
     
     try:
         # 直接测试核心功能，避免大型模型加载
-        from data/cache.semantic_data/cache import SemanticCacheEntry
+        from data.cache.semantic_data.cache import SemanticCacheEntry
         
         print("\n=== 核心数据结构测试 ===")
         

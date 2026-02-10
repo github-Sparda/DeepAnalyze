@@ -4,7 +4,7 @@ Handles administrative endpoints like thread cleanup and statistics
 """
 
 import time
-from fastapi import src/apiRouter, Query
+from fastapi import APIRouter, Query
 
 from .config import CLEANUP_TIMEOUT_HOURS
 from .models import ThreadCleanupRequest, ThreadCleanupResponse, ThreadStatsResponse

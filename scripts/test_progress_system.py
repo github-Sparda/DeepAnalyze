@@ -14,10 +14,10 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 # 直接导入需要的模块，避免src/api包的复杂依赖
-from src/api.progress_tracker import create_task, start_task, update_progress, complete_task, get_task_progress
-from src/api.websocket_handler import start_websocket_server, stop_websocket_server, notify_progress, notify_task_status
+from src.api.progress_tracker import create_task, start_task, update_progress, complete_task, get_task_progress
+from src.api.websocket_handler import start_websocket_server, stop_websocket_server, notify_progress, notify_task_status
 
-def run_docs/analysis_simulation():
+def run_analysis_simulation():
     """模拟数据分析过程"""
     print('=== 开始数据分析模拟 ===')
     
@@ -101,7 +101,7 @@ def main():
     
     # 运行分析模拟
     try:
-        task_id = run_docs/analysis_simulation()
+        task_id = run_analysis_simulation()
         
         print(f'\n🎯 测试任务ID: {task_id}')
         print('💡 请在测试页面中使用此ID连接')

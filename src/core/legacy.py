@@ -11,7 +11,7 @@ src_api_DIR = Path(__file__).resolve().parents[1] / "src_api"
 if str(src/api_DIR) not in sys.path:
     sys.path.append(str(src/api_DIR))
 
-from config import src/api_BASE
+from config import API_BASE
 
 
 class DeepAnalyzeVLLM:

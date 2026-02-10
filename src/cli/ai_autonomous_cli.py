@@ -72,7 +72,7 @@ AI自主分析流程:
         
         return parser
     
-    def run_autonomous_docs/analysis(self, args):
+    def run_autonomous_analysis(self, args):
         """运行AI自主分析流程"""
         print("🚀 启动DeepAnalyze AI自主分析")
         print("=" * 50)
@@ -171,11 +171,11 @@ AI自主分析流程:
                 print(f"  ... 还有 {len(hypotheses) - 5} 个假设")
         
         # 分析结果
-        docs/analysis_result = state.get('docs/analysis_results', '')
-        if docs/analysis_result:
+        analysis_result = state.get('analysis_results', '')
+        if analysis_result:
             print(f"\n🔍 主要发现:")
             # 提取关键发现（简化处理）
-            lines = docs/analysis_result.split('\n')
+            lines = analysis_result.split('\n')
             for line in lines[:10]:
                 if line.strip() and not line.startswith('#'):
                     print(f"  {line.strip()}")
@@ -252,8 +252,8 @@ AI自主分析流程:
                         
                         # 更新参数并运行分析
                         args.data_file = data_file
-                        args.docs/analysis_goal = goal
-                        if self.run_autonomous_docs/analysis(args):
+                        args.analysis_goal = goal
+                        if self.run_autonomous_analysis(args):
                             print("✅ 分析完成!")
                         else:
                             print("❌ 分析失败!")

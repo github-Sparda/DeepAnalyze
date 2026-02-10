@@ -6,7 +6,7 @@ Handles model listing endpoints (OpenAI compatible)
 import time
 from typing import List
 
-from fastapi import src/apiRouter
+from fastapi import APIRouter
 
 from .config import DEFAULT_MODEL
 from .models import ModelObject, ModelsListResponse

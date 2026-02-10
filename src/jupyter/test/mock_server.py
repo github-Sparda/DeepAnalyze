@@ -1,16 +1,16 @@
 import json
 import time
 from typing import Dict, Any, List
-from fastapi import Fastsrc/api, HTTPException
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 import uvicorn
 import sys
 from pathlib import Path
 
-src/api_DIR = Path(__file__).resolve().parents[3] / "src/api"
-if str(src/api_DIR) not in sys.path:
-    sys.path.append(str(src/api_DIR))
+API_DIR = Path(__file__).resolve().parents[3] / "src/api"
+if str(API_DIR) not in sys.path:
+    sys.path.append(str(API_DIR))
 
 from config import get_vllm_port
 

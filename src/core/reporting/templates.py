@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 # 暂时注释掉有问题的导入
-# from src/api.config import (
+# from src.api.config import (
 #     REPORT_TEMPLATE_AUTHOR,
 #     REPORT_TEMPLATE_FOOTER,
 #     REPORT_TEMPLATE_LOGO,
@@ -39,7 +39,7 @@ class ReportTemplate:
 DEFAULT_TEMPLATE = ReportTemplate()
 
 
-def temporarylate_from_config(language: str | None = None) -> ReportTemplate:
+def template_from_config(language: str | None = None) -> ReportTemplate:
     font_family = REPORT_FONT_ZH if language == "zh" else REPORT_FONT_EN
     return ReportTemplate(
         title=REPORT_TEMPLATE_TITLE,

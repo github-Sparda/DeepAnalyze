@@ -24,7 +24,7 @@ def demonstrate_visualization_reporting():
                        title="功能演示", border_style="cyan"))
     
     # 模拟数据分析结果
-    sample_docs/analysis_results = {
+    sample_analysis_results = {
         "data_summary": {
             "总样本数": 1000,
             "平均值": 1025.3,
@@ -104,9 +104,9 @@ def demonstrate_visualization_reporting():
         cli = DirectDeepAnalyzeCLI()
         
         console.print("[cyan]1. 分析演示数据...[/cyan]")
-        docs/analysis_result = cli.analyze_data_direct(demo_data_path, ["descriptive"])
+        analysis_result = cli.analyze_data_direct(demo_data_path, ["descriptive"])
         
-        if docs/analysis_result:
+        if analysis_result:
             console.print("[green]✅ 数据分析完成[/green]")
             
             console.print("[cyan]2. 生成可视化图表...[/cyan]")

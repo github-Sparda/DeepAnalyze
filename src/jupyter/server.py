@@ -19,7 +19,7 @@ if project_root not in sys.path:
 
 from utils import is_port_in_use, jupyter_lab_alive
 from mcp_tools import (
-    list_data/sessions/active_files,
+    list_data_sessions_active_files,
     connect_notebook,
     append_execute_cell,
     insert_cell
@@ -43,15 +43,15 @@ ROOT_DIR = Path(__file__).resolve().parents[2]
 if str(ROOT_DIR) not in sys.path:
     sys.path.append(str(ROOT_DIR))
 
-src/api_DIR = ROOT_DIR / "src/api"
-if str(src/api_DIR) not in sys.path:
-    sys.path.append(str(src/api_DIR))
+API_DIR = ROOT_DIR / "src/api"
+if str(API_DIR) not in sys.path:
+    sys.path.append(str(API_DIR))
 
 from config import (
-    src/api_BASE,
+    API_BASE,
     DEFAULT_MODEL,
     DEFAULT_TEMPERATURE,
-    DEEPANALYZE_VLLM_src/api_KEY,
+    DEEPANALYZE_VLLM_API_KEY,
     JUPYTER_PORT,
     MAX_NEW_TOKENS,
     STOP_TOKEN_IDS,
@@ -63,7 +63,7 @@ from config import (
     VISUAL_INTERACTIVE,
     VISUAL_STYLE,
 )
-from orchestration.runner import run_orchestrated_docs/analysis
+from src.core.orchestration.runner import run_orchestrated_docs_analysis
 
 
 # Initialize OpenAI client
@@ -80,13 +80,13 @@ except Exception as e:
 
 
 # Initialize Working Space and deep_analyze.ipynb file
-data/sessions/active_dir = Path(__file__).parent / "data/sessions/active"
-data/sessions/active_dir.mkdir(exist_ok=True)
+data_sessions_active_dir = Path(__file__).parent / "data/sessions/active"
+data_sessions_active_dir.mkdir(exist_ok=True)
 notebook = nbformat.v4.new_notebook()
 notebook.cells.append(nbformat.v4.new_markdown_cell("The Workspace of Deep Analyze"))
-with open(data/sessions/active_dir / "deep_analyze.ipynb", "w", encoding="utf-8") as f:
+with open(data_sessions_active_dir / "deep_analyze.ipynb", "w", encoding="utf-8") as f:
     nbformat.write(notebook, f)
-print(f"Workspace successfully initialized in {data/sessions/active_dir.as_posix()}")
+print(f"Workspace successfully initialized in {data_sessions_active_dir.as_posix()}")
 
 
 # Initialize Jupyter Process
@@ -135,7 +135,7 @@ print(f"Jupyter Lab server is running on http://localhost:{jupyter_port}")
 async def bot_stream(messages):
     """
     Bot function that processes messages and executes code in Jupyter notebook.
-    This is adapted from demo/backend.py but modified to work with Jupyter notebook.
+    This is adapted from demo.backend.py but modified to work with Jupyter notebook.
     Returns the complete response in OpenAI format as a dictionary array.
     """
     if USE_ORCHESTRATOR:

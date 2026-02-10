@@ -12,8 +12,8 @@ def _load_json(path: Path) -> list[dict]:
         return []
 
 
-def validate_registry(data/sessions/active_dir: Path) -> dict[str, object]:
-    artifacts_dir = data/sessions/active_dir / "artifacts"
+def validate_registry(data_sessions_active_dir: Path) -> dict[str, object]:
+    artifacts_dir = data_sessions_active_dir / "artifacts"
     summary: dict[str, object] = {"plans": [], "errors": []}
     if not artifacts_dir.exists():
         summary["errors"].append("artifacts directory missing")

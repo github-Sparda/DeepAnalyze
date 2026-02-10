@@ -24,7 +24,7 @@ def check_llm_config():
     
     # 导入配置
     try:
-        from src/api.config import DEEPANALYZE_VLLM_src/api_KEY, VLLM_BASE_URL, MODEL_PATH
+        from src.api.config import DEEPANALYZE_VLLM_src.api_KEY, VLLM_BASE_URL, MODEL_PATH
     except ImportError as e:
         console.print(f"[red]❌ 配置导入失败: {e}[/red]")
         return False
@@ -64,7 +64,7 @@ def check_ai_orchestration_config():
     console.print(Panel("[bold blue]⚙️  AI编排配置检查[/bold blue]", border_style="blue"))
     
     try:
-        from src/api.config import USE_ORCHESTRATOR, MAX_RECURSION_DEPTH
+        from src.api.config import USE_ORCHESTRATOR, MAX_RECURSION_DEPTH
     except ImportError as e:
         console.print(f"[red]❌ 配置导入失败: {e}[/red]")
         return

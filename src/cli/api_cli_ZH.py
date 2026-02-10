@@ -29,15 +29,15 @@ from rich.filesize import decimal
 
 from pathlib import Path
 
-src/api_DIR = Path(__file__).resolve().parents[2] / "src/api"
-if str(src/api_DIR) not in sys.path:
-    sys.path.append(str(src/api_DIR))
+API_DIR = Path(__file__).resolve().parents[2] / "src/api"
+if str(API_DIR) not in sys.path:
+    sys.path.append(str(API_DIR))
 
 from config import (
-    src/api_PUBLIC_BASE,
-    src/api_PUBLIC_BASE_V1,
+    API_PUBLIC_BASE,
+    API_PUBLIC_BASE_V1,
     DEFAULT_MODEL,
-    DEEPANALYZE_VLLM_src/api_KEY,
+    DEEPANALYZE_VLLM_API_KEY,
     MAX_RECURSION_DEPTH,
     REPORT_EXPORT_MODE,
     REPORT_FORMAT,

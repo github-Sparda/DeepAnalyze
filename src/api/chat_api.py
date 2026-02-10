@@ -14,20 +14,20 @@ from typing import List, Optional, Dict, Any
 from fastapi import HTTPException
 
 import openai
-from fastapi import src/apiRouter, Body
+from fastapi import APIRouter, Body
 from fastapi.responses import StreamingResponse
 
 from .config import (
-    src/api_BASE,
+    API_BASE,
     DEFAULT_TEMPERATURE,
     STOP_TOKEN_IDS,
     MAX_NEW_TOKENS,
-    DEEPANALYZE_VLLM_src/api_KEY,
+    DEEPANALYZE_VLLM_API_KEY,
 )
 from .models import ChatCompletionRequest, ChatCompletionResponse, ChatCompletionChoice
 from .storage import storage
 from .utils import (
-    get_thread_data/sessions/active, prepare_vllm_messages, execute_code_safe,
+    get_thread_data_sessions_active, prepare_vllm_messages, execute_code_safe,
     execute_code_safe_async, WorkspaceTracker,render_file_block,
     generate_report_from_messages, extract_code_from_segment
 )
@@ -66,8 +66,8 @@ async def chat_completions(
     """
     # Create temporaryorary thread
     temporary_thread = storage.create_thread(metadata={"temporaryorary": True})
-    data/sessions/active_dir = get_thread_data/sessions/active(temporary_thread.id)
-    generated_dir = os.path.join(data/sessions/active_dir, "generated")
+    data_sessions_active_dir = get_thread_data_sessions_active(temporary_thread.id)
+    generated_dir = os.path.join(data_sessions_active_dir, "generated")
     os.makedirs(generated_dir, exist_ok=True)
 
     try:

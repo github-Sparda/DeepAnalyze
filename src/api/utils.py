@@ -392,7 +392,7 @@ def generate_report_from_messages(
     Generate markdown report from conversation history and return file block.
 
     Args:
-        original_messages: Original message list from the src/api request
+        original_messages: Original message list from the src.api request
         assistant_reply: Complete assistant response text
         workspace_dir: Workspace directory path
         thread_id: Thread ID for building download URLs
