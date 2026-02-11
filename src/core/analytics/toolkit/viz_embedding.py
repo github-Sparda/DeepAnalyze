@@ -7,7 +7,7 @@ import json
 import matplotlib.pyplot as plt
 import pandas as pd
 
-from .common import normalize_output_dir
+from .common import normalize_output_dir, write_json
 from .viz_theme import apply_theme
 
 
@@ -64,4 +64,13 @@ def run(
     path = out_dir / f"{name}.png"
     fig.savefig(path, bbox_inches="tight")
     plt.close(fig)
+    write_json(
+        Path(out_dir) / f"{name}.png.json",
+        {
+            "path": str(path),
+            "type": "embedding",
+            "name": name,
+            "labels": bool(labels),
+        },
+    )
     return {"module": "viz_embedding", "status": "ok", "output": str(path)}

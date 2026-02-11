@@ -6,7 +6,7 @@ from typing import Any
 import matplotlib.pyplot as plt
 import pandas as pd
 
-from .common import normalize_output_dir
+from .common import normalize_output_dir, write_json
 from .viz_theme import apply_theme
 
 
@@ -38,4 +38,13 @@ def run(input_path: str | Path, output_dir: str | Path, top_k: int = 10, theme: 
     path = out_dir / "top_features_bar.png"
     fig.savefig(path, bbox_inches="tight")
     plt.close(fig)
+    write_json(
+        Path(out_dir) / "top_features_bar.png.json",
+        {
+            "path": str(path),
+            "type": "top_features",
+            "rank_by": score_col or "row_order",
+            "top_k": int(top_k),
+        },
+    )
     return {"module": "viz_top_features", "status": "ok", "output": str(path)}

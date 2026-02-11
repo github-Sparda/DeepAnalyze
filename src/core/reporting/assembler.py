@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import json
 import re
+from pathlib import Path
 from typing import Any, Dict, List
+
+import pandas as pd
 
 
 def _extract_json_candidates(raw: str) -> list[str]:
@@ -127,6 +130,37 @@ class ReportAssembler:
     def __init__(self, language: str = "zh") -> None:
         self.language = language
 
+    def _infer_session_root(
+        self,
+        visuals: list[Dict[str, Any]],
+        tables: list[Dict[str, Any]],
+    ) -> Path | None:
+        for item in visuals:
+            raw = item.get("path") or ""
+            if not raw:
+                continue
+            p = Path(raw)
+            if not p.exists():
+                continue
+            if "plots" in p.parts:
+                return p.parent.parent
+        for item in tables:
+            raw = item.get("path") or ""
+            if not raw:
+                continue
+            p = Path(raw)
+            if not p.exists():
+                continue
+            if "result" in p.parts:
+                return p.parent.parent
+        return None
+
+    def _load_json(self, path: Path) -> Any:
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+
     def _report_relative(self, path: str) -> str:
         if not path:
             return path
@@ -153,7 +187,156 @@ class ReportAssembler:
             return "distribution"
         return "other"
 
-    def _build_visual_block(self, visuals: list[Dict[str, Any]]) -> str:
+    def _visual_explanation(self, item: Dict[str, Any], session_root: Path | None) -> str:
+        relative = item.get("relative_path", "") or ""
+        filename = Path(relative).name.lower()
+        if not session_root:
+            return ""
+
+        result_dir = session_root / "result"
+        if filename.startswith("volcano"):
+            stats_path = result_dir / "stats_results.json"
+            if not stats_path.exists():
+                return ""
+            df = pd.read_json(stats_path)
+            group_a = df["group_a"].iloc[0] if "group_a" in df.columns else "Group A"
+            group_b = df["group_b"].iloc[0] if "group_b" in df.columns else "Group B"
+            sig_count = int((df["p_value"] < 0.05).sum()) if "p_value" in df.columns else 0
+            top = df.sort_values("p_value").head(3)
+            top_items = []
+            for _, row in top.iterrows():
+                feat = row.get("feature")
+                diff = row.get("mean_diff")
+                pval = row.get("p_value")
+                if feat is not None:
+                    top_items.append(f"{feat} (mean_diff={diff:.3g}, p={pval:.3g})")
+            top_text = "、".join(top_items) if top_items else "无"
+            return (
+                "<div class=\"chart-explain\">"
+                f"<p><strong>假设</strong>：{group_a} 与 {group_b} 在各峰值上存在差异。</p>"
+                "<p><strong>验证</strong>：对每个峰值进行组间检验，绘制火山图。</p>"
+                "<p><strong>坐标/颜色</strong>：X=mean_diff(组均值差)，Y=-log10(p)。"
+                "红色表示 p<0.05，灰色为不显著。</p>"
+                f"<p><strong>结论</strong>：显著特征数量约 {sig_count} 个；"
+                f"代表性特征：{top_text}。</p>"
+                "<p><strong>后续</strong>：建议对 Top 特征进行效应量复核与独立验证，"
+                "并结合生物学/业务背景解释方向性。</p>"
+                "</div>"
+            )
+
+        if filename.startswith("heatmap"):
+            corr_path = result_dir / "correlation.json"
+            if not corr_path.exists():
+                return ""
+            corr = pd.read_json(corr_path)
+            arr = corr.to_numpy().copy()
+            import numpy as np
+
+            np.fill_diagonal(arr, 0)
+            max_idx = divmod(np.abs(arr).argmax(), arr.shape[1])
+            pair = (corr.index[max_idx[0]], corr.columns[max_idx[1]])
+            max_corr = arr[max_idx]
+            return (
+                "<div class=\"chart-explain\">"
+                "<p><strong>假设</strong>：峰值之间存在相关性结构。</p>"
+                "<p><strong>验证</strong>：计算相关矩阵并绘制热力图。</p>"
+                "<p><strong>坐标/颜色</strong>：X/Y 为峰值变量，颜色表示相关系数（-1~1）。</p>"
+                f"<p><strong>结论</strong>：最大绝对相关约 {max_corr:.3g}，"
+                f"对应 {pair[0]} 与 {pair[1]}。</p>"
+                "<p><strong>后续</strong>：可对高相关变量做模块划分或共变验证。</p>"
+                "</div>"
+            )
+
+        if filename.startswith("network"):
+            corr_path = result_dir / "correlation.json"
+            if not corr_path.exists():
+                return ""
+            corr = pd.read_json(corr_path)
+            arr = corr.to_numpy().copy()
+            import numpy as np
+
+            np.fill_diagonal(arr, 0)
+            max_idx = divmod(np.abs(arr).argmax(), arr.shape[1])
+            pair = (corr.index[max_idx[0]], corr.columns[max_idx[1]])
+            max_corr = arr[max_idx]
+            return (
+                "<div class=\"chart-explain\">"
+                "<p><strong>假设</strong>：存在强相关的峰值网络结构。</p>"
+                "<p><strong>验证</strong>：对相关矩阵阈值筛边（|corr|>0.5）构建网络。</p>"
+                "<p><strong>颜色/图例</strong>：蓝线为正相关，红线为负相关，"
+                "仅显示 |corr|>0.5 的边。</p>"
+                f"<p><strong>结论</strong>：最强相关对为 {pair[0]} 与 {pair[1]}（|corr|≈{abs(max_corr):.3g}）。</p>"
+                "<p><strong>后续</strong>：可对网络中高度连接的变量进行共同变化分析。</p>"
+                "</div>"
+            )
+
+        if filename.startswith("embedding_pca") or filename.startswith("embedding_tsne"):
+            method = "PCA" if "pca" in filename else "t-SNE"
+            return (
+                "<div class=\"chart-explain\">"
+                "<p><strong>假设</strong>：样本在低维空间存在分离结构。</p>"
+                f"<p><strong>验证</strong>：使用 {method} 将样本投影到 2D 并绘制散点图。</p>"
+                "<p><strong>坐标</strong>：X/Y 为降维后的第 1/2 维坐标。</p>"
+                "<p><strong>结论</strong>：用于观察聚类或离群样本趋势。</p>"
+                "<p><strong>后续</strong>：建议结合聚类标签或分组上色进一步验证。</p>"
+                "</div>"
+            )
+
+        if filename.startswith("scatter"):
+            meta_path = (session_root / "plots" / "scatter.png.json")
+            meta = self._load_json(meta_path) if meta_path.exists() else {}
+            x_col = meta.get("x")
+            y_col = meta.get("y")
+            corr_val = meta.get("abs_correlation")
+            if not x_col or not y_col:
+                corr_path = result_dir / "correlation.json"
+                if corr_path.exists():
+                    corr = pd.read_json(corr_path)
+                    arr = corr.to_numpy().copy()
+                    import numpy as np
+
+                    np.fill_diagonal(arr, 0)
+                    max_idx = divmod(np.abs(arr).argmax(), arr.shape[1])
+                    x_col = corr.index[max_idx[0]]
+                    y_col = corr.columns[max_idx[1]]
+                    corr_val = float(abs(arr[max_idx]))
+            x_col = x_col or "变量1"
+            y_col = y_col or "变量2"
+            corr_text = f"{corr_val:.3g}" if isinstance(corr_val, (int, float)) else "未知"
+            return (
+                "<div class=\"chart-explain\">"
+                f"<p><strong>假设</strong>：{x_col} 与 {y_col} 之间存在相关关系。</p>"
+                "<p><strong>验证</strong>：选取绝对相关最高的两个变量绘制散点图。</p>"
+                f"<p><strong>坐标</strong>：X={x_col}, Y={y_col}。</p>"
+                f"<p><strong>结论</strong>：|corr|≈{corr_text}，可用于判断线性关系与异常点。</p>"
+                "<p><strong>后续</strong>：建议对其他高相关变量对做补充验证。</p>"
+                "</div>"
+            )
+
+        if filename.startswith("top_features"):
+            top_path = result_dir / "top_features.json"
+            if not top_path.exists():
+                return ""
+            top = self._load_json(top_path)
+            names = []
+            if isinstance(top, list):
+                for item in top[:5]:
+                    if isinstance(item, dict) and item.get("feature"):
+                        names.append(item["feature"])
+            names_text = "、".join(names) if names else "无"
+            return (
+                "<div class=\"chart-explain\">"
+                "<p><strong>假设</strong>：存在显著差异的关键峰值。</p>"
+                "<p><strong>验证</strong>：按 p/q 值排序，展示 Top 特征。</p>"
+                "<p><strong>坐标</strong>：Y 为特征名，X 为排名。</p>"
+                f"<p><strong>结论</strong>：Top 特征包括：{names_text}。</p>"
+                "<p><strong>后续</strong>：建议对 Top 特征做效应量与外部验证。</p>"
+                "</div>"
+            )
+
+        return ""
+
+    def _build_visual_block(self, visuals: list[Dict[str, Any]], session_root: Path | None) -> str:
         lines: list[str] = []
         for item in visuals:
             name = item.get("name", "visual")
@@ -171,6 +354,9 @@ class ReportAssembler:
                 lines.append(f"<figcaption>交互图表来源: {note}</figcaption></figure>")
             else:
                 lines.append(f"- 图表链接: {name} ({path})")
+            explanation = self._visual_explanation(item, session_root)
+            if explanation:
+                lines.append(explanation)
         return "\n".join(lines)
 
     def _visual_names(self, visuals: list[Dict[str, Any]]) -> str:
@@ -201,7 +387,7 @@ class ReportAssembler:
             sections.append({"title": title, "body": body})
         return sections
 
-    def _table_preview_blocks(self, tables: list[Dict[str, Any]]) -> list[str]:
+    def _table_preview_blocks(self, tables: list[Dict[str, Any]], session_root: Path | None) -> list[str]:
         targets = {"top_features.json", "stats_summary.json", "model_eval.json"}
         blocks: list[str] = []
         for item in tables:
@@ -211,6 +397,30 @@ class ReportAssembler:
             path = self._report_relative(item.get("relative_path", ""))
             title = name.replace("_", " ").replace(".json", "").title()
             blocks.append(f"<div class=\"table-preview\" data-src=\"{path}\" data-title=\"{title}\"></div>")
+            if name == "top_features.json":
+                blocks.append(
+                    "<div class=\"table-explain\">"
+                    "<p><strong>输入</strong>：统计检验结果。</p>"
+                    "<p><strong>输出</strong>：按 p/q 值排序的 Top 特征列表。</p>"
+                    "<p><strong>结论</strong>：用于定位差异最显著的峰值。</p>"
+                    "</div>"
+                )
+            elif name == "stats_summary.json":
+                blocks.append(
+                    "<div class=\"table-explain\">"
+                    "<p><strong>输入</strong>：组间检验结果。</p>"
+                    "<p><strong>输出</strong>：均值差、效应量、p/q 值等汇总。</p>"
+                    "<p><strong>结论</strong>：用于快速查看整体显著性与方向。</p>"
+                    "</div>"
+                )
+            elif name == "model_eval.json":
+                blocks.append(
+                    "<div class=\"table-explain\">"
+                    "<p><strong>输入</strong>：基础模型/基线方法。</p>"
+                    "<p><strong>输出</strong>：majority/centroid 等基线指标。</p>"
+                    "<p><strong>结论</strong>：衡量模型是否优于简单基线。</p>"
+                    "</div>"
+                )
         return blocks
 
     def assemble(
@@ -228,6 +438,7 @@ class ReportAssembler:
             outline_block = "\n".join([f"> {line}" if line.strip() else ">" for line in outline.splitlines()])
         visuals = document_manifest.get("visualizations", []) or []
         tables = document_manifest.get("tables", []) or []
+        session_root = self._infer_session_root(visuals, tables)
         artifact_names = " ".join(
             [str(item.get("name", "")).lower() for item in visuals + tables]
         )
@@ -289,35 +500,35 @@ class ReportAssembler:
             lines.append(f"## {title}")
             lines.append(body)
             if "差异" in title or "Differential" in title:
-                block = self._build_visual_block(visuals_by_category.get("diff", []))
+                block = self._build_visual_block(visuals_by_category.get("diff", []), session_root)
                 if block:
                     lines.append(block)
                     used_visuals.update(
                         v.get("relative_path", "") for v in visuals_by_category.get("diff", [])
                     )
             elif "相关" in title or "Correlation" in title:
-                block = self._build_visual_block(visuals_by_category.get("correlation", []))
+                block = self._build_visual_block(visuals_by_category.get("correlation", []), session_root)
                 if block:
                     lines.append(block)
                     used_visuals.update(
                         v.get("relative_path", "") for v in visuals_by_category.get("correlation", [])
                     )
             elif "分布" in title or "描述" in title or "统计" in title or "Distribution" in title:
-                block = self._build_visual_block(visuals_by_category.get("distribution", []))
+                block = self._build_visual_block(visuals_by_category.get("distribution", []), session_root)
                 if block:
                     lines.append(block)
                     used_visuals.update(
                         v.get("relative_path", "") for v in visuals_by_category.get("distribution", [])
                     )
             elif "聚类" in title or "降维" in title or "Embedding" in title:
-                block = self._build_visual_block(visuals_by_category.get("embedding", []))
+                block = self._build_visual_block(visuals_by_category.get("embedding", []), session_root)
                 if block:
                     lines.append(block)
                     used_visuals.update(
                         v.get("relative_path", "") for v in visuals_by_category.get("embedding", [])
                     )
             elif "可视化" in title or "Visual" in title:
-                block = self._build_visual_block(visuals)
+                block = self._build_visual_block(visuals, session_root)
                 if block:
                     lines.append(block)
                     used_visuals.update(v.get("relative_path", "") for v in visuals)
@@ -358,10 +569,10 @@ class ReportAssembler:
             ]
             if remaining:
                 lines.append("## 图表预览")
-                lines.append(self._build_visual_block(remaining))
+                lines.append(self._build_visual_block(remaining, session_root))
                 lines.append("")
         if document_manifest and tables:
-            table_blocks = self._table_preview_blocks(tables)
+            table_blocks = self._table_preview_blocks(tables, session_root)
             if table_blocks:
                 lines.append("## 表格预览")
                 lines.extend(table_blocks)

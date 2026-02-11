@@ -9,6 +9,7 @@ import pandas as pd
 
 from .common import load_table, normalize_output_dir
 from .viz_theme import apply_theme
+from .common import write_json
 
 
 def run(input_path: str | Path, output_dir: str | Path, mode: str = "heatmap", theme: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -32,4 +33,8 @@ def run(input_path: str | Path, output_dir: str | Path, mode: str = "heatmap", t
     path = out_dir / f"{mode}.png"
     fig.savefig(path, bbox_inches="tight")
     plt.close(fig)
+    write_json(
+        Path(out_dir) / f"{mode}.png.json",
+        {"path": str(path), "mode": mode, "type": "correlation_heatmap", "color_scale": "RdYlBu"},
+    )
     return {"module": "viz_heatmap_cluster", "status": "ok", "output": str(path)}
