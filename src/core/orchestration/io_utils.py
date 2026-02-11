@@ -90,6 +90,8 @@ def record_role_output(
     output: dict[str, Any] | None = None,
     error: str | None = None,
     duration_sec: float | None = None,
+    inputs: list[str] | None = None,
+    artifacts: list[str] | None = None,
 ) -> Path:
     meta_dir = ensure_dir(Path(data_sessions_active_dir) / WORKSPACE_DIRS["meta"])
     manifest_path = meta_dir / "role_manifest.json"
@@ -105,6 +107,8 @@ def record_role_output(
         "status": status,
         "duration_sec": duration_sec,
         "error": error,
+        "inputs": inputs or [],
+        "artifacts": artifacts or [],
         "output_keys": sorted(list((output or {}).keys())),
         "timestamp": int(time.time()),
     }

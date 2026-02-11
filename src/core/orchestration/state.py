@@ -24,6 +24,8 @@ class OrchestrationState(TypedDict, total=False):
      pipeline_gate_failures: list[dict[str, Any]]
      custom_line_records: list[dict[str, Any]]
      custom_line_summary: dict[str, Any]
+     artifact_validation: dict[str, Any]
+     code_repair_ran: bool
      data_quality: dict[str, Any]
      data_quality_path: str
      visualization_plan: list[dict[str, Any]]

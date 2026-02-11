@@ -23,6 +23,7 @@ from src.api.config import (
     CUSTOM_LINE_SUMMARY_DAYS,
     CUSTOM_LINE_PROMO_MIN_RUNS,
     CUSTOM_LINE_PROMO_MIN_SUCCESS,
+    ROLE_GUARD_ENABLED,
 )
 from src.api.utils import collect_file_info
 
@@ -42,6 +43,7 @@ from .llm import LLMClient
 from .plan_store import PlanStore, ArtifactRegistry
 from .prompts import get_prompt, get_system, render_role_prompt
 from .agents import HypothesisPlanner
+from .agents import CodeGenerator
 from .coordinator import CodeExecutionOrchestrator, ExecutionMonitor
 from .recursion import DepthRecursionController
 from .visualization_planner import VisualizationPlanner, load_dataframe
@@ -524,6 +526,36 @@ def _check_quality_gates(session_dir: Path, gates: list[str]) -> list[str]:
     return missing
 
 
+def _artifact_validation_report(session_dir: Path) -> dict[str, Any]:
+    required_roles = [
+        "DataIngest",
+        "DataQuality",
+        "Hypothesis",
+        "CodeGen",
+        "Insights",
+        "Visualization",
+        "ReportAssembly",
+        "RunGuard",
+    ]
+    manifest_path = Path(session_dir) / "meta" / "role_manifest.json"
+    report: dict[str, Any] = {
+        "required_roles": required_roles,
+        "missing_roles": [],
+        "errors": [],
+    }
+    if manifest_path.exists():
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except Exception:
+            manifest = []
+        seen_roles = {entry.get("role_id") for entry in manifest if entry.get("role_id")}
+        report["missing_roles"] = [r for r in required_roles if r not in seen_roles]
+        report["errors"] = [entry for entry in manifest if entry.get("status") == "error"]
+    else:
+        report["missing_roles"] = required_roles
+    return report
+
+
 def _run_node(name: str, func, config: dict[str, Any]):
     def wrapper(state: OrchestrationState) -> OrchestrationState:
         monitoring = config.get("graph_monitoring", GRAPH_MONITORING)
@@ -565,6 +597,7 @@ def _run_node(name: str, func, config: dict[str, Any]):
             output=output,
             error=error,
             duration_sec=round(duration, 3),
+            inputs=sorted(list(state.keys())),
         )
         return output
 
@@ -911,6 +944,51 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
             "rollback_performed": requested,
         }
 
+    def code_repair(state: OrchestrationState) -> OrchestrationState:
+        if not state.get("config", {}).get("role_guard_enabled", ROLE_GUARD_ENABLED):
+            return {}
+        failures = state.get("execution_errors", []) or []
+        if not failures:
+            return {}
+        code_steps = state.get("code_steps", []) or []
+        session_dir = Path(state.get("session_dir", ""))
+        plan_id = state.get("plan_id", "")
+        if not code_steps:
+            return {}
+        repairer = CodeGenerator(llm, language=state.get("config", {}).get("report_language", "zh"))
+        repaired_steps: list[dict[str, Any]] = []
+        for step in code_steps:
+            name = step.get("name") or step.get("filename")
+            failure = next((f for f in failures if f.get("step") == name), None)
+            if not failure or not step.get("code"):
+                repaired_steps.append(step)
+                continue
+            repaired_code = repairer.repair_code(step["code"], failure.get("output", ""))
+            repaired_steps.append({**step, "code": repaired_code})
+        repair_dir = artifact_dir(session_dir, plan_id or "run", "code_repair")
+        write_json(repair_dir / "repaired_steps.json", repaired_steps)
+        record_artifact(session_dir, repair_dir / "repaired_steps.json", "code", "code_repair")
+        orchestrator = CodeExecutionOrchestrator(llm, config, session_dir, plan_id)
+        monitor = ExecutionMonitor(session_dir, plan_id)
+        try:
+            exec_results = orchestrator.execute(
+                repaired_steps,
+                int(config.get("code_execution_timeout", CODE_EXECUTION_TIMEOUT)),
+                monitor,
+                retries=0,
+            )
+        except Exception as exc:
+            exec_results = [
+                {"step": "code_repair", "output": str(exc), "path": "", "statuses": ["error"]}
+            ]
+        legacy_results_dir = ensure_dir(session_dir / "result")
+        write_json(legacy_results_dir / "exec_results_repair.json", exec_results)
+        record_artifact(session_dir, legacy_results_dir / "exec_results_repair.json", "result", "code_repair")
+        if plan_id:
+            exec_path = artifact_dir(session_dir, plan_id, "result") / "exec_results_repair.json"
+            write_json(exec_path, exec_results)
+        return {"exec_results": exec_results, "code_repair_ran": True}
+
     def analyze_results(state: OrchestrationState) -> OrchestrationState:
         outputs = state.get("exec_results", [])
         summary = "\n".join([o.get("output", "") for o in outputs])
@@ -1170,6 +1248,24 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
                     break
         return {"pipeline_guard_ran": True, "pipeline_fallbacks": fallback_records}
 
+    def artifact_validator(state: OrchestrationState) -> OrchestrationState:
+        if not state.get("config", {}).get("role_guard_enabled", ROLE_GUARD_ENABLED):
+            return {}
+        session_dir = Path(state.get("session_dir", ""))
+        report = _artifact_validation_report(session_dir)
+        meta_dir = ensure_dir(session_dir / "meta")
+        write_json(meta_dir / "artifact_validation.json", report)
+        if report.get("missing_roles") or report.get("errors"):
+            error_dir = ensure_dir(meta_dir / "artifact_validation")
+            write_json(error_dir / "error.json", report)
+            trace_lines = []
+            for missing in report.get("missing_roles", []):
+                trace_lines.append(f"missing_role: {missing}")
+            for err in report.get("errors", []):
+                trace_lines.append(f"error_role: {err.get('role_id')} {err.get('error')}")
+            write_text(error_dir / "trace.txt", "\n".join(trace_lines))
+        return {"artifact_validation": report}
+
     def refine_hypotheses(state: OrchestrationState) -> OrchestrationState:
         analysis_text = state.get("docs_analysis_results", "")
         language = state.get("config", {}).get("report_language", "zh")
@@ -1387,8 +1483,10 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
     graph.add_node("plan_analysis", _run_node("plan_analysis", plan_analysis, config))
     graph.add_node("parallel_generation", _run_node("parallel_generation", parallel_generation, config))
     graph.add_node("execution_guard", _run_node("execution_guard", execution_guard, config))
+    graph.add_node("code_repair", _run_node("code_repair", code_repair, config))
     graph.add_node("analyze_results", _run_node("analyze_results", analyze_results, config))
     graph.add_node("pipeline_guard", _run_node("pipeline_guard", pipeline_guard, config))
+    graph.add_node("artifact_validator", _run_node("artifact_validator", artifact_validator, config))
     graph.add_node("generate_visualizations", _run_node("generate_visualizations", generate_visualizations, config))
     graph.add_node("refine_hypotheses", _run_node("refine_hypotheses", refine_hypotheses, config))
     graph.add_node("decide_recurse", _run_node("decide_recurse", decide_recurse, config))
@@ -1403,14 +1501,23 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
     graph.add_edge("plan_visualizations", "plan_analysis")
     graph.add_edge("plan_analysis", "parallel_generation")
     graph.add_edge("parallel_generation", "execution_guard")
+    def _exec_next(s: OrchestrationState) -> str:
+        if s.get("execution_retry_requested"):
+            if not s.get("config", {}).get("role_guard_enabled", ROLE_GUARD_ENABLED):
+                return "plan"
+            return "repair"
+        return "continue"
+
     graph.add_conditional_edges(
         "execution_guard",
-        lambda s: "retry" if s.get("execution_retry_requested") else "continue",
-        {"retry": "plan_analysis", "continue": "analyze_results"},
+        _exec_next,
+        {"repair": "code_repair", "plan": "plan_analysis", "continue": "analyze_results"},
     )
+    graph.add_edge("code_repair", "analyze_results")
     graph.add_edge("analyze_results", "pipeline_guard")
     graph.add_edge("pipeline_guard", "generate_visualizations")
-    graph.add_edge("generate_visualizations", "refine_hypotheses")
+    graph.add_edge("generate_visualizations", "artifact_validator")
+    graph.add_edge("artifact_validator", "refine_hypotheses")
     graph.add_edge("refine_hypotheses", "decide_recurse")
     graph.add_conditional_edges(
         "decide_recurse",

@@ -226,4 +226,14 @@ class ReportAssembler:
                     path = item.get("relative_path", "")
                     lines.append(f"- 表格: {name} ({path})")
                 lines.append("")
+        if document_manifest and visuals:
+            lines.append("## 图表预览")
+            for item in visuals:
+                path = item.get("relative_path", "")
+                name = item.get("name", "visual")
+                if path.lower().endswith((".png", ".jpg", ".jpeg", ".gif")):
+                    lines.append(f"![{name}]({path})")
+                else:
+                    lines.append(f"- 图表链接: {name} ({path})")
+            lines.append("")
         return "\n".join(lines).strip()
