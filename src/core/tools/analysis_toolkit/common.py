@@ -47,6 +47,51 @@ def detect_group_column(df: pd.DataFrame) -> str | None:
     return non_numeric[0] if non_numeric else None
 
 
+def normalize_group_labels(series: pd.Series) -> pd.Series:
+    values = series.astype(str).fillna("")
+    prefixes = values.str.extract(r"([A-Za-z]+)", expand=False).fillna("")
+    normalized = prefixes.where(prefixes.str.len() >= 2, values)
+    return normalized
+
+
+def select_group_labels(series: pd.Series) -> tuple[pd.Series, dict[str, Any]]:
+    raw = series.astype(str).fillna("")
+    raw_groups = raw.unique().tolist()
+    info: dict[str, Any] = {
+        "method": "raw",
+        "raw_groups": raw_groups[:20],
+        "raw_group_count": len(raw_groups),
+        "normalized_groups": [],
+        "used_groups": [],
+        "excluded_groups": [],
+    }
+    if len(raw_groups) <= 2:
+        info["used_groups"] = raw_groups
+        return raw, info
+    normalized = normalize_group_labels(raw)
+    norm_groups = normalized.unique().tolist()
+    info["normalized_groups"] = norm_groups
+    if len(norm_groups) <= 2:
+        info["method"] = "normalized"
+        info["used_groups"] = norm_groups
+        return normalized, info
+    if "Normal" in norm_groups:
+        other_groups = [g for g in norm_groups if g != "Normal"]
+        target_label = "EP" if any("EP" in g.upper() for g in other_groups) else "Case"
+        mapped = normalized.where(normalized == "Normal", target_label)
+        info["method"] = "normal_vs_case"
+        info["used_groups"] = ["Normal", target_label]
+        info["excluded_groups"] = []
+        return mapped, info
+    counts = normalized.value_counts()
+    top2 = counts.head(2).index.tolist()
+    info["method"] = "top2_normalized"
+    info["used_groups"] = top2
+    info["excluded_groups"] = [g for g in norm_groups if g not in top2]
+    filtered = normalized.where(normalized.isin(top2))
+    return filtered, info
+
+
 def numeric_columns(df: pd.DataFrame) -> list[str]:
     return [c for c in df.columns if np.issubdtype(df[c].dtype, np.number)]
 

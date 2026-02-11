@@ -7,7 +7,16 @@ import math
 import numpy as np
 import pandas as pd
 
-from .common import load_table, detect_group_column, numeric_columns, safe_values, write_json, write_csv, normalize_output_dir
+from .common import (
+    load_table,
+    detect_group_column,
+    numeric_columns,
+    safe_values,
+    write_json,
+    write_csv,
+    normalize_output_dir,
+    select_group_labels,
+)
 
 
 def _normal_p_value(z: float) -> float:
@@ -36,11 +45,14 @@ def run(input_path: str | Path, output_dir: str | Path) -> dict[str, Any]:
     numeric_cols = numeric_columns(df)
     results = []
     if group_col and numeric_cols:
-        groups = df[group_col].dropna().unique().tolist()
+        group_series, group_info = select_group_labels(df[group_col])
+        df = df.copy()
+        df["_group_norm"] = group_series
+        groups = df["_group_norm"].dropna().unique().tolist()
         if len(groups) >= 2:
             g1, g2 = groups[:2]
-            df1 = df[df[group_col] == g1]
-            df2 = df[df[group_col] == g2]
+            df1 = df[df["_group_norm"] == g1]
+            df2 = df[df["_group_norm"] == g2]
             for col in numeric_cols:
                 a = safe_values(df1[col])
                 b = safe_values(df2[col])
@@ -70,6 +82,8 @@ def run(input_path: str | Path, output_dir: str | Path) -> dict[str, Any]:
                         "n_b": int(b.size),
                     }
                 )
+        out_dir = normalize_output_dir(output_dir, "result")
+        write_json(out_dir / "stats_group_info.json", group_info)
     out_dir = normalize_output_dir(output_dir, "result")
     df_out = pd.DataFrame(results)
     write_csv(out_dir / "stats_results.csv", df_out)

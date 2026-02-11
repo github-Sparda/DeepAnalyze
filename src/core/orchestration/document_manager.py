@@ -125,6 +125,27 @@ class DocumentManager:
                 )
         return visuals
 
+    def _collect_plots(self) -> list[dict[str, Any]]:
+        plots_dir = self.data_sessions_active_dir / "plots"
+        visuals: list[dict[str, Any]] = []
+        if not plots_dir.exists():
+            return visuals
+        for path in sorted(plots_dir.iterdir()):
+            if not path.is_file():
+                continue
+            if path.suffix.lower() not in {".png", ".jpg", ".jpeg", ".gif", ".svg", ".html"}:
+                continue
+            visuals.append(
+                {
+                    "plan_id": "",
+                    "path": str(path),
+                    "relative_path": str(path.relative_to(self.data_sessions_active_dir)),
+                    "metadata": {"source": "plots"},
+                    "timestamp": int(path.stat().st_mtime),
+                }
+            )
+        return visuals
+
     def manifest(self) -> dict[str, Any]:
         manifest: dict[str, Any] = {
             "updated_at": int(time.time()),
@@ -153,7 +174,7 @@ class DocumentManager:
         manifest["artifact_counts"] = dict(artifact_counts)
         manifest["reports"] = self._list_reports()
         manifest["tables"] = self._list_tables()
-        manifest["visualizations"] = self._collect_visualizations(manifest["plans"])
+        manifest["visualizations"] = self._collect_visualizations(manifest["plans"]) + self._collect_plots()
         run_audit_path = self.data_sessions_active_dir / "meta" / "run_audit.json"
         if run_audit_path.exists():
             try:

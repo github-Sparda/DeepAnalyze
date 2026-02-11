@@ -6,7 +6,14 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from .common import load_table, detect_group_column, numeric_columns, write_json, normalize_output_dir
+from .common import (
+    load_table,
+    detect_group_column,
+    numeric_columns,
+    write_json,
+    normalize_output_dir,
+    select_group_labels,
+)
 
 
 def _compute_centroids(df: pd.DataFrame, label_col: str, num_cols: list[str]) -> dict[str, list[float]]:
@@ -38,7 +45,11 @@ def run(input_path: str | Path, output_dir: str | Path, method: str = "centroid"
         payload = {"status": "skipped", "reason": "missing label or numeric columns"}
         write_json(out_dir / "model_results.json", payload)
         return {"module": "model_train", "status": "skipped", "output": str(out_dir / "model_results.json")}
-    labels = df[label_col].astype(str)
+    group_series, group_info = select_group_labels(df[label_col])
+    df = df.copy()
+    df["_group_norm"] = group_series
+    df = df[df["_group_norm"].notna()]
+    labels = df["_group_norm"].astype(str)
     data = df[num_cols].fillna(0).to_numpy()
     rng = np.random.default_rng(0)
     indices = np.arange(len(df))
@@ -62,6 +73,7 @@ def run(input_path: str | Path, output_dir: str | Path, method: str = "centroid"
     payload = {
         "model": method,
         "label_col": label_col,
+        "group_info": group_info,
         "train_accuracy": train_acc,
         "test_accuracy": test_acc,
         "centroids": centroids,

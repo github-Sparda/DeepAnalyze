@@ -499,6 +499,28 @@ def _hypothesis_summary_md(payload: dict[str, Any], session_dir: Path) -> str:
             if error_files:
                 lines.append(f"- 错误记录: {', '.join(sorted(error_files))}")
         lines.append("")
+    group_info_path = session_dir / "result" / "stats_group_info.json"
+    if group_info_path.exists():
+        try:
+            group_info = json.loads(group_info_path.read_text(encoding="utf-8"))
+            lines.append("## 分组归一化说明")
+            lines.append(f"- 方法: {group_info.get('method')}")
+            raw_groups = group_info.get("raw_groups") or []
+            raw_count = group_info.get("raw_group_count")
+            used_groups = group_info.get("used_groups") or []
+            excluded = group_info.get("excluded_groups") or []
+            if raw_groups:
+                raw_line = ", ".join(raw_groups[:10])
+                if raw_count and raw_count > 10:
+                    raw_line = f"{raw_line} ... (+{raw_count - 10})"
+                lines.append(f"- 原始分组: {raw_line}")
+            if used_groups:
+                lines.append(f"- 使用分组: {', '.join(used_groups)}")
+            if excluded:
+                lines.append(f"- 排除分组: {', '.join(excluded[:10])}")
+            lines.append("")
+        except Exception:
+            pass
     rationale_path = session_dir / "result" / "feature_selection_rationale.json"
     features_path = session_dir / "result" / "feature_selection.json"
     if rationale_path.exists():
@@ -549,6 +571,110 @@ def _hypothesis_summary_md(payload: dict[str, Any], session_dir: Path) -> str:
         except Exception:
             pass
     return "\n".join(lines)
+
+
+def _build_auto_analysis_payload(session_dir: Path, auto_evidence: list[str]) -> dict[str, Any]:
+    summary_lines: list[str] = []
+    key_findings: list[str] = []
+    limitations: list[str] = []
+    next_steps: list[str] = []
+    profile_path = session_dir / "profile" / "data_profile.json"
+    if profile_path.exists():
+        try:
+            profile = json.loads(profile_path.read_text(encoding="utf-8"))
+            summary_lines.append(
+                f"数据集包含 {profile.get('rows')} 行、{profile.get('columns')} 列，缺失值 {profile.get('missing_total')}。"
+            )
+        except Exception:
+            pass
+    group_info_path = session_dir / "result" / "stats_group_info.json"
+    if group_info_path.exists():
+        try:
+            group_info = json.loads(group_info_path.read_text(encoding="utf-8"))
+            used = group_info.get("used_groups") or []
+            method = group_info.get("method") or ""
+            if used:
+                summary_lines.append(f"统计检验基于分组 {', '.join(used)}（方法: {method}）。")
+        except Exception:
+            pass
+    top_features_path = session_dir / "result" / "top_features.json"
+    if top_features_path.exists():
+        try:
+            top_df = pd.read_json(top_features_path)
+            for _, row in top_df.head(10).iterrows():
+                feature = row.get("feature")
+                p_val = row.get("p_value")
+                q_val = row.get("q_value")
+                if feature is not None:
+                    metric = f"p={p_val:.3g}" if isinstance(p_val, (int, float)) else f"p={p_val}"
+                    if q_val is not None:
+                        metric = f"{metric}, q={q_val:.3g}" if isinstance(q_val, (int, float)) else f"{metric}, q={q_val}"
+                    key_findings.append(f"{feature}: {metric}")
+        except Exception:
+            pass
+    model_eval_path = session_dir / "result" / "model_eval.json"
+    if model_eval_path.exists():
+        try:
+            model_eval = json.loads(model_eval_path.read_text(encoding="utf-8"))
+            metrics = model_eval.get("metrics", {})
+            if isinstance(metrics, dict):
+                majority = metrics.get("majority_accuracy")
+                centroid = metrics.get("centroid_accuracy")
+                if majority is not None:
+                    summary_lines.append(f"多数类基线准确率约 {majority:.3f}。")
+                if centroid is not None:
+                    summary_lines.append(f"质心分类准确率约 {centroid:.3f}。")
+        except Exception:
+            pass
+    plots_dir = session_dir / "plots"
+    if not plots_dir.exists() or not any(plots_dir.glob("*")):
+        limitations.append("关键可视化图表尚未生成。")
+    if not key_findings:
+        limitations.append("未获取到显著特征列表，建议检查统计检验输入分组或运行日志。")
+    if not summary_lines:
+        summary_lines.append("使用自动化产物生成分析摘要。")
+    next_steps.extend(
+        [
+            "如需更深入的模型性能评估，补充交叉验证与 ROC/AUC 指标。",
+            "根据显著特征结果补充生物学解释与外部验证。",
+        ]
+    )
+    return {
+        "summary": " ".join(summary_lines),
+        "key_findings": key_findings,
+        "evidence": list(auto_evidence),
+        "limitations": limitations,
+        "next_steps": next_steps,
+    }
+
+
+def _sanitize_outline(outline: str, session_dir: Path) -> str:
+    if not outline:
+        return outline
+    artifact_names: list[str] = []
+    for folder in ("result", "plots"):
+        path = session_dir / folder
+        if path.exists():
+            artifact_names.extend([p.name.lower() for p in path.glob("*") if p.is_file()])
+    joined = " ".join(artifact_names)
+    disallowed = [
+        ("lasso", "lasso"),
+        ("random forest", "random_forest"),
+        ("roc", "roc"),
+        ("auc", "auc"),
+        ("umap", "umap"),
+    ]
+    filtered: list[str] = []
+    for line in outline.splitlines():
+        lower = line.lower()
+        drop = False
+        for keyword, token in disallowed:
+            if keyword in lower and token not in joined:
+                drop = True
+                break
+        if not drop:
+            filtered.append(line)
+    return "\n".join(filtered)
 
 
 def _generate_custom_line(llm: LLMClient, summary: str) -> dict[str, Any]:
@@ -1370,19 +1496,30 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
                     ],
                 }
         else:
-            analysis_payload = {
-                "summary": "未检测到高级分析产物，使用自动化证据摘要生成分析结果。",
-                "key_findings": [],
-                "evidence": [],
-                "limitations": [
-                    "当前仅生成描述性统计与相关性矩阵，尚未执行推断性统计或预测建模。",
-                ],
-                "next_steps": [
-                    "若需要差异检验/建模，请补充分析步骤并重新执行。",
-                ],
-            }
+            analysis_payload = _build_auto_analysis_payload(session_dir, auto_evidence)
         if auto_evidence:
             analysis_payload["evidence"] = list(auto_evidence) + list(analysis_payload.get("evidence", []))
+        auto_payload = _build_auto_analysis_payload(session_dir, auto_evidence)
+        stats_exists = (session_dir / "result" / "stats_results.json").exists()
+        if auto_payload.get("summary"):
+            summary_text = analysis_payload.get("summary", "")
+            if stats_exists or "未检测到高级分析产物" in summary_text or "LLM 分析失败" in summary_text or not summary_text:
+                analysis_payload["summary"] = auto_payload["summary"]
+        if auto_payload.get("key_findings"):
+            existing = set(analysis_payload.get("key_findings", []))
+            for item in auto_payload["key_findings"]:
+                if item not in existing:
+                    analysis_payload.setdefault("key_findings", []).append(item)
+        if stats_exists:
+            analysis_payload["limitations"] = auto_payload.get("limitations", [])
+        elif auto_payload.get("limitations") and _has_advanced_artifacts(session_dir):
+            analysis_payload["limitations"] = [
+                item
+                for item in analysis_payload.get("limitations", [])
+                if "仅生成描述性统计" not in item and "未执行推断性统计" not in item
+            ]
+        if not analysis_payload.get("next_steps"):
+            analysis_payload["next_steps"] = auto_payload.get("next_steps", [])
         analysis_text = analysis_payload_to_markdown(analysis_payload, execution_warning)
         if "hypothesis_md" in locals() and hypothesis_md:
             analysis_text = f"{analysis_text}\n\n{hypothesis_md}"
@@ -1698,11 +1835,13 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
                 },
             ]
         report_payload: dict[str, Any]
-        if bool(state.get("config", {}).get("report_use_llm", REPORT_USE_LLM)):
+        use_report_llm = bool(state.get("config", {}).get("report_use_llm", REPORT_USE_LLM))
+        if use_report_llm:
             report_raw = llm.chat(messages, max_tokens=4096)
             report_payload = normalize_report_payload(parse_structured_payload(report_raw))
         else:
             report_payload = normalize_report_payload({})
+            outline = _sanitize_outline(outline, Path(state.get("session_dir", "")))
         doc_manager = DocumentManager(Path(state.get("session_dir", "")))
         document_manifest = doc_manager.manifest()
         assembler = ReportAssembler(language=language)

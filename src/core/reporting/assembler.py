@@ -127,6 +127,16 @@ class ReportAssembler:
     def __init__(self, language: str = "zh") -> None:
         self.language = language
 
+    def _report_relative(self, path: str) -> str:
+        if not path:
+            return path
+        lower = path.lower()
+        if lower.startswith(("http://", "https://", "data:")):
+            return path
+        if path.startswith("../"):
+            return path
+        return f"../{path}"
+
     def assemble(
         self,
         outline: str,
@@ -219,17 +229,17 @@ class ReportAssembler:
                 lines.append("## 产物清单")
                 for item in visuals:
                     name = item.get("name", "visual")
-                    path = item.get("relative_path", "")
+                    path = self._report_relative(item.get("relative_path", ""))
                     lines.append(f"- 图表: {name} ({path})")
                 for item in tables:
                     name = item.get("name", "table")
-                    path = item.get("relative_path", "")
+                    path = self._report_relative(item.get("relative_path", ""))
                     lines.append(f"- 表格: {name} ({path})")
                 lines.append("")
         if document_manifest and visuals:
             lines.append("## 图表预览")
             for item in visuals:
-                path = item.get("relative_path", "")
+                path = self._report_relative(item.get("relative_path", ""))
                 name = item.get("name", "visual")
                 if path.lower().endswith((".png", ".jpg", ".jpeg", ".gif")):
                     lines.append(f"![{name}]({path})")
