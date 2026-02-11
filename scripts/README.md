@@ -88,15 +88,11 @@ Restart frontend only:
 - `validate_semantic_cache.py` - Semantic cache validation (validation-test)
 
 ### Demo and Examples
-- `demo_cli_wrapper.py` - CLI demonstration wrapper for one-command analysis (demo-example)
-- `demo_security_system.py` - Security system demonstration (demo-example)
+- `analysis_pipeline.py` - Standalone analysis pipeline demo for local validation (demo-example)
 
 ## Temporary Scripts
 
-Temporary and one-shot scripts are located in the [one-shot](./one-shot/) directory.
-These scripts are typically used for one-time fixes or specific tasks.
-
-See [one-shot/README.md](./one-shot/README.md) for details.
+暂无 one-shot 目录；需要临时修复脚本时请先评估是否可复用。
 
 ## Configuration
 

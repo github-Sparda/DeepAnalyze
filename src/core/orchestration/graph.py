@@ -599,6 +599,51 @@ def _build_auto_analysis_payload(session_dir: Path, auto_evidence: list[str]) ->
                 summary_lines.append(f"统计检验基于分组 {', '.join(used)}（方法: {method}）。")
         except Exception:
             pass
+    data_quality_path = session_dir / "result" / "data_quality.json"
+    if data_quality_path.exists():
+        try:
+            quality = json.loads(data_quality_path.read_text(encoding="utf-8"))
+            datasets = quality.get("datasets") or []
+            if datasets:
+                ds = datasets[0]
+                rows = ds.get("rows")
+                cols = ds.get("cols")
+                missing_rate = ds.get("missing_rate") or {}
+                missing_cols = [k for k, v in missing_rate.items() if isinstance(v, (int, float)) and v > 0]
+                if rows and cols:
+                    summary_lines.append(f"数据质量检查：{rows} 行 × {cols} 列。")
+                if missing_rate:
+                    if missing_cols:
+                        summary_lines.append(f"存在缺失值的列数：{len(missing_cols)}。")
+                    else:
+                        summary_lines.append("缺失值占比为 0。")
+        except Exception:
+            pass
+    stats_results_path = session_dir / "result" / "stats_results.json"
+    if stats_results_path.exists():
+        try:
+            stats_df = pd.read_json(stats_results_path)
+            total = len(stats_df)
+            if total:
+                sig_005 = int((stats_df["p_value"] < 0.05).sum()) if "p_value" in stats_df else 0
+                sig_001 = int((stats_df["p_value"] < 0.01).sum()) if "p_value" in stats_df else 0
+                summary_lines.append(
+                    f"统计检验覆盖 {total} 个特征，其中 p<0.05 的特征 {sig_005} 个，p<0.01 的特征 {sig_001} 个。"
+                )
+                if "p_value" in stats_df:
+                    top = stats_df.sort_values("p_value").head(5)
+                    for _, row in top.iterrows():
+                        feature = row.get("feature")
+                        p_val = row.get("p_value")
+                        fc = row.get("log2_fold_change")
+                        if feature is None:
+                            continue
+                        metric = f"p={p_val:.3g}" if isinstance(p_val, (int, float)) else f"p={p_val}"
+                        if fc is not None:
+                            metric = f"{metric}, log2FC={fc:.3g}" if isinstance(fc, (int, float)) else f"{metric}, log2FC={fc}"
+                        key_findings.append(f"{feature}: {metric}")
+        except Exception:
+            pass
     top_features_path = session_dir / "result" / "top_features.json"
     if top_features_path.exists():
         try:

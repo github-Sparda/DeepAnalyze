@@ -12,6 +12,7 @@ def test_report_assembler_embeds_visuals_and_tables() -> None:
             {"name": "volcano", "relative_path": "plots/volcano_plot.png"},
             {"name": "heatmap", "relative_path": "plots/heatmap.png"},
             {"name": "embedding", "relative_path": "plots/embedding_pca.png"},
+            {"name": "interactive", "relative_path": "plots/interactive.html"},
         ],
         "tables": [
             {"name": "top_features.json", "relative_path": "result/top_features.json"},
@@ -37,4 +38,6 @@ def test_report_assembler_embeds_visuals_and_tables() -> None:
     assert "../plots/volcano_plot.png" in html
     assert "../plots/heatmap.png" in html
     assert "../plots/embedding_pca.png" in html
+    assert "../plots/interactive.html" in html
+    assert "<iframe" in html
     assert "table-preview" in html

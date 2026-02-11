@@ -159,12 +159,47 @@ class ReportAssembler:
             name = item.get("name", "visual")
             path = self._report_relative(item.get("relative_path", ""))
             note = item.get("relative_path", "")
-            if path.lower().endswith((".png", ".jpg", ".jpeg", ".gif")):
+            if path.lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".svg")):
                 lines.append(f"<figure><img src=\"{path}\" alt=\"{name}\"/>")
                 lines.append(f"<figcaption>来源: {note}</figcaption></figure>")
+            elif path.lower().endswith((".html", ".htm")):
+                lines.append(
+                    "<figure>"
+                    f"<iframe src=\"{path}\" title=\"{name}\" loading=\"lazy\" "
+                    "style=\"width:100%;height:480px;border:1px solid #ddd;\"></iframe>"
+                )
+                lines.append(f"<figcaption>交互图表来源: {note}</figcaption></figure>")
             else:
                 lines.append(f"- 图表链接: {name} ({path})")
         return "\n".join(lines)
+
+    def _visual_names(self, visuals: list[Dict[str, Any]]) -> str:
+        names: list[str] = []
+        for item in visuals:
+            name = item.get("name")
+            if not name:
+                rel = item.get("relative_path") or ""
+                name = rel.split("/")[-1] if rel else "visual"
+            names.append(str(name))
+        return "、".join(names[:6])
+
+    def _auto_sections(self, visuals_by_category: Dict[str, List[Dict[str, Any]]]) -> List[Dict[str, str]]:
+        order = [
+            ("diff", "差异与关键特征", "基于差异检验与显著性统计，重点关注变化幅度与显著特征。"),
+            ("correlation", "相关性与结构", "基于相关矩阵/网络结构，观察变量间协同关系与潜在模块。"),
+            ("distribution", "分布与统计概览", "展示主要变量分布、中心趋势与离散程度。"),
+            ("embedding", "聚类与降维", "基于降维/聚类结果查看样本分群与潜在结构。"),
+            ("other", "补充可视化", "其他产物统一汇总，便于查验。"),
+        ]
+        sections: list[Dict[str, str]] = []
+        for key, title, default_body in order:
+            visuals = visuals_by_category.get(key, [])
+            if not visuals:
+                continue
+            names = self._visual_names(visuals)
+            body = f"{default_body} 当前可用图表：{names}。"
+            sections.append({"title": title, "body": body})
+        return sections
 
     def _table_preview_blocks(self, tables: list[Dict[str, Any]]) -> list[str]:
         targets = {"top_features.json", "stats_summary.json", "model_eval.json"}
@@ -234,12 +269,13 @@ class ReportAssembler:
                 lines.append("- 可视化状态: 未生成")
             lines.append("")
         sections = report_payload.get("sections") or []
-        if not has_advanced:
-            sections = []
         visuals_by_category: Dict[str, List[Dict[str, Any]]] = {}
         for item in visuals:
             category = self._classify_visual(item.get("relative_path", ""))
             visuals_by_category.setdefault(category, []).append(item)
+        if not sections:
+            sections = self._auto_sections(visuals_by_category)
+        used_visuals: set[str] = set()
         for section in sections:
             title = section.get("title", "Section")
             body = section.get("body", "")
@@ -256,18 +292,35 @@ class ReportAssembler:
                 block = self._build_visual_block(visuals_by_category.get("diff", []))
                 if block:
                     lines.append(block)
+                    used_visuals.update(
+                        v.get("relative_path", "") for v in visuals_by_category.get("diff", [])
+                    )
             elif "相关" in title or "Correlation" in title:
                 block = self._build_visual_block(visuals_by_category.get("correlation", []))
                 if block:
                     lines.append(block)
+                    used_visuals.update(
+                        v.get("relative_path", "") for v in visuals_by_category.get("correlation", [])
+                    )
+            elif "分布" in title or "描述" in title or "统计" in title or "Distribution" in title:
+                block = self._build_visual_block(visuals_by_category.get("distribution", []))
+                if block:
+                    lines.append(block)
+                    used_visuals.update(
+                        v.get("relative_path", "") for v in visuals_by_category.get("distribution", [])
+                    )
             elif "聚类" in title or "降维" in title or "Embedding" in title:
                 block = self._build_visual_block(visuals_by_category.get("embedding", []))
                 if block:
                     lines.append(block)
+                    used_visuals.update(
+                        v.get("relative_path", "") for v in visuals_by_category.get("embedding", [])
+                    )
             elif "可视化" in title or "Visual" in title:
                 block = self._build_visual_block(visuals)
                 if block:
                     lines.append(block)
+                    used_visuals.update(v.get("relative_path", "") for v in visuals)
             lines.append("")
         highlights = report_payload.get("highlights") or []
         if not has_advanced:
@@ -298,9 +351,14 @@ class ReportAssembler:
                     lines.append(f"- 表格: {name} ({path})")
                 lines.append("")
         if document_manifest and visuals:
-            if not sections:
+            remaining = [
+                v
+                for v in visuals
+                if v.get("relative_path", "") not in used_visuals
+            ]
+            if remaining:
                 lines.append("## 图表预览")
-                lines.append(self._build_visual_block(visuals))
+                lines.append(self._build_visual_block(remaining))
                 lines.append("")
         if document_manifest and tables:
             table_blocks = self._table_preview_blocks(tables)

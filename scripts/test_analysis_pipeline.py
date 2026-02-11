@@ -11,7 +11,7 @@ project_root = Path(__file__).resolve().parents[1]
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-from src.core.analysis_pipeline import AnalysisPipeline
+from scripts.analysis_pipeline import AnalysisPipeline
 
 
 def main() -> int:

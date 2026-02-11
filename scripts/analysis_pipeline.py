@@ -4,15 +4,21 @@ Complete Analysis Pipeline - 符合OpenSpec规范的完整分析流水线
 集成假设规划、代码生成、执行、分析和报告生成
 """
 
-import pandas as pd
 import json
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 
+import pandas as pd
+
+project_root = Path(__file__).resolve().parents[1]
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
+
 # 导入核心组件
-from src.core.session_manager import SessionManager
-from src.core.enhanced_hypothesis_planner import EnhancedHypothesisPlanner
+from scripts.session_manager import SessionManager
+from src.core.orchestration.agents import EnhancedHypothesisPlanner
 from src.core.orchestration.llm import LLMClient
 
 class AnalysisPipeline:
