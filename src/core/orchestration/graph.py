@@ -19,6 +19,7 @@ from src.api.config import (
     DATA_QUALITY_ENABLED,
     ANALYSIS_USE_LLM,
     REPORT_USE_LLM,
+    MAX_ITERATIONS,
 )
 from src.api.utils import collect_file_info
 
@@ -30,6 +31,7 @@ from .io_utils import (
     record_artifact,
     record_node_log,
     record_run_summary,
+    record_role_output,
     artifact_dir,
     copy_artifact,
 )
@@ -41,6 +43,7 @@ from .coordinator import CodeExecutionOrchestrator, ExecutionMonitor
 from .recursion import DepthRecursionController
 from .visualization_planner import VisualizationPlanner, load_dataframe
 from src.core.visualization.writer import visualization_writer
+from src.core.agents.registry import role_id_for_node
 from src.core.reporting.exporter import export_report
 from src.core.reporting.templates import template_from_config
 from src.core.reporting.assembler import (
@@ -50,6 +53,7 @@ from src.core.reporting.assembler import (
     normalize_report_payload,
     parse_structured_payload,
 )
+from src.core.tools.analysis_toolkit.runner import run_pipeline as run_analysis_toolkit
 from .state import OrchestrationState
 from .document_manager import DocumentManager
 
@@ -173,6 +177,15 @@ def _collect_result_evidence(session_dir: Path) -> list[str]:
     if correlation.exists():
         evidence.append("相关性矩阵已生成：result/correlation.csv")
     return evidence
+
+
+def _find_first_dataset(session_dir: Path) -> Path | None:
+    for path in session_dir.iterdir():
+        if not path.is_file():
+            continue
+        if path.suffix.lower() in {".csv", ".tsv", ".xlsx", ".xls", ".json"}:
+            return path
+    return None
 
 
 def _has_advanced_artifacts(session_dir: Path) -> bool:
@@ -358,6 +371,26 @@ def _rollback_plan_outputs(session_dir: Path, plan_id: str) -> None:
     _cleanup_dir_contents(session_dir / "generated")
 
 
+def _run_audit(session_dir: Path) -> dict[str, Any]:
+    required = [
+        "result/analysis_results.md",
+        "result/stats_results.json",
+        "result/correlation.json",
+        "result/feature_selection.json",
+        "report/report_v1.html",
+    ]
+    missing = []
+    for rel in required:
+        if not (session_dir / rel).exists():
+            missing.append(rel)
+    visuals_dir = session_dir / "charts"
+    visuals_present = visuals_dir.exists() and any(visuals_dir.rglob("*"))
+    return {
+        "missing_required": missing,
+        "visuals_present": bool(visuals_present),
+    }
+
+
 def _run_node(name: str, func, config: dict[str, Any]):
     def wrapper(state: OrchestrationState) -> OrchestrationState:
         monitoring = config.get("graph_monitoring", GRAPH_MONITORING)
@@ -392,6 +425,14 @@ def _run_node(name: str, func, config: dict[str, Any]):
                     "trace_id": state.get("trace_id") if TRACE_ENABLED else "",
                 },
             )
+        record_role_output(
+            state.get("session_dir", ""),
+            role_id_for_node(name),
+            "error" if error else "success",
+            output=output,
+            error=error,
+            duration_sec=round(duration, 3),
+        )
         return output
 
     return wrapper
@@ -415,7 +456,7 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
         summary_path = session_dir / "plan" / "file_summary.md"
         write_text(summary_path, summary)
         record_artifact(session_dir, summary_path, "plan", "understand_files")
-        return {"file_summary": summary}
+        return {"file_summary": summary, "iteration_count": int(state.get("iteration_count", 0)) or 1}
 
     def data_quality(state: OrchestrationState) -> OrchestrationState:
         if not config.get("data_quality_enabled", DATA_QUALITY_ENABLED):
@@ -492,9 +533,13 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
         goal_hint = (state.get("config", {}).get("analysis_goal", "") or "").strip()
         if not goal_hint:
             goal_hint = (state.get("config", {}).get("docs/analysis_goal", "") or "").strip()
+        history = list(state.get("docs_analysis_history", []) or [])
+        followups = list(state.get("followup_hypotheses", []) or [])
+        if followups:
+            history.append("Follow-up hypotheses:\n" + "\n".join(f"- {h}" for h in followups))
         plan = planner.plan(
             summary,
-            state.get("docs_analysis_history", []),
+            history,
             plan_id=plan_id_hint,
             artifact_context=artifact_context,
             telemetry_context=telemetry_context,
@@ -717,6 +762,14 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
             exhausted = next_retry > max_retries
             if requested:
                 _rollback_plan_outputs(session_dir, plan_id)
+            error_payload = {
+                "errors": failures,
+                "retry_requested": requested,
+                "retry_exhausted": exhausted,
+            }
+            error_dir = artifact_dir(session_dir, plan_id or "run", "execution_guard")
+            write_json(error_dir / "error.json", error_payload)
+            write_text(error_dir / "trace.txt", "\n".join([f.get("output", "") for f in failures]))
         return {
             "execution_retry_requested": requested,
             "execution_retry_count": next_retry,
@@ -735,8 +788,17 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
         artifact_registry = ArtifactRegistry(Path(state.get("session_dir", "")))
         artifact_context = _artifact_context(artifact_registry, plan_id) if plan_id else ""
         prompt = get_prompt("analysis_structured", language)
-        auto_evidence = _collect_result_evidence(Path(state.get("session_dir", "")))
+        session_dir = Path(state.get("session_dir", ""))
+        auto_evidence = _collect_result_evidence(session_dir)
         telemetry_context = _telemetry_context(state, artifact_registry, plan_id)
+        if not _has_advanced_artifacts(session_dir):
+            dataset_path = _find_first_dataset(session_dir)
+            if dataset_path is not None:
+                try:
+                    run_analysis_toolkit(dataset_path, session_dir)
+                    auto_evidence = _collect_result_evidence(session_dir)
+                except Exception:
+                    pass
         execution_warning = ""
         if not outputs:
             execution_warning = "执行告警：未检测到可执行脚本输出，分析结果可能缺少编程验证。"
@@ -945,6 +1007,14 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
         max_depth = int(state.get("max_depth", 0))
         depth = int(state.get("depth", 1))
         depth_decision = str(state.get("depth_decision", "")).strip().lower()
+        iteration_count = int(state.get("iteration_count", 1))
+        max_iterations = int(state.get("config", {}).get("max_iterations", MAX_ITERATIONS))
+        if iteration_count >= max_iterations:
+            return {
+                "should_recurse": False,
+                "continuation_required": False,
+                "depth_prompt": "已达到最大迭代次数，停止递归以避免死循环。",
+            }
         controller = DepthRecursionController(
             max_depth,
             retry_limit=int(config.get("execution_failure_max_retries", 1)),
@@ -960,7 +1030,8 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
 
     def advance_depth(state: OrchestrationState) -> OrchestrationState:
         depth = int(state.get("depth", 1))
-        return {"depth": depth + 1}
+        iteration_count = int(state.get("iteration_count", 1))
+        return {"depth": depth + 1, "iteration_count": iteration_count + 1}
 
     def report_outline(state: OrchestrationState) -> OrchestrationState:
         analysis_text = state.get("docs_analysis_results", "")
@@ -1097,6 +1168,9 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
             "continuation_required": state.get("continuation_required", False),
         }
         session_dir = Path(state.get("session_dir", ""))
+        audit = _run_audit(session_dir)
+        summary["run_audit"] = audit
+        write_json(session_dir / "meta" / "run_audit.json", audit)
         doc_manager = DocumentManager(session_dir)
         document_manifest = doc_manager.manifest()
         record_artifact(

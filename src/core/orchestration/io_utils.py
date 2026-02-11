@@ -83,6 +83,36 @@ def record_run_summary(data_sessions_active_dir: str | Path, summary: dict[str, 
     return path
 
 
+def record_role_output(
+    data_sessions_active_dir: str | Path,
+    role_id: str,
+    status: str,
+    output: dict[str, Any] | None = None,
+    error: str | None = None,
+    duration_sec: float | None = None,
+) -> Path:
+    meta_dir = ensure_dir(Path(data_sessions_active_dir) / WORKSPACE_DIRS["meta"])
+    manifest_path = meta_dir / "role_manifest.json"
+    if manifest_path.exists():
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except Exception:
+            manifest = []
+    else:
+        manifest = []
+    entry = {
+        "role_id": role_id,
+        "status": status,
+        "duration_sec": duration_sec,
+        "error": error,
+        "output_keys": sorted(list((output or {}).keys())),
+        "timestamp": int(time.time()),
+    }
+    manifest.append(entry)
+    write_json(manifest_path, manifest)
+    return manifest_path
+
+
 def hash_file(path: str | Path) -> str:
     p = Path(path)
     digest = hashlib.sha256()

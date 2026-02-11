@@ -34,6 +34,7 @@ class OrchestrationState(TypedDict, total=False):
      plan_id: str
      depth: int
      max_depth: int
+     iteration_count: int
      depth_prompt: str
      depth_decision: str
      should_recurse: bool
