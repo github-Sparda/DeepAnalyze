@@ -151,6 +151,21 @@ def artifact_dir(data_sessions_active_dir: str | Path, plan_id: str, role: str) 
     return ensure_dir(Path(data_sessions_active_dir) / "artifacts" / plan_id / role)
 
 
+def artifact_link(source_path: str | Path, dest_dir: str | Path) -> Path:
+    src = Path(source_path)
+    dest = ensure_dir(dest_dir) / src.name
+    if dest.resolve() == src.resolve():
+        return dest
+    try:
+        if dest.exists() or dest.is_symlink():
+            dest.unlink()
+        dest.symlink_to(src)
+    except Exception:
+        # fallback to copy on unsupported filesystems
+        dest.write_bytes(src.read_bytes())
+    return dest
+
+
 def copy_artifact(source_path: str | Path, dest_dir: str | Path) -> Path:
     src = Path(source_path)
     dest = ensure_dir(dest_dir) / src.name

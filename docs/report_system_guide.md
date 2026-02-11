@@ -407,7 +407,7 @@ def get_reports_paginated(session_id, page=1, page_size=20):
 ### 验证方式
 运行以下命令，确认报告仍可正常生成：
 ```bash
-python scripts/run_serum_orchestrated_analysis.py --max-depth 2 --output-dir outputs/serum_orchestrated
+conda run -n common python scripts/verify_modified_modules.py
 ```
 
 ---

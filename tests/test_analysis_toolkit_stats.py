@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.core.tools.analysis_toolkit import stats_tests
+from src.core.analytics.toolkit import stats_tests
 
 
 def test_stats_tests_group_normalization(tmp_path: Path) -> None:

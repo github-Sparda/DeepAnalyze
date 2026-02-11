@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.core.tools.analysis_toolkit.runner import run_pipeline
+from src.core.analytics.toolkit.runner import run_pipeline
 
 
 def test_analysis_toolkit_pipeline_minimal(tmp_path: Path) -> None:

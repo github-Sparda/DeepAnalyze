@@ -9,7 +9,7 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.append(str(ROOT_DIR))
 
-from src.core.tools.analysis_toolkit.runner import run_step
+from src.core.analytics.toolkit.runner import run_step
 
 
 def _load_config(path: Path) -> dict:

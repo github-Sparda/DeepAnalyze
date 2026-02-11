@@ -5,7 +5,7 @@ This toolkit provides reusable analysis components for runtime agents.
 ## Usage
 
 ```bash
-python -m src.core.tools.analysis_toolkit.runner --input data.csv --output-dir outputs/toolkit
+python -m src.core.analytics.toolkit.runner --input data.csv --output-dir outputs/toolkit
 ```
 
 ## Example Config & Script
@@ -52,7 +52,7 @@ Each variant declares compatible visuals to avoid invalid combinations.
 
 ## Pipeline Selection
 To avoid long LLM context, use rule-based selection to shortlist pipelines based on data profile.
-See `src/core/tools/analysis_toolkit/selector.py`.
+See `src/core/analytics/toolkit/selector.py`.
 
 ## Custom Lines (La)
 When no suitable pipeline variant exists, the system can generate a temporary line (La).

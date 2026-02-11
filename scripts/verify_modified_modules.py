@@ -12,13 +12,13 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.append(str(ROOT_DIR))
 
 from src.core.reporting.assembler import ReportAssembler
-from src.core.tools.analysis_toolkit import (
+from src.core.analytics.toolkit import (
     stats_tests,
     feature_selection,
     model_train,
     model_eval,
 )
-from src.core.tools.analysis_toolkit.runner import run_step
+from src.core.analytics.toolkit.runner import run_step
 
 
 def _make_sample_csv(path: Path) -> None:

@@ -8,7 +8,7 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.append(str(ROOT_DIR))
 
-from src.core.tools.analysis_toolkit.custom_lines import promote_line
+from src.core.analytics.toolkit.custom_lines import promote_line
 
 
 def main() -> None:

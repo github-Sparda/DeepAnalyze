@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.core.tools.analysis_toolkit import model_train, model_eval
+from src.core.analytics.toolkit import model_train, model_eval
 
 
 def test_model_train_eval_centroid(tmp_path: Path) -> None:
