@@ -10,6 +10,7 @@ ROLE_MAP: dict[str, str] = {
     "parallel_generation": "CodeGen",
     "execution_guard": "RunGuard",
     "analyze_results": "Insights",
+    "pipeline_guard": "RunGuard",
     "generate_visualizations": "Visualization",
     "refine_hypotheses": "Hypothesis",
     "decide_recurse": "RunGuard",

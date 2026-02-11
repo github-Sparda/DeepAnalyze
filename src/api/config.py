@@ -143,6 +143,13 @@ REPRO_METADATA_ENABLED = _get_bool_env("DEEPANALYZE_REPRO_METADATA_ENABLED", Tru
 VISUAL_STYLE = os.getenv("DEEPANALYZE_VISUAL_STYLE", "academic")
 VISUAL_INTERACTIVE = _get_bool_env("DEEPANALYZE_VISUAL_INTERACTIVE", False)
 
+# Custom line promotion settings
+CUSTOM_LINE_SUMMARY_DAYS = _get_int_env("DEEPANALYZE_LINE_SUMMARY_DAYS", 7)
+CUSTOM_LINE_PROMO_MIN_RUNS = _get_int_env("DEEPANALYZE_LINE_PROMO_MIN_RUNS", 3)
+CUSTOM_LINE_PROMO_MIN_SUCCESS = float(
+    os.getenv("DEEPANALYZE_LINE_PROMO_MIN_SUCCESS", "0.7")
+)
+
 
 def get_vllm_port() -> int | None:
     parsed = urlparse(API_BASE)

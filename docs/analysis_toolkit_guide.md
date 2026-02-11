@@ -28,3 +28,15 @@ Example: key_feature_screening
 - Variant anova_manhattan: ANOVA + FDR + effect size + manhattan
 
 Each variant declares compatible visuals to avoid invalid combinations.
+
+## Pipeline Selection
+To avoid long LLM context, use rule-based selection to shortlist pipelines based on data profile.
+See `src/core/tools/analysis_toolkit/selector.py`.
+
+## Custom Lines (La)
+When no suitable pipeline variant exists, the system can generate a temporary line (La).
+Each La is stored with inputs/outputs/quality gates and usage stats under `meta/custom_lines/`.
+
+## Promotion
+A scheduled summary aggregates usage stats and produces `line_summary.json` and `promotion_candidates.json`.
+Lines with sufficient runs and success rate can be promoted to official registry after review.

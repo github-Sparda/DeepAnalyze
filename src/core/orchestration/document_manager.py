@@ -133,6 +133,9 @@ class DocumentManager:
             "tables": [],
             "artifact_counts": {},
             "visualizations": [],
+            "pipeline_fallbacks": [],
+            "custom_lines": [],
+            "custom_line_summary": {},
         }
         artifacts_root = self.data_sessions_active_dir / "artifacts"
         if artifacts_root.exists():
@@ -151,6 +154,15 @@ class DocumentManager:
         manifest["reports"] = self._list_reports()
         manifest["tables"] = self._list_tables()
         manifest["visualizations"] = self._collect_visualizations(manifest["plans"])
+        run_audit_path = self.data_sessions_active_dir / "meta" / "run_audit.json"
+        if run_audit_path.exists():
+            try:
+                audit = json.loads(run_audit_path.read_text(encoding="utf-8"))
+                manifest["pipeline_fallbacks"] = audit.get("pipeline_fallbacks", [])
+                manifest["custom_lines"] = audit.get("custom_lines", [])
+                manifest["custom_line_summary"] = audit.get("custom_line_summary", {})
+            except Exception:
+                pass
         write_json(self.manifest_path, manifest)
         return manifest
 

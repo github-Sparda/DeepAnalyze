@@ -3,11 +3,33 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .common import default_output, write_json, normalize_output_dir
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+
+from .common import load_table, normalize_output_dir
+from .viz_theme import apply_theme
 
 
-def run(input_path: str | Path, output_dir: str | Path, **kwargs: Any) -> dict[str, Any]:
-    out_dir = normalize_output_dir(output_dir, "result")
-    payload = default_output("viz_heatmap_cluster", "not_implemented", "Module stub. Implement in follow-up.")
-    write_json(out_dir / "viz_heatmap_cluster.json", payload)
-    return payload
+def run(input_path: str | Path, output_dir: str | Path, mode: str = "heatmap", theme: dict[str, Any] | None = None) -> dict[str, Any]:
+    df = load_table(input_path)
+    out_dir = normalize_output_dir(output_dir, "plots")
+    apply_theme(theme or {})
+    if "correlation" in input_path.__str__():
+        try:
+            df = pd.read_csv(input_path)
+            if "index" in df.columns:
+                df = df.set_index("index")
+        except Exception:
+            pass
+    data = df.select_dtypes(include="number")
+    if data.empty:
+        return {"module": "viz_heatmap_cluster", "status": "skipped", "message": "no numeric data"}
+    fig, ax = plt.subplots(figsize=(6, 4))
+    im = ax.imshow(data.corr(), cmap="RdYlBu", vmin=-1, vmax=1)
+    fig.colorbar(im, ax=ax)
+    ax.set_title("Heatmap" if mode == "heatmap" else "Clustered Heatmap")
+    path = out_dir / f"{mode}.png"
+    fig.savefig(path, bbox_inches="tight")
+    plt.close(fig)
+    return {"module": "viz_heatmap_cluster", "status": "ok", "output": str(path)}

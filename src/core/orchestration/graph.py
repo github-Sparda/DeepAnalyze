@@ -20,6 +20,9 @@ from src.api.config import (
     ANALYSIS_USE_LLM,
     REPORT_USE_LLM,
     MAX_ITERATIONS,
+    CUSTOM_LINE_SUMMARY_DAYS,
+    CUSTOM_LINE_PROMO_MIN_RUNS,
+    CUSTOM_LINE_PROMO_MIN_SUCCESS,
 )
 from src.api.utils import collect_file_info
 
@@ -53,7 +56,13 @@ from src.core.reporting.assembler import (
     normalize_report_payload,
     parse_structured_payload,
 )
-from src.core.tools.analysis_toolkit.runner import run_pipeline as run_analysis_toolkit
+from src.core.tools.analysis_toolkit.runner import run_pipeline as run_analysis_toolkit, run_step
+from src.core.tools.analysis_toolkit.selector import select_pipeline_variants
+from src.core.tools.analysis_toolkit.custom_lines import (
+    register_line,
+    record_usage,
+    maybe_summarize,
+)
 from .state import OrchestrationState
 from .document_manager import DocumentManager
 
@@ -186,6 +195,103 @@ def _find_first_dataset(session_dir: Path) -> Path | None:
         if path.suffix.lower() in {".csv", ".tsv", ".xlsx", ".xls", ".json"}:
             return path
     return None
+
+
+def _maybe_run_pipeline_variants(
+    session_dir: Path,
+    data_profile: dict[str, Any],
+    llm: LLMClient,
+    summary: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    variants = select_pipeline_variants(data_profile, goals=[], top_k=4)
+    custom_records: list[dict[str, Any]] = []
+    if not variants:
+        dataset_path = _find_first_dataset(session_dir)
+        if dataset_path is None:
+            return [], [], []
+        line_def = _generate_custom_line(llm, summary)
+        line_def = register_line(session_dir, line_def)
+        success = True
+        for step in line_def.get("steps", []):
+            name = step.get("name")
+            if not name:
+                continue
+            result = run_step(name, dataset_path, session_dir, method=step.get("method"))
+            if result.get("status") == "skipped":
+                success = False
+        record_usage(session_dir, line_def.get("line_id", "unknown"), success, None if success else "step_failed")
+        custom_records.append(
+            {
+                "line_id": line_def.get("line_id"),
+                "source": "autogen",
+                "success": success,
+            }
+        )
+        return [], [], custom_records
+    dataset_path = _find_first_dataset(session_dir)
+    if dataset_path is None:
+        return [], [], []
+    executed: list[dict[str, Any]] = []
+    failures: list[dict[str, Any]] = []
+    for scored in variants:
+        variant = scored.variant
+        for step in variant.steps:
+            run_step(step.name, dataset_path, session_dir, method=step.method)
+        missing = []
+        for artifact in variant.required_artifacts:
+            if not (Path(session_dir) / "result" / artifact).exists() and not (
+                Path(session_dir) / "plots" / artifact
+            ).exists():
+                missing.append(artifact)
+        gate_missing = _check_quality_gates(Path(session_dir), variant.quality_gates)
+        executed.append(
+            {
+                "pipeline_id": scored.pipeline_id,
+                "variant_id": variant.variant_id,
+                "required_artifacts": list(variant.required_artifacts),
+                "quality_gates": list(variant.quality_gates),
+                "missing_artifacts": missing + gate_missing,
+                "fallback_variant": variant.fallback_variant,
+            }
+        )
+        if missing or gate_missing:
+            failures.append(
+                {
+                    "pipeline_id": scored.pipeline_id,
+                    "variant_id": variant.variant_id,
+                    "missing": missing + gate_missing,
+                    "fallback_variant": variant.fallback_variant,
+                }
+            )
+    return executed, failures, custom_records
+
+
+def _generate_custom_line(llm: LLMClient, summary: str) -> dict[str, Any]:
+    prompt = (
+        "Generate a JSON line definition with keys: "
+        "line_id, steps[{name, method, params}], required_inputs, required_artifacts, "
+        "quality_gates, compatible_visuals. Use known module names only."
+    )
+    messages = [
+        {"role": "system", "content": get_system("en")},
+        {"role": "user", "content": f"{prompt}\n\nSummary:\n{summary}"},
+    ]
+    raw = llm.chat(messages, max_tokens=1024)
+    payload = _safe_json_any(raw)
+    if isinstance(payload, dict) and payload.get("steps"):
+        return payload
+    return {
+        "line_id": f"autogen_{int(time.time())}",
+        "steps": [
+            {"name": "stats_tests", "method": "t_test", "params": {}},
+            {"name": "correlation", "method": "pearson", "params": {}},
+            {"name": "feature_selection", "method": "variance", "params": {}},
+        ],
+        "required_inputs": ["numeric_columns"],
+        "required_artifacts": ["stats_results.json", "correlation.json"],
+        "quality_gates": ["result:stats_results.json", "result:correlation.json"],
+        "compatible_visuals": [],
+    }
 
 
 def _has_advanced_artifacts(session_dir: Path) -> bool:
@@ -389,6 +495,33 @@ def _run_audit(session_dir: Path) -> dict[str, Any]:
         "missing_required": missing,
         "visuals_present": bool(visuals_present),
     }
+
+
+def _check_quality_gates(session_dir: Path, gates: list[str]) -> list[str]:
+    missing: list[str] = []
+    for gate in gates:
+        target = gate
+        location = "any"
+        if ":" in gate:
+            location, target = gate.split(":", 1)
+        target = target.strip()
+        if not target:
+            continue
+        if location == "result":
+            if not (session_dir / "result" / target).exists():
+                missing.append(gate)
+        elif location == "plots":
+            if not (session_dir / "plots" / target).exists():
+                missing.append(gate)
+        elif location == "report":
+            if not (session_dir / "report" / target).exists():
+                missing.append(gate)
+        else:
+            if not (session_dir / "result" / target).exists() and not (
+                session_dir / "plots" / target
+            ).exists():
+                missing.append(gate)
+    return missing
 
 
 def _run_node(name: str, func, config: dict[str, Any]):
@@ -795,7 +928,22 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
             dataset_path = _find_first_dataset(session_dir)
             if dataset_path is not None:
                 try:
-                    run_analysis_toolkit(dataset_path, session_dir)
+                    pipeline_output = run_analysis_toolkit(dataset_path, session_dir)
+                    profile_entries = [
+                        s for s in pipeline_output.get("steps", []) if s.get("module") == "data_profile"
+                    ]
+                    data_profile: dict[str, Any] = {}
+                    if profile_entries:
+                        profile_path = profile_entries[0].get("output", "")
+                        if profile_path:
+                            try:
+                                data_profile = json.loads(Path(profile_path).read_text(encoding="utf-8"))
+                            except Exception:
+                                data_profile = {}
+                    if data_profile:
+                        executed, failures, custom_records = _maybe_run_pipeline_variants(
+                            session_dir, data_profile, llm, summary
+                        )
                     auto_evidence = _collect_result_evidence(session_dir)
                 except Exception:
                     pass
@@ -881,10 +1029,20 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
             artifact_registry.register(plan_id, "result", copied, {"phase": "analysis_results"})
         history = list(state.get("docs_analysis_history", []))
         history.append(analysis_text)
+        summary_payload = maybe_summarize(
+            session_dir,
+            CUSTOM_LINE_SUMMARY_DAYS,
+            CUSTOM_LINE_PROMO_MIN_RUNS,
+            CUSTOM_LINE_PROMO_MIN_SUCCESS,
+        )
         return {
             "docs_analysis_results": analysis_text,
             "docs_analysis_history": history,
             "errors": errors,
+            "pipeline_variants": executed if "executed" in locals() else [],
+            "pipeline_gate_failures": failures if "failures" in locals() else [],
+            "custom_line_records": custom_records if "custom_records" in locals() else [],
+            "custom_line_summary": summary_payload,
         }
 
     def generate_visualizations(state: OrchestrationState) -> OrchestrationState:
@@ -977,6 +1135,40 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
 
             plt.close(fig)
         return {"visualizations": rendered}
+
+    def pipeline_guard(state: OrchestrationState) -> OrchestrationState:
+        failures = state.get("pipeline_gate_failures", []) or []
+        if not failures:
+            return {}
+        session_dir = Path(state.get("session_dir", ""))
+        dataset_path = _find_first_dataset(session_dir)
+        if dataset_path is None:
+            return {}
+        from src.core.tools.analysis_toolkit.pipelines import pipeline_registry
+
+        registry = pipeline_registry()
+        fallback_records: list[dict[str, Any]] = []
+        for failure in failures:
+            pipeline_id = failure.get("pipeline_id")
+            fallback_id = failure.get("fallback_variant")
+            if not (pipeline_id and fallback_id):
+                continue
+            spec = registry.get(pipeline_id)
+            if not spec:
+                continue
+            for variant in spec.variants:
+                if variant.variant_id == fallback_id:
+                    for step in variant.steps:
+                        run_step(step.name, dataset_path, session_dir, method=step.method)
+                    fallback_records.append(
+                        {
+                            "pipeline_id": pipeline_id,
+                            "fallback_variant": fallback_id,
+                            "reason": failure.get("missing", []),
+                        }
+                    )
+                    break
+        return {"pipeline_guard_ran": True, "pipeline_fallbacks": fallback_records}
 
     def refine_hypotheses(state: OrchestrationState) -> OrchestrationState:
         analysis_text = state.get("docs_analysis_results", "")
@@ -1169,7 +1361,13 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
         }
         session_dir = Path(state.get("session_dir", ""))
         audit = _run_audit(session_dir)
+        audit["pipeline_fallbacks"] = state.get("pipeline_fallbacks", [])
+        audit["custom_lines"] = state.get("custom_line_records", [])
+        audit["custom_line_summary"] = state.get("custom_line_summary", {})
         summary["run_audit"] = audit
+        summary["pipeline_fallbacks"] = audit["pipeline_fallbacks"]
+        summary["custom_lines"] = audit["custom_lines"]
+        summary["custom_line_summary"] = audit["custom_line_summary"]
         write_json(session_dir / "meta" / "run_audit.json", audit)
         doc_manager = DocumentManager(session_dir)
         document_manifest = doc_manager.manifest()
@@ -1190,6 +1388,7 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
     graph.add_node("parallel_generation", _run_node("parallel_generation", parallel_generation, config))
     graph.add_node("execution_guard", _run_node("execution_guard", execution_guard, config))
     graph.add_node("analyze_results", _run_node("analyze_results", analyze_results, config))
+    graph.add_node("pipeline_guard", _run_node("pipeline_guard", pipeline_guard, config))
     graph.add_node("generate_visualizations", _run_node("generate_visualizations", generate_visualizations, config))
     graph.add_node("refine_hypotheses", _run_node("refine_hypotheses", refine_hypotheses, config))
     graph.add_node("decide_recurse", _run_node("decide_recurse", decide_recurse, config))
@@ -1209,7 +1408,8 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
         lambda s: "retry" if s.get("execution_retry_requested") else "continue",
         {"retry": "plan_analysis", "continue": "analyze_results"},
     )
-    graph.add_edge("analyze_results", "generate_visualizations")
+    graph.add_edge("analyze_results", "pipeline_guard")
+    graph.add_edge("pipeline_guard", "generate_visualizations")
     graph.add_edge("generate_visualizations", "refine_hypotheses")
     graph.add_edge("refine_hypotheses", "decide_recurse")
     graph.add_conditional_edges(

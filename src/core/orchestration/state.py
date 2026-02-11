@@ -20,6 +20,10 @@ class OrchestrationState(TypedDict, total=False):
      exec_results: list[dict[str, Any]]
      docs_analysis_results: str
      docs_analysis_history: list[str]
+     pipeline_variants: list[dict[str, Any]]
+     pipeline_gate_failures: list[dict[str, Any]]
+     custom_line_records: list[dict[str, Any]]
+     custom_line_summary: dict[str, Any]
      data_quality: dict[str, Any]
      data_quality_path: str
      visualization_plan: list[dict[str, Any]]
