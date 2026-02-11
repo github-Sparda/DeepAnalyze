@@ -17,6 +17,8 @@ from src.api.config import (
     GRAPH_MONITORING,
     TRACE_ENABLED,
     DATA_QUALITY_ENABLED,
+    ANALYSIS_USE_LLM,
+    REPORT_USE_LLM,
 )
 from src.api.utils import collect_file_info
 
@@ -41,6 +43,13 @@ from .visualization_planner import VisualizationPlanner, load_dataframe
 from src.core.visualization.writer import visualization_writer
 from src.core.reporting.exporter import export_report
 from src.core.reporting.templates import template_from_config
+from src.core.reporting.assembler import (
+    ReportAssembler,
+    analysis_payload_to_markdown,
+    normalize_analysis_payload,
+    normalize_report_payload,
+    parse_structured_payload,
+)
 from .state import OrchestrationState
 from .document_manager import DocumentManager
 
@@ -95,6 +104,7 @@ def _parse_plan_markdown(plan: str) -> dict[str, Any]:
     current_title = ""
     current_steps: list[str] = []
     current_artifacts: list[dict[str, str]] = []
+    section: str | None = None
 
     def _flush() -> None:
         nonlocal current_title, current_steps, current_artifacts
@@ -115,14 +125,22 @@ def _parse_plan_markdown(plan: str) -> dict[str, Any]:
         if stripped.startswith("####"):
             _flush()
             current_title = stripped.lstrip("#").strip()
+            section = None
             continue
-        step_match = re.match(r"^\\d+\\.\\s+(.+)", stripped)
-        if step_match:
-            current_steps.append(step_match.group(1).strip())
+        if "分析步骤" in stripped or "analysis steps" in stripped.lower():
+            section = "steps"
             continue
-        if stripped.startswith("*") and ("图" in stripped or "表" in stripped):
+        if "预期产物" in stripped or "expected artifacts" in stripped.lower():
+            section = "artifacts"
+            continue
+        step_match = re.match(r"^(\\d+)[\\.、\\)]\\s*(.+)", stripped)
+        if step_match and section == "steps":
+            current_steps.append(step_match.group(2).strip())
+            continue
+        if stripped.startswith("*") and section == "artifacts":
             artifact_text = stripped.strip("* ").strip()
-            current_artifacts.append({"description": artifact_text})
+            if artifact_text:
+                current_artifacts.append({"description": artifact_text})
 
     _flush()
 
@@ -131,6 +149,50 @@ def _parse_plan_markdown(plan: str) -> dict[str, Any]:
             hypotheses.append({"title": title, "steps": [], "artifacts": []})
 
     return {"hypotheses": hypotheses}
+
+
+def _collect_result_evidence(session_dir: Path) -> list[str]:
+    evidence: list[str] = []
+    summary_path = session_dir / "result" / "summary.json"
+    if summary_path.exists():
+        try:
+            payload = json.loads(summary_path.read_text(encoding="utf-8"))
+            rows = payload.get("rows")
+            cols = payload.get("columns")
+            missing = payload.get("missing_total")
+            evidence.append(f"数据汇总：rows={rows}, columns={cols}, missing_total={missing}")
+        except Exception:
+            pass
+    group_means = session_dir / "result" / "group_means.csv"
+    if group_means.exists():
+        evidence.append("分组均值已生成：result/group_means.csv")
+    numeric_summary = session_dir / "result" / "numeric_summary.csv"
+    if numeric_summary.exists():
+        evidence.append("数值统计摘要已生成：result/numeric_summary.csv")
+    correlation = session_dir / "result" / "correlation.csv"
+    if correlation.exists():
+        evidence.append("相关性矩阵已生成：result/correlation.csv")
+    return evidence
+
+
+def _has_advanced_artifacts(session_dir: Path) -> bool:
+    allowed = {
+        "summary.json",
+        "numeric_summary.csv",
+        "group_means.csv",
+        "correlation.csv",
+        "data_quality.json",
+        "exec_results.json",
+        "analysis_step_output.txt",
+        "analysis_results.md",
+    }
+    result_dir = session_dir / "result"
+    if not result_dir.exists():
+        return False
+    for item in result_dir.iterdir():
+        if item.is_file() and item.name not in allowed:
+            return True
+    return False
 
 
 def _extract_hypotheses(plan_text: str) -> list[str]:
@@ -672,7 +734,8 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
         plan_id = state.get("plan_id", "")
         artifact_registry = ArtifactRegistry(Path(state.get("session_dir", "")))
         artifact_context = _artifact_context(artifact_registry, plan_id) if plan_id else ""
-        prompt = get_prompt("analysis", language)
+        prompt = get_prompt("analysis_structured", language)
+        auto_evidence = _collect_result_evidence(Path(state.get("session_dir", "")))
         telemetry_context = _telemetry_context(state, artifact_registry, plan_id)
         execution_warning = ""
         if not outputs:
@@ -689,9 +752,10 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
         messages = render_role_prompt(
             "analysis",
             language,
-            prompt_key="analysis",
+            prompt_key="analysis_structured",
             outputs=(
-                f"{warning_block}Visual style: {visual_style}\nInteractive: {visual_interactive}\n\n{summary}"
+                f"{warning_block}Visual style: {visual_style}\nInteractive: {visual_interactive}\n\n"
+                f"Auto evidence:\n- " + "\n- ".join(auto_evidence) + f"\n\n{summary}"
             ),
             plan_id=plan_id,
             artifact_context=artifact_context,
@@ -704,13 +768,49 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
                     "role": "user",
                     "content": (
                         f"{prompt}\n\n{warning_block}Visual style: {visual_style}\n"
-                        f"Interactive: {visual_interactive}\n\nOutputs:\n{summary}"
+                        f"Interactive: {visual_interactive}\n\nAuto evidence:\n- "
+                        + "\n- ".join(auto_evidence)
+                        + f"\n\nOutputs:\n{summary}"
                     ),
                 },
             ]
-        analysis_text = llm.chat(messages, max_tokens=4096)
-        if execution_warning:
-            analysis_text = f"{execution_warning}\n\n{analysis_text}"
+        errors = list(state.get("errors", []))
+        use_llm = bool(state.get("config", {}).get("analysis_use_llm", ANALYSIS_USE_LLM))
+        if use_llm:
+            use_llm = _has_advanced_artifacts(Path(state.get("session_dir", "")))
+        analysis_payload: dict[str, Any]
+        if use_llm:
+            try:
+                analysis_raw = llm.chat(messages, max_tokens=4096)
+                analysis_payload = normalize_analysis_payload(parse_structured_payload(analysis_raw))
+            except Exception as exc:
+                errors.append(f"analysis_structured_failed: {exc}")
+                analysis_payload = {
+                    "summary": "LLM 分析失败，已改为使用自动化证据摘要。",
+                    "key_findings": [],
+                    "evidence": [],
+                    "limitations": [
+                        "LLM 分析阶段失败，报告内容基于自动化统计与产物清单。",
+                    ],
+                    "next_steps": [
+                        "确认模型服务可用后重试分析节点。",
+                    ],
+                }
+        else:
+            analysis_payload = {
+                "summary": "未检测到高级分析产物，使用自动化证据摘要生成分析结果。",
+                "key_findings": [],
+                "evidence": [],
+                "limitations": [
+                    "当前仅生成描述性统计与相关性矩阵，尚未执行推断性统计或预测建模。",
+                ],
+                "next_steps": [
+                    "若需要差异检验/建模，请补充分析步骤并重新执行。",
+                ],
+            }
+        if auto_evidence:
+            analysis_payload["evidence"] = list(auto_evidence) + list(analysis_payload.get("evidence", []))
+        analysis_text = analysis_payload_to_markdown(analysis_payload, execution_warning)
         analysis_path = Path(state.get("session_dir", "")) / "result" / "analysis_results.md"
         write_text(analysis_path, analysis_text)
         record_artifact(state.get("session_dir", ""), analysis_path, "result", "analyze_results")
@@ -719,7 +819,11 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
             artifact_registry.register(plan_id, "result", copied, {"phase": "analysis_results"})
         history = list(state.get("docs_analysis_history", []))
         history.append(analysis_text)
-        return {"docs_analysis_results": analysis_text, "docs_analysis_history": history}
+        return {
+            "docs_analysis_results": analysis_text,
+            "docs_analysis_history": history,
+            "errors": errors,
+        }
 
     def generate_visualizations(state: OrchestrationState) -> OrchestrationState:
         plan_id = state.get("plan_id", "")
@@ -904,7 +1008,7 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
         language = state.get("config", {}).get("report_language", "zh")
         report_format = state.get("config", {}).get("report_format", "html")
         export_mode = state.get("config", {}).get("report_export_mode", "html_convert")
-        prompt = get_prompt("report", language)
+        prompt = get_prompt("report_structured", language)
         previous_report = state.get("report", "")
         plan_id = state.get("plan_id", "")
         artifact_registry = ArtifactRegistry(Path(state.get("session_dir", "")))
@@ -925,7 +1029,7 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
         messages = render_role_prompt(
             "report",
             language,
-            prompt_key="report",
+            prompt_key="report_structured",
             format=report_format,
             mode=export_mode,
             outline=outline,
@@ -947,7 +1051,22 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
                     ),
                 },
             ]
-        report = llm.chat(messages, max_tokens=4096)
+        report_payload: dict[str, Any]
+        if bool(state.get("config", {}).get("report_use_llm", REPORT_USE_LLM)):
+            report_raw = llm.chat(messages, max_tokens=4096)
+            report_payload = normalize_report_payload(parse_structured_payload(report_raw))
+        else:
+            report_payload = normalize_report_payload({})
+        doc_manager = DocumentManager(Path(state.get("session_dir", "")))
+        document_manifest = doc_manager.manifest()
+        assembler = ReportAssembler(language=language)
+        report = assembler.assemble(
+            outline=outline,
+            analysis_md=analysis_text,
+            document_manifest=document_manifest,
+            report_payload=report_payload,
+            execution_warning=execution_warning,
+        )
         version = len(state.get("report_versions", [])) + 1
         report_path = export_report(
             report,

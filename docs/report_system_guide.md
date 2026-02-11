@@ -401,6 +401,15 @@ def get_reports_paginated(session_id, page=1, page_size=20):
 - `ReportTemplate`: 报告模板
 - `ReportVersion`: 报告版本
 
+## 自动化装配与结构化输出
+报告内容由自动化装配器拼装，LLM 输出采用结构化 JSON（summary/sections/highlights），避免自由文本不稳定。
+
+### 验证方式
+运行以下命令，确认报告仍可正常生成：
+```bash
+python scripts/run_serum_orchestrated_analysis.py --max-depth 2 --output-dir outputs/serum_orchestrated
+```
+
 ---
 *文档版本: 1.0*
 *最后更新: 2026-02-07*

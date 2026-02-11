@@ -77,7 +77,13 @@ def export_report(
     mode = export_mode.lower()
 
     if fmt == "html":
-        html_body = content if "<html" in content.lower() else _wrap_html(content, template)
+        if "<html" in content.lower():
+            html_body = content
+        else:
+            if mode in {"html_convert", "html_print"}:
+                html_body = _wrap_html(md.markdown(content), template)
+            else:
+                html_body = _wrap_html(content, template)
         path = out_dir / f"{base_name}.html"
         path.write_text(html_body, encoding="utf-8")
         return path

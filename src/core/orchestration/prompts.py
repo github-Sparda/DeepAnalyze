@@ -67,6 +67,16 @@ PROMPTS = {
         ),
         "zh": "分析执行输出与结果文件，总结关键发现并引用生成的图表/表格。",
     },
+    "analysis_structured": {
+        "en": (
+            "Analyze execution outputs and return strict JSON with keys: "
+            "summary, key_findings, evidence, limitations, next_steps."
+        ),
+        "zh": (
+            "分析执行输出并返回严格 JSON，字段包含：summary、key_findings、"
+            "evidence、limitations、next_steps。"
+        ),
+    },
     "hypothesis_refine": {
         "en": "Propose new hypotheses to verify based on the analysis results.",
         "zh": "基于分析结果提出新的可验证假设。",
@@ -87,6 +97,16 @@ PROMPTS = {
             "基于大纲与分析结果撰写最终报告。遵循指定语言、格式与导出模式。"
             "若导出模式为 academic_redraw，使用更学术的结构并详细描述图表；"
             "若为 html_print，则保持接近 HTML 的排版。"
+        ),
+    },
+    "report_structured": {
+        "en": (
+            "Return strict JSON with keys: title, summary, sections "
+            "(list of {title, body}), highlights, limitations."
+        ),
+        "zh": (
+            "返回严格 JSON，字段包含：title、summary、sections（{title, body} 列表）、"
+            "highlights、limitations。"
         ),
     },
     "data_quality": {

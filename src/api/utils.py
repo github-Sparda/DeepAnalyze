@@ -136,9 +136,9 @@ def _detect_disallowed_io(code_str: str) -> bool:
     if ALLOW_ABSOLUTE_IO:
         return False
     patterns = [
-        r'open\\s*\\(\\s*[\\\'\\"]/',
-        r'Path\\s*\\(\\s*[\\\'\\"]/',
-        r'pathlib\\.Path\\s*\\(\\s*[\\\'\\"]/',
+        r"open\s*\(\s*['\"]\s*/",
+        r"Path\s*\(\s*['\"]\s*/",
+        r"pathlib\.Path\s*\(\s*['\"]\s*/",
     ]
     for pattern in patterns:
         if re.search(pattern, code_str):

@@ -83,7 +83,10 @@ VALID_FILE_PURPOSES = ["answers", "file-extract", "assistants"]
 
 # Model configuration
 DEFAULT_TEMPERATURE = 0.4
-DEFAULT_MODEL = os.getenv("DEEPANALYZE_DEFAULT_MODEL", os.getenv("DEFAULT_MODEL", "default"))
+DEFAULT_MODEL = os.getenv(
+    "DEEPANALYZE_DEFAULT_MODEL",
+    os.getenv("DEFAULT_MODEL", MODEL_NAME),
+)
 
 # Stop token IDs for the configured model (optional)
 STOP_TOKEN_IDS = []
@@ -105,6 +108,8 @@ JUPYTER_PORT = _get_int_env("DEEPANALYZE_JUPYTER_PORT", 8888)
 
 # Orchestration settings
 USE_ORCHESTRATOR = _get_bool_env("DEEPANALYZE_USE_ORCHESTRATOR", False)
+ANALYSIS_USE_LLM = _get_bool_env("DEEPANALYZE_ANALYSIS_USE_LLM", False)
+REPORT_USE_LLM = _get_bool_env("DEEPANALYZE_REPORT_USE_LLM", False)
 MAX_RECURSION_DEPTH = _get_int_env("DEEPANALYZE_MAX_DEPTH", 1)
 if MAX_RECURSION_DEPTH < 0:
     MAX_RECURSION_DEPTH = 0
