@@ -39,6 +39,8 @@ from . import (
     viz_interactive,
     viz_sankey,
     viz_chord,
+    viz_top_features,
+    viz_embedding,
 )
 from .common import ensure_dir, write_json
 
@@ -85,6 +87,8 @@ MODULES = {
     "viz_interactive": viz_interactive,
     "viz_sankey": viz_sankey,
     "viz_chord": viz_chord,
+    "viz_top_features": viz_top_features,
+    "viz_embedding": viz_embedding,
 }
 
 

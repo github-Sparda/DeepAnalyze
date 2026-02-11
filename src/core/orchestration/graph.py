@@ -275,6 +275,282 @@ def _maybe_run_pipeline_variants(
     return executed, failures, custom_records
 
 
+def _run_deterministic_hypotheses(session_dir: Path, dataset_path: Path) -> dict[str, Any]:
+    def _record_tool_role(role_id: str, step_name: str, result: dict[str, Any], artifacts: list[str]) -> None:
+        status = result.get("status", "ok")
+        record_role_output(
+            session_dir,
+            role_id,
+            status,
+            output={step_name: result},
+            artifacts=artifacts,
+        )
+    def _run_step_with_retry(module_name: str, input_path: Path, **kwargs: Any) -> dict[str, Any]:
+        last_error: Exception | None = None
+        for attempt in range(EXECUTION_MAX_RETRIES + 1):
+            try:
+                return run_step(module_name, input_path, session_dir, **kwargs)
+            except Exception as exc:  # pragma: no cover - defensive
+                last_error = exc
+                if attempt >= EXECUTION_MAX_RETRIES:
+                    break
+                time.sleep(0.1)
+        error_dir = ensure_dir(session_dir / "result" / "errors")
+        write_json(
+            error_dir / f"{module_name}.json",
+            {"module": module_name, "error": str(last_error) if last_error else "unknown"},
+        )
+        return {"module": module_name, "status": "error", "message": str(last_error) if last_error else "unknown"}
+
+    def _build_stats_summary(top_k: int = 10) -> dict[str, Any]:
+        stats_path = session_dir / "result" / "stats_results.json"
+        if not stats_path.exists():
+            return {"module": "stats_summary", "status": "skipped", "message": "stats_results.json missing"}
+        try:
+            stats_df = pd.read_json(stats_path)
+        except Exception as exc:
+            return {"module": "stats_summary", "status": "error", "message": str(exc)}
+        mt_path = session_dir / "result" / "multiple_testing.json"
+        if mt_path.exists():
+            try:
+                mt_df = pd.read_json(mt_path)
+                if "q_value" in mt_df.columns:
+                    stats_df = stats_df.merge(mt_df[["feature", "q_value"]], on="feature", how="left")
+            except Exception:
+                pass
+        out_dir = ensure_dir(session_dir / "result")
+        stats_df.to_json(out_dir / "stats_summary.json", orient="records", force_ascii=False)
+        stats_df.to_csv(out_dir / "stats_summary.csv", index=False)
+        sort_col = "q_value" if "q_value" in stats_df.columns else "p_value"
+        top_df = stats_df.sort_values(sort_col).head(top_k)
+        top_df.to_json(out_dir / "top_features.json", orient="records", force_ascii=False)
+        top_df.to_csv(out_dir / "top_features.csv", index=False)
+        return {"module": "stats_summary", "status": "ok", "output": str(out_dir / "stats_summary.json")}
+
+    results: list[dict[str, Any]] = []
+    def _check_artifacts(expected: list[str]) -> list[str]:
+        missing: list[str] = []
+        for artifact in expected:
+            if not (session_dir / "result" / artifact).exists() and not (
+                session_dir / "plots" / artifact
+            ).exists():
+                missing.append(artifact)
+        return missing
+
+    # H1: differential testing
+    h1_steps: dict[str, dict[str, Any]] = {}
+    h1_steps["stats_tests"] = _run_step_with_retry("stats_tests", dataset_path, method="t_test")
+    _record_tool_role("StatsTesting", "stats_tests", h1_steps["stats_tests"], ["result/stats_results.json"])
+    stats_path = session_dir / "result" / "stats_results.json"
+    h1_steps["multiple_testing"] = _run_step_with_retry(
+        "multiple_testing", stats_path if stats_path.exists() else dataset_path, pval_field="p_value"
+    )
+    _record_tool_role("StatsTesting", "multiple_testing", h1_steps["multiple_testing"], ["result/multiple_testing.json"])
+    h1_steps["stats_summary"] = _build_stats_summary()
+    _record_tool_role(
+        "StatsTesting",
+        "stats_summary",
+        h1_steps["stats_summary"],
+        ["result/stats_summary.json", "result/top_features.json"],
+    )
+    h1_steps["viz_volcano"] = _run_step_with_retry("viz_manhattan_volcano", stats_path, mode="volcano")
+    _record_tool_role("Visualization", "viz_volcano", h1_steps["viz_volcano"], ["plots/volcano_plot.png"])
+    top_features_path = session_dir / "result" / "top_features.json"
+    if top_features_path.exists():
+        h1_steps["viz_top_features"] = _run_step_with_retry("viz_top_features", top_features_path)
+        _record_tool_role(
+            "Visualization",
+            "viz_top_features",
+            h1_steps["viz_top_features"],
+            ["plots/top_features_bar.png"],
+        )
+    h1_expected = ["stats_results.json", "multiple_testing.json", "stats_summary.json", "top_features.json"]
+    results.append(
+        {
+            "hypothesis": "H1: 差异检验",
+            "expected_artifacts": h1_expected,
+            "missing": _check_artifacts(h1_expected),
+            "steps": h1_steps,
+        }
+    )
+
+    # H2: feature selection with rationale
+    h2_steps: dict[str, dict[str, Any]] = {}
+    h2_steps["feature_selection"] = _run_step_with_retry("feature_selection", dataset_path, method="p_value")
+    _record_tool_role(
+        "FeatureEngineering",
+        "feature_selection",
+        h2_steps["feature_selection"],
+        ["result/feature_selection.json", "result/feature_selection_rationale.json"],
+    )
+    h2_expected = ["feature_selection.json", "feature_selection_rationale.json"]
+    results.append(
+        {
+            "hypothesis": "H2: 关键特征筛选",
+            "expected_artifacts": h2_expected,
+            "missing": _check_artifacts(h2_expected),
+            "steps": h2_steps,
+        }
+    )
+
+    # H3: correlation + network
+    h3_steps: dict[str, dict[str, Any]] = {}
+    h3_steps["correlation"] = _run_step_with_retry("correlation", dataset_path, method="pearson")
+    _record_tool_role("StatsTesting", "correlation", h3_steps["correlation"], ["result/correlation.json"])
+    corr_path = session_dir / "result" / "correlation.csv"
+    if corr_path.exists():
+        h3_steps["viz_heatmap"] = _run_step_with_retry("viz_heatmap_cluster", corr_path, mode="heatmap")
+        _record_tool_role("Visualization", "viz_heatmap", h3_steps["viz_heatmap"], ["plots/heatmap.png"])
+    h3_steps["viz_network"] = _run_step_with_retry("viz_network", dataset_path, mode="network")
+    _record_tool_role("Visualization", "viz_network", h3_steps["viz_network"], ["plots/network.png"])
+    h3_expected = ["correlation.json", "network.png"]
+    results.append(
+        {
+            "hypothesis": "H3: 相关性结构",
+            "expected_artifacts": h3_expected,
+            "missing": _check_artifacts(h3_expected),
+            "steps": h3_steps,
+        }
+    )
+
+    # H4: dimensionality + clustering + scatter
+    h4_steps: dict[str, dict[str, Any]] = {}
+    h4_steps["dimensionality"] = _run_step_with_retry("dimensionality", dataset_path, method="pca")
+    _record_tool_role("Modeling", "dimensionality", h4_steps["dimensionality"], ["result/dimensionality.json"])
+    h4_steps["dimensionality_tsne"] = _run_step_with_retry("dimensionality", dataset_path, method="tsne")
+    _record_tool_role("Modeling", "dimensionality_tsne", h4_steps["dimensionality_tsne"], ["result/dimensionality_tsne.json"])
+    h4_steps["clustering"] = _run_step_with_retry("clustering", dataset_path, method="kmeans")
+    _record_tool_role("Modeling", "clustering", h4_steps["clustering"], ["result/clustering.json"])
+    h4_steps["model_train"] = _run_step_with_retry("model_train", dataset_path, method="centroid")
+    _record_tool_role("Modeling", "model_train", h4_steps["model_train"], ["result/model_results.json"])
+    model_results_path = session_dir / "result" / "model_results.json"
+    h4_steps["model_eval"] = _run_step_with_retry(
+        "model_eval",
+        dataset_path,
+        method="baseline",
+        model_path=model_results_path if model_results_path.exists() else None,
+    )
+    _record_tool_role("Modeling", "model_eval", h4_steps["model_eval"], ["result/model_eval.json"])
+    h4_steps["viz_multivariate"] = _run_step_with_retry("viz_multivariate", dataset_path, mode="scatter")
+    _record_tool_role("Visualization", "viz_multivariate", h4_steps["viz_multivariate"], ["plots/scatter.png"])
+    embedding_path = session_dir / "result" / "dimensionality.json"
+    cluster_path = session_dir / "result" / "clustering.json"
+    if embedding_path.exists():
+        h4_steps["viz_embedding"] = _run_step_with_retry(
+            "viz_embedding", embedding_path, labels_path=cluster_path if cluster_path.exists() else None, name="embedding_pca"
+        )
+        _record_tool_role("Visualization", "viz_embedding", h4_steps["viz_embedding"], ["plots/embedding_pca.png"])
+    tsne_path = session_dir / "result" / "dimensionality_tsne.json"
+    if tsne_path.exists():
+        h4_steps["viz_embedding_tsne"] = _run_step_with_retry(
+            "viz_embedding", tsne_path, labels_path=cluster_path if cluster_path.exists() else None, name="embedding_tsne"
+        )
+        _record_tool_role("Visualization", "viz_embedding_tsne", h4_steps["viz_embedding_tsne"], ["plots/embedding_tsne.png"])
+    h4_expected = [
+        "dimensionality.json",
+        "clustering.json",
+        "model_results.json",
+        "model_eval.json",
+        "scatter.png",
+        "embedding_pca.png",
+    ]
+    results.append(
+        {
+            "hypothesis": "H4: 降维/聚类",
+            "expected_artifacts": h4_expected,
+            "missing": _check_artifacts(h4_expected),
+            "steps": h4_steps,
+        }
+    )
+
+    payload = {"hypotheses": results}
+    write_json(session_dir / "result" / "hypothesis_results.json", payload)
+    return payload
+
+
+def _hypothesis_summary_md(payload: dict[str, Any], session_dir: Path) -> str:
+    hypotheses = payload.get("hypotheses", []) if isinstance(payload, dict) else []
+    if not hypotheses:
+        return ""
+    lines = ["## 假设验证摘要"]
+    missing_total: list[str] = []
+    for item in hypotheses:
+        title = item.get("hypothesis", "Hypothesis")
+        missing = item.get("missing", [])
+        if missing:
+            lines.append(f"- {title}: 未完成（缺少 {', '.join(missing)}）")
+            missing_total.extend(missing)
+        else:
+            lines.append(f"- {title}: 完成")
+    lines.append("")
+    if missing_total:
+        lines.append("## 未完成原因与输入快照")
+        lines.append(f"- 缺失产物: {', '.join(sorted(set(missing_total)))}")
+        profile_path = session_dir / "profile" / "data_profile.json"
+        if profile_path.exists():
+            try:
+                profile = json.loads(profile_path.read_text(encoding="utf-8"))
+                lines.append(f"- 输入快照: rows={profile.get('rows')}, cols={profile.get('columns')}")
+            except Exception:
+                pass
+        error_dir = session_dir / "result" / "errors"
+        if error_dir.exists():
+            error_files = [p.name for p in error_dir.glob("*.json")]
+            if error_files:
+                lines.append(f"- 错误记录: {', '.join(sorted(error_files))}")
+        lines.append("")
+    rationale_path = session_dir / "result" / "feature_selection_rationale.json"
+    features_path = session_dir / "result" / "feature_selection.json"
+    if rationale_path.exists():
+        try:
+            rationale = json.loads(rationale_path.read_text(encoding="utf-8"))
+            method = rationale.get("method", "")
+            top_k = rationale.get("top_k", "")
+            source = rationale.get("source", "")
+            lines.append("## 特征筛选依据")
+            lines.append(f"- 方法: {method}")
+            if top_k:
+                lines.append(f"- Top K: {top_k}")
+            if source:
+                lines.append(f"- 来源: {source}")
+            lines.append("")
+        except Exception:
+            pass
+    if features_path.exists():
+        try:
+            features = json.loads(features_path.read_text(encoding="utf-8"))
+            if isinstance(features, list) and features:
+                lines.append("## 关键特征结果")
+                for item in features[:10]:
+                    name = item.get("feature") if isinstance(item, dict) else str(item)
+                    if name:
+                        lines.append(f"- {name}")
+                lines.append("")
+        except Exception:
+            pass
+    top_features_path = session_dir / "result" / "top_features.json"
+    if top_features_path.exists():
+        try:
+            top_features = json.loads(top_features_path.read_text(encoding="utf-8"))
+            if isinstance(top_features, list) and top_features:
+                lines.append("## 差异检验 Top Features")
+                for item in top_features[:10]:
+                    if not isinstance(item, dict):
+                        continue
+                    name = item.get("feature")
+                    p_val = item.get("p_value")
+                    q_val = item.get("q_value")
+                    if name:
+                        metric = f"p={p_val}" if p_val is not None else ""
+                        if q_val is not None:
+                            metric = f"{metric}, q={q_val}" if metric else f"q={q_val}"
+                        lines.append(f"- {name} {metric}".strip())
+                lines.append("")
+        except Exception:
+            pass
+    return "\n".join(lines)
+
+
 def _generate_custom_line(llm: LLMClient, summary: str) -> dict[str, Any]:
     prompt = (
         "Generate a JSON line definition with keys: "
@@ -1029,6 +1305,8 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
                         executed, failures, custom_records = _maybe_run_pipeline_variants(
                             session_dir, data_profile, llm, summary
                         )
+                    hypothesis_payload = _run_deterministic_hypotheses(session_dir, dataset_path)
+                    hypothesis_md = _hypothesis_summary_md(hypothesis_payload, session_dir)
                     auto_evidence = _collect_result_evidence(session_dir)
                 except Exception:
                     pass
@@ -1106,6 +1384,8 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
         if auto_evidence:
             analysis_payload["evidence"] = list(auto_evidence) + list(analysis_payload.get("evidence", []))
         analysis_text = analysis_payload_to_markdown(analysis_payload, execution_warning)
+        if "hypothesis_md" in locals() and hypothesis_md:
+            analysis_text = f"{analysis_text}\n\n{hypothesis_md}"
         analysis_path = Path(state.get("session_dir", "")) / "result" / "analysis_results.md"
         write_text(analysis_path, analysis_text)
         record_artifact(state.get("session_dir", ""), analysis_path, "result", "analyze_results")

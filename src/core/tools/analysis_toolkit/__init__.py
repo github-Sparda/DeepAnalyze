@@ -17,6 +17,8 @@ from . import viz_manhattan_volcano
 from . import viz_heatmap_cluster
 from . import viz_network
 from . import viz_comparison
+from . import viz_top_features
+from . import viz_embedding
 
 __all__ = [
     "data_profile",
@@ -38,4 +40,6 @@ __all__ = [
     "viz_heatmap_cluster",
     "viz_network",
     "viz_comparison",
+    "viz_top_features",
+    "viz_embedding",
 ]
