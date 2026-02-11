@@ -199,6 +199,87 @@ def render_comparison(
     return output
 
 
+def render_group_comparison(
+    df: pd.DataFrame,
+    category: str,
+    value: str,
+    output_path: str | Path,
+    mode: str = "box",
+    style: str = "academic",
+    interactive: bool = False,
+) -> Path:
+    theme = ACADEMIC_THEME if style == "academic" else DASHBOARD_THEME
+    output = Path(output_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+
+    if interactive:
+        if mode == "violin":
+            fig = px.violin(df, x=category, y=value, box=True, points="outliers")
+        elif mode == "bar":
+            fig = px.bar(df, x=category, y=value)
+        else:
+            fig = px.box(df, x=category, y=value)
+        fig.update_layout(title=f"{mode} of {value} by {category}")
+        fig.write_html(str(output))
+        _save_metadata(
+            output,
+            {
+                "type": "comparison",
+                "mode": mode,
+                "category": category,
+                "value": value,
+                "interactive": True,
+            },
+        )
+        return output
+
+    _apply_seaborn_theme(theme)
+    _apply_matplotlib_theme(theme)
+    plt.figure(figsize=(8, 4))
+    if mode == "violin":
+        sns.violinplot(data=df, x=category, y=value)
+    elif mode == "bar":
+        sns.barplot(data=df, x=category, y=value)
+    else:
+        sns.boxplot(data=df, x=category, y=value)
+    plt.title(f"{mode} of {value} by {category}")
+    plt.tight_layout()
+    plt.savefig(output, dpi=200)
+    plt.close()
+    _save_metadata(
+        output,
+        {
+            "type": "comparison",
+            "mode": mode,
+            "category": category,
+            "value": value,
+            "interactive": False,
+        },
+    )
+    return output
+
+
+def render_chord_placeholder(
+    output_path: str | Path,
+    message: str = "Chord diagram not implemented.",
+) -> Path:
+    output = Path(output_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    html = (
+        "<html><head><meta charset=\"utf-8\"/></head>"
+        "<body>"
+        "<div style=\"font-family:Arial,sans-serif;padding:16px;\">"
+        f"<h3>Chord Diagram</h3><p>{message}</p>"
+        "</div></body></html>"
+    )
+    output.write_text(html, encoding="utf-8")
+    _save_metadata(
+        output,
+        {"type": "chord", "interactive": True, "note": "placeholder"},
+    )
+    return output
+
+
 def render_fallback_plot(
     df: pd.DataFrame,
     output_path: str | Path,

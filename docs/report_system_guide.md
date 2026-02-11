@@ -113,6 +113,10 @@ for format_type, description in formats:
         print(f"{description}已导出至: {export_path}")
 ```
 
+### 图表与产物集成
+报告装配时会读取会话目录中的 `plots/` 与 `result/` 产物清单，并将图表嵌入 HTML。
+图表统一通过 `src/core/visualization` 渲染，以确保主题与输出格式一致。
+
 ## 报告类型详解
 
 ### 分析报告 (ANALYTICAL)

@@ -48,11 +48,11 @@ PROMPTS = {
         "en": (
             "Generate Python analysis steps based on the plan. Output strict JSON with keys: "
             "steps: [{name, filename, code}]. Each code must be runnable standalone. "
-            "Use pandas and standard libs. Prefer calling analytics toolkit helpers when available."
+            "Use pandas and standard libs. Prefer calling analytics toolkit helpers and core visualization renderer when available."
         ),
         "zh": (
             "根据计划生成 Python 脚本。输出严格 JSON，键为 steps: [{name, filename, code}]。"
-            "每段代码可独立运行，优先使用 pandas 与标准库。可用时优先调用 analytics toolkit 工具。"
+            "每段代码可独立运行，优先使用 pandas 与标准库。可用时优先调用 analytics toolkit 工具与统一渲染层。"
         ),
     },
     "code_fix": {

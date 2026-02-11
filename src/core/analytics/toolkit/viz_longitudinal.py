@@ -3,10 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-import matplotlib.pyplot as plt
-
 from .common import load_table, normalize_output_dir
-from .viz_theme import apply_theme
+from src.core.visualization.plotter import render_trend
 
 
 def _detect_time_column(df):
@@ -16,18 +14,25 @@ def _detect_time_column(df):
     return None
 
 
-def run(input_path: str | Path, output_dir: str | Path, mode: str = "line", theme: dict[str, Any] | None = None) -> dict[str, Any]:
+def run(
+    input_path: str | Path,
+    output_dir: str | Path,
+    mode: str = "line",
+    theme: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     df = load_table(input_path)
     time_col = _detect_time_column(df)
     numeric_cols = df.select_dtypes(include="number").columns.tolist()
     if not time_col or not numeric_cols:
         return {"module": "viz_longitudinal", "status": "skipped", "message": "missing time/numeric"}
     out_dir = normalize_output_dir(output_dir, "plots")
-    apply_theme(theme or {})
-    fig, ax = plt.subplots()
-    ax.plot(df[time_col], df[numeric_cols[0]])
-    ax.set_title("Longitudinal Trend")
     path = out_dir / "longitudinal.png"
-    fig.savefig(path, bbox_inches="tight")
-    plt.close(fig)
+    render_trend(
+        df,
+        x=time_col,
+        y=numeric_cols[0],
+        output_path=path,
+        style=(theme or {}).get("style", "academic"),
+        interactive=False,
+    )
     return {"module": "viz_longitudinal", "status": "ok", "output": str(path)}
