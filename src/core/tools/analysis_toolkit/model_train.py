@@ -3,11 +3,30 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .common import default_output, write_json, normalize_output_dir
+import numpy as np
+import pandas as pd
+
+from .common import load_table, detect_group_column, numeric_columns, write_json, normalize_output_dir
 
 
-def run(input_path: str | Path, output_dir: str | Path, **kwargs: Any) -> dict[str, Any]:
+def run(input_path: str | Path, output_dir: str | Path, method: str = "logistic") -> dict[str, Any]:
+    df = load_table(input_path)
+    label_col = detect_group_column(df)
+    num_cols = numeric_columns(df)
     out_dir = normalize_output_dir(output_dir, "result")
-    payload = default_output("model_train", "not_implemented", "Module stub. Implement in follow-up.")
-    write_json(out_dir / "model_train.json", payload)
-    return payload
+    if not label_col or not num_cols:
+        payload = {"status": "skipped", "reason": "missing label or numeric columns"}
+        write_json(out_dir / "model_results.json", payload)
+        return {"module": "model_train", "status": "skipped", "output": str(out_dir / "model_results.json")}
+    # simple baseline: predict mean of label encoded
+    labels = pd.Categorical(df[label_col]).codes
+    y = labels.astype(float)
+    baseline = float(np.mean(y))
+    payload = {
+        "model": method,
+        "label_col": label_col,
+        "baseline": baseline,
+        "n_samples": int(len(df)),
+    }
+    write_json(out_dir / "model_results.json", payload)
+    return {"module": "model_train", "status": "ok", "output": str(out_dir / "model_results.json")}

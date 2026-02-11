@@ -35,6 +35,10 @@ from . import (
     viz_stat_diagnostic,
     viz_facet_grid,
     viz_geospatial,
+    viz_reporting,
+    viz_interactive,
+    viz_sankey,
+    viz_chord,
 )
 from .common import ensure_dir, write_json
 
@@ -77,6 +81,10 @@ MODULES = {
     "viz_stat_diagnostic": viz_stat_diagnostic,
     "viz_facet_grid": viz_facet_grid,
     "viz_geospatial": viz_geospatial,
+    "viz_reporting": viz_reporting,
+    "viz_interactive": viz_interactive,
+    "viz_sankey": viz_sankey,
+    "viz_chord": viz_chord,
 }
 
 

@@ -16,6 +16,8 @@ python -m src.core.tools.analysis_toolkit.runner --input data.csv --output-dir o
 
 ## Theme Configuration
 Use `viz_theme.apply_theme` to set font, colors, legend visibility, and sizes.
+Default keys:
+- `style`, `font_scale`, `palette`, `legend`, `title_size`, `label_size`
 
 ## Notes
 Some advanced modules are stubs and will be implemented in follow-up iterations.
