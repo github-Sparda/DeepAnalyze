@@ -187,11 +187,17 @@ class ReportAssembler:
             return "distribution"
         return "other"
 
-    def _visual_explanation(self, item: Dict[str, Any], session_root: Path | None) -> str:
+    def _visual_explanation(
+        self,
+        item: Dict[str, Any],
+        session_root: Path | None,
+        binding_map: dict[str, str],
+    ) -> str:
         relative = item.get("relative_path", "") or ""
         filename = Path(relative).name.lower()
         if not session_root:
             return ""
+        bound_hypothesis = binding_map.get(relative, "")
 
         result_dir = session_root / "result"
         if filename.startswith("volcano"):
@@ -213,7 +219,7 @@ class ReportAssembler:
             top_text = "、".join(top_items) if top_items else "无"
             return (
                 "<div class=\"chart-explain\">"
-                f"<p><strong>假设</strong>：{group_a} 与 {group_b} 在各峰值上存在差异。</p>"
+                f"<p><strong>假设</strong>：{bound_hypothesis or (group_a + ' 与 ' + group_b + ' 在各峰值上存在差异')}。</p>"
                 "<p><strong>验证</strong>：对每个峰值进行组间检验，绘制火山图。</p>"
                 "<p><strong>坐标/颜色</strong>：X=mean_diff(组均值差)，Y=-log10(p)。"
                 "红色表示 p<0.05，灰色为不显著。</p>"
@@ -238,7 +244,7 @@ class ReportAssembler:
             max_corr = arr[max_idx]
             return (
                 "<div class=\"chart-explain\">"
-                "<p><strong>假设</strong>：峰值之间存在相关性结构。</p>"
+                f"<p><strong>假设</strong>：{bound_hypothesis or '峰值之间存在相关性结构'}。</p>"
                 "<p><strong>验证</strong>：计算相关矩阵并绘制热力图。</p>"
                 "<p><strong>坐标/颜色</strong>：X/Y 为峰值变量，颜色表示相关系数（-1~1）。</p>"
                 f"<p><strong>结论</strong>：最大绝对相关约 {max_corr:.3g}，"
@@ -261,7 +267,7 @@ class ReportAssembler:
             max_corr = arr[max_idx]
             return (
                 "<div class=\"chart-explain\">"
-                "<p><strong>假设</strong>：存在强相关的峰值网络结构。</p>"
+                f"<p><strong>假设</strong>：{bound_hypothesis or '存在强相关的峰值网络结构'}。</p>"
                 "<p><strong>验证</strong>：对相关矩阵阈值筛边（|corr|>0.5）构建网络。</p>"
                 "<p><strong>颜色/图例</strong>：蓝线为正相关，红线为负相关，"
                 "仅显示 |corr|>0.5 的边。</p>"
@@ -274,7 +280,7 @@ class ReportAssembler:
             method = "PCA" if "pca" in filename else "t-SNE"
             return (
                 "<div class=\"chart-explain\">"
-                "<p><strong>假设</strong>：样本在低维空间存在分离结构。</p>"
+                f"<p><strong>假设</strong>：{bound_hypothesis or '样本在低维空间存在分离结构'}。</p>"
                 f"<p><strong>验证</strong>：使用 {method} 将样本投影到 2D 并绘制散点图。</p>"
                 "<p><strong>坐标</strong>：X/Y 为降维后的第 1/2 维坐标。</p>"
                 "<p><strong>结论</strong>：用于观察聚类或离群样本趋势。</p>"
@@ -305,7 +311,7 @@ class ReportAssembler:
             corr_text = f"{corr_val:.3g}" if isinstance(corr_val, (int, float)) else "未知"
             return (
                 "<div class=\"chart-explain\">"
-                f"<p><strong>假设</strong>：{x_col} 与 {y_col} 之间存在相关关系。</p>"
+                f"<p><strong>假设</strong>：{bound_hypothesis or (x_col + ' 与 ' + y_col + ' 之间存在相关关系')}。</p>"
                 "<p><strong>验证</strong>：选取绝对相关最高的两个变量绘制散点图。</p>"
                 f"<p><strong>坐标</strong>：X={x_col}, Y={y_col}。</p>"
                 f"<p><strong>结论</strong>：|corr|≈{corr_text}，可用于判断线性关系与异常点。</p>"
@@ -326,7 +332,7 @@ class ReportAssembler:
             names_text = "、".join(names) if names else "无"
             return (
                 "<div class=\"chart-explain\">"
-                "<p><strong>假设</strong>：存在显著差异的关键峰值。</p>"
+                f"<p><strong>假设</strong>：{bound_hypothesis or '存在显著差异的关键峰值'}。</p>"
                 "<p><strong>验证</strong>：按 p/q 值排序，展示 Top 特征。</p>"
                 "<p><strong>坐标</strong>：Y 为特征名，X 为排名。</p>"
                 f"<p><strong>结论</strong>：Top 特征包括：{names_text}。</p>"
@@ -336,7 +342,12 @@ class ReportAssembler:
 
         return ""
 
-    def _build_visual_block(self, visuals: list[Dict[str, Any]], session_root: Path | None) -> str:
+    def _build_visual_block(
+        self,
+        visuals: list[Dict[str, Any]],
+        session_root: Path | None,
+        binding_map: dict[str, str],
+    ) -> str:
         lines: list[str] = []
         for item in visuals:
             name = item.get("name", "visual")
@@ -354,7 +365,7 @@ class ReportAssembler:
                 lines.append(f"<figcaption>交互图表来源: {note}</figcaption></figure>")
             else:
                 lines.append(f"- 图表链接: {name} ({path})")
-            explanation = self._visual_explanation(item, session_root)
+            explanation = self._visual_explanation(item, session_root, binding_map)
             if explanation:
                 lines.append(explanation)
         return "\n".join(lines)
@@ -423,6 +434,91 @@ class ReportAssembler:
                 )
         return blocks
 
+    def _render_hypothesis_matrix(self, session_root: Path | None) -> str:
+        if not session_root:
+            return ""
+        matrix_path = session_root / "result" / "hypothesis_matrix.json"
+        if not matrix_path.exists():
+            return ""
+        payload = self._load_json(matrix_path)
+        rows = payload.get("hypotheses", []) if isinstance(payload, dict) else []
+        if not rows:
+            return ""
+        lines = ["## 假设闭环矩阵", "<table border=1 cellpadding=4 cellspacing=0>"]
+        lines.append("<thead><tr><th>假设</th><th>状态</th><th>缺失产物</th><th>原因</th></tr></thead><tbody>")
+        for row in rows:
+            missing = ", ".join(row.get("missing_artifacts", []) or [])
+            reason = row.get("reason", "")
+            lines.append(
+                f"<tr><td>{row.get('hypothesis','')}</td>"
+                f"<td>{row.get('status','')}</td>"
+                f"<td>{missing}</td>"
+                f"<td>{reason}</td></tr>"
+            )
+        lines.append("</tbody></table>")
+        return "\n".join(lines)
+
+    def _render_coverage_report(self, session_root: Path | None) -> str:
+        if not session_root:
+            return ""
+        path = session_root / "result" / "coverage_report.json"
+        if not path.exists():
+            return ""
+        payload = self._load_json(path)
+        missing = payload.get("missing_features", []) or []
+        mode = payload.get("mode", "")
+        filter_info = payload.get("filter_info", {}) or {}
+        lines = ["## 覆盖策略与遗漏项"]
+        lines.append(f"- 覆盖模式: {mode}")
+        if filter_info:
+            method = filter_info.get("method")
+            top_k = filter_info.get("top_k")
+            if method:
+                lines.append(f"- 筛选方法: {method}")
+            if top_k:
+                lines.append(f"- Top K: {top_k}")
+        if missing:
+            lines.append(f"- 未覆盖特征数量: {len(missing)}")
+            lines.append(f"- 未覆盖示例: {', '.join(missing[:10])}")
+        else:
+            lines.append("- 已覆盖全部数值特征")
+        return "\n".join(lines)
+
+    def _render_quality_warnings(self, session_root: Path | None) -> str:
+        if not session_root:
+            return ""
+        audit_path = session_root / "meta" / "run_audit.json"
+        if not audit_path.exists():
+            return ""
+        audit = self._load_json(audit_path)
+        missing_required = audit.get("missing_required", []) or []
+        gate_missing = audit.get("quality_gate_missing", []) or []
+        if not missing_required and not gate_missing:
+            return ""
+        lines = ["## 质量门槛未达标"]
+        if missing_required:
+            lines.append(f"- 缺失核心产物: {', '.join(missing_required)}")
+        if gate_missing:
+            lines.append(f"- 缺失质量门槛: {', '.join(gate_missing)}")
+        return "\n".join(lines)
+
+    def _render_validation_failures(self, session_root: Path | None) -> str:
+        if not session_root:
+            return ""
+        failure_path = session_root / "result" / "validation_failures.json"
+        if not failure_path.exists():
+            return ""
+        payload = self._load_json(failure_path)
+        if not payload:
+            return ""
+        stage = payload.get("stage", "validation")
+        error = payload.get("error", "unknown")
+        return (
+            "## 验证失败记录\n"
+            f"- 阶段: {stage}\n"
+            f"- 错误: {error}"
+        )
+
     def assemble(
         self,
         outline: str,
@@ -439,6 +535,16 @@ class ReportAssembler:
         visuals = document_manifest.get("visualizations", []) or []
         tables = document_manifest.get("tables", []) or []
         session_root = self._infer_session_root(visuals, tables)
+        binding_map: dict[str, str] = {}
+        if session_root:
+            binding_path = session_root / "result" / "visual_binding.json"
+            if binding_path.exists():
+                binding_payload = self._load_json(binding_path)
+                for item in binding_payload.get("bindings", []) if isinstance(binding_payload, dict) else []:
+                    artifact = item.get("artifact")
+                    hypothesis = item.get("hypothesis")
+                    if artifact and hypothesis:
+                        binding_map[artifact] = hypothesis
         artifact_names = " ".join(
             [str(item.get("name", "")).lower() for item in visuals + tables]
         )
@@ -470,6 +576,22 @@ class ReportAssembler:
             lines.append("## 分析结果")
             lines.append(analysis_md)
             lines.append("")
+        failure_block = self._render_validation_failures(session_root)
+        if failure_block:
+            lines.append(failure_block)
+            lines.append("")
+        quality_block = self._render_quality_warnings(session_root)
+        if quality_block:
+            lines.append(quality_block)
+            lines.append("")
+        matrix_block = self._render_hypothesis_matrix(session_root)
+        if matrix_block:
+            lines.append(matrix_block)
+            lines.append("")
+        coverage_block = self._render_coverage_report(session_root)
+        if coverage_block:
+            lines.append(coverage_block)
+            lines.append("")
         if document_manifest:
             lines.append("## 自动校验摘要")
             lines.append(f"- 可视化产物数量: {len(visuals)}")
@@ -500,35 +622,35 @@ class ReportAssembler:
             lines.append(f"## {title}")
             lines.append(body)
             if "差异" in title or "Differential" in title:
-                block = self._build_visual_block(visuals_by_category.get("diff", []), session_root)
+                block = self._build_visual_block(visuals_by_category.get("diff", []), session_root, binding_map)
                 if block:
                     lines.append(block)
                     used_visuals.update(
                         v.get("relative_path", "") for v in visuals_by_category.get("diff", [])
                     )
             elif "相关" in title or "Correlation" in title:
-                block = self._build_visual_block(visuals_by_category.get("correlation", []), session_root)
+                block = self._build_visual_block(visuals_by_category.get("correlation", []), session_root, binding_map)
                 if block:
                     lines.append(block)
                     used_visuals.update(
                         v.get("relative_path", "") for v in visuals_by_category.get("correlation", [])
                     )
             elif "分布" in title or "描述" in title or "统计" in title or "Distribution" in title:
-                block = self._build_visual_block(visuals_by_category.get("distribution", []), session_root)
+                block = self._build_visual_block(visuals_by_category.get("distribution", []), session_root, binding_map)
                 if block:
                     lines.append(block)
                     used_visuals.update(
                         v.get("relative_path", "") for v in visuals_by_category.get("distribution", [])
                     )
             elif "聚类" in title or "降维" in title or "Embedding" in title:
-                block = self._build_visual_block(visuals_by_category.get("embedding", []), session_root)
+                block = self._build_visual_block(visuals_by_category.get("embedding", []), session_root, binding_map)
                 if block:
                     lines.append(block)
                     used_visuals.update(
                         v.get("relative_path", "") for v in visuals_by_category.get("embedding", [])
                     )
             elif "可视化" in title or "Visual" in title:
-                block = self._build_visual_block(visuals, session_root)
+                block = self._build_visual_block(visuals, session_root, binding_map)
                 if block:
                     lines.append(block)
                     used_visuals.update(v.get("relative_path", "") for v in visuals)
@@ -569,7 +691,7 @@ class ReportAssembler:
             ]
             if remaining:
                 lines.append("## 图表预览")
-                lines.append(self._build_visual_block(remaining, session_root))
+                lines.append(self._build_visual_block(remaining, session_root, binding_map))
                 lines.append("")
         if document_manifest and tables:
             table_blocks = self._table_preview_blocks(tables, session_root)

@@ -431,8 +431,14 @@ def _run_deterministic_hypotheses(session_dir: Path, dataset_path: Path) -> dict
         dataset_path,
         method="baseline",
         model_path=model_results_path if model_results_path.exists() else None,
+        cv_folds=5,
     )
-    _record_tool_role("Modeling", "model_eval", h4_steps["model_eval"], ["result/model_eval.json"])
+    _record_tool_role(
+        "Modeling",
+        "model_eval",
+        h4_steps["model_eval"],
+        ["result/model_eval.json", "result/model_eval_detail.json", "result/cv_results.json"],
+    )
     h4_steps["viz_multivariate"] = _run_step_with_retry("viz_multivariate", dataset_path, mode="scatter")
     _record_tool_role("Visualization", "viz_multivariate", h4_steps["viz_multivariate"], ["plots/scatter.png"])
     embedding_path = session_dir / "result" / "dimensionality.json"
@@ -453,6 +459,8 @@ def _run_deterministic_hypotheses(session_dir: Path, dataset_path: Path) -> dict
         "clustering.json",
         "model_results.json",
         "model_eval.json",
+        "model_eval_detail.json",
+        "cv_results.json",
         "scatter.png",
         "embedding_pca.png",
     ]
@@ -467,6 +475,12 @@ def _run_deterministic_hypotheses(session_dir: Path, dataset_path: Path) -> dict
 
     payload = {"hypotheses": results}
     write_json(session_dir / "result" / "hypothesis_results.json", payload)
+    matrix = _build_hypothesis_matrix(payload)
+    write_json(session_dir / "result" / "hypothesis_matrix.json", matrix)
+    coverage_report = _build_coverage_report(session_dir)
+    write_json(session_dir / "result" / "coverage_report.json", coverage_report)
+    visual_binding = _build_visual_binding(session_dir)
+    write_json(session_dir / "result" / "visual_binding.json", visual_binding)
     return payload
 
 
@@ -573,6 +587,101 @@ def _hypothesis_summary_md(payload: dict[str, Any], session_dir: Path) -> str:
         except Exception:
             pass
     return "\n".join(lines)
+
+
+def _build_hypothesis_matrix(payload: dict[str, Any]) -> dict[str, Any]:
+    hypotheses = payload.get("hypotheses", []) if isinstance(payload, dict) else []
+    matrix: list[dict[str, Any]] = []
+    for item in hypotheses:
+        title = item.get("hypothesis", "Hypothesis")
+        expected = item.get("expected_artifacts", []) or []
+        missing = item.get("missing", []) or []
+        status = "ok" if not missing else "partial"
+        if missing and len(missing) == len(expected):
+            status = "failed"
+        entry = {
+            "hypothesis": title,
+            "status": status,
+            "expected_artifacts": expected,
+            "missing_artifacts": missing,
+            "steps": list(item.get("steps", {}).keys()),
+            "reason": "missing artifacts" if missing else "",
+        }
+        matrix.append(entry)
+    return {"hypotheses": matrix}
+
+
+def _build_coverage_report(session_dir: Path) -> dict[str, Any]:
+    numeric_cols: list[str] = []
+    analyzed_cols: list[str] = []
+    data_quality_path = session_dir / "result" / "data_quality.json"
+    if data_quality_path.exists():
+        try:
+            payload = json.loads(data_quality_path.read_text(encoding="utf-8"))
+            datasets = payload.get("datasets") or []
+            if datasets:
+                stats = datasets[0].get("stats") or {}
+                for col, stat in stats.items():
+                    if isinstance(stat, dict) and stat.get("mean") is not None:
+                        numeric_cols.append(col)
+        except Exception:
+            pass
+    stats_path = session_dir / "result" / "stats_results.json"
+    if stats_path.exists():
+        try:
+            stats_df = pd.read_json(stats_path)
+            analyzed_cols = stats_df["feature"].astype(str).unique().tolist()
+        except Exception:
+            pass
+    missing = sorted(set(numeric_cols) - set(analyzed_cols))
+    mode = "full" if numeric_cols and not missing else "partial"
+    rationale_path = session_dir / "result" / "feature_selection_rationale.json"
+    filter_info: dict[str, Any] = {}
+    if rationale_path.exists():
+        try:
+            filter_info = json.loads(rationale_path.read_text(encoding="utf-8"))
+        except Exception:
+            filter_info = {}
+    return {
+        "mode": mode,
+        "numeric_features": numeric_cols,
+        "analyzed_features": analyzed_cols,
+        "missing_features": missing,
+        "filter_info": filter_info,
+    }
+
+
+def _build_visual_binding(session_dir: Path) -> dict[str, Any]:
+    bindings: list[dict[str, Any]] = []
+    mapping = {
+        "H1: 差异检验": [
+            "plots/volcano_plot.png",
+            "plots/top_features_bar.png",
+        ],
+        "H2: 关键特征筛选": [
+            "result/feature_selection.json",
+        ],
+        "H3: 相关性结构": [
+            "plots/heatmap.png",
+            "plots/network.png",
+        ],
+        "H4: 降维/聚类": [
+            "plots/embedding_pca.png",
+            "plots/embedding_tsne.png",
+            "plots/scatter.png",
+        ],
+    }
+    for hypo, items in mapping.items():
+        for rel in items:
+            path = session_dir / rel
+            bindings.append(
+                {
+                    "hypothesis": hypo,
+                    "artifact": rel,
+                    "exists": path.exists(),
+                }
+            )
+    return {"bindings": bindings}
 
 
 def _build_auto_analysis_payload(session_dir: Path, auto_evidence: list[str]) -> dict[str, Any]:
@@ -941,17 +1050,26 @@ def _run_audit(session_dir: Path) -> dict[str, Any]:
         "result/stats_results.json",
         "result/correlation.json",
         "result/feature_selection.json",
+        "result/hypothesis_matrix.json",
+        "result/coverage_report.json",
+        "result/visual_binding.json",
+        "result/model_eval.json",
+        "result/cv_results.json",
         "report/report_v1.html",
     ]
     missing = []
     for rel in required:
         if not (session_dir / rel).exists():
             missing.append(rel)
-    visuals_dir = session_dir / "charts"
+    visuals_dir = session_dir / "plots"
     visuals_present = visuals_dir.exists() and any(visuals_dir.rglob("*"))
+    quality_gates = [f"result:{Path(rel).name}" for rel in required if rel.startswith("result/")]
+    gate_missing = _check_quality_gates(session_dir, quality_gates)
     return {
         "missing_required": missing,
         "visuals_present": bool(visuals_present),
+        "quality_gates": quality_gates,
+        "quality_gate_missing": gate_missing,
     }
 
 

@@ -29,13 +29,14 @@ PROMPTS = {
     },
     "hypothesis_planner": {
         "en": (
-            "Generate multiple testable hypotheses and an analysis plan. "
+            "Generate multiple testable hypotheses and an analysis plan with closure requirements. "
             "Return Markdown with: 1) hypotheses list, 2) steps per hypothesis, "
-            "3) expected artifacts (tables/plots)."
+            "3) expected artifacts (tables/plots), 4) success criteria, 5) follow-up action."
         ),
         "zh": (
-            "生成多个可验证假设与分析计划。返回 Markdown，包含："
-            "1）假设列表；2）每个假设的步骤；3）预期产物（表/图）。"
+            "生成多个可验证假设与分析计划（闭环要求）。返回 Markdown，包含："
+            "1）假设列表；2）每个假设的步骤；3）预期产物（表/图）；"
+            "4）成功判据；5）后续行动建议。"
         ),
     },
     "planning_struct": {
@@ -48,11 +49,13 @@ PROMPTS = {
         "en": (
             "Generate Python analysis steps based on the plan. Output strict JSON with keys: "
             "steps: [{name, filename, code}]. Each code must be runnable standalone. "
-            "Use pandas and standard libs. Prefer calling analytics toolkit helpers and core visualization renderer when available."
+            "Use pandas and standard libs. Prefer calling analytics toolkit helpers and core visualization renderer when available. "
+            "Ensure each step writes explicit artifacts for validation."
         ),
         "zh": (
             "根据计划生成 Python 脚本。输出严格 JSON，键为 steps: [{name, filename, code}]。"
             "每段代码可独立运行，优先使用 pandas 与标准库。可用时优先调用 analytics toolkit 工具与统一渲染层。"
+            "每个步骤必须产出可验证的明确产物（json/csv/图）。"
         ),
     },
     "code_fix": {
@@ -72,11 +75,13 @@ PROMPTS = {
     "analysis_structured": {
         "en": (
             "Analyze execution outputs and return strict JSON with keys: "
-            "summary, key_findings, evidence, limitations, next_steps."
+            "summary, key_findings, evidence, limitations, next_steps. "
+            "Ensure every hypothesis has a validation status and conclusion."
         ),
         "zh": (
             "分析执行输出并返回严格 JSON，字段包含：summary、key_findings、"
             "evidence、limitations、next_steps。"
+            "确保每条假设都有验证状态与结论。"
         ),
     },
     "hypothesis_refine": {
@@ -104,11 +109,13 @@ PROMPTS = {
     "report_structured": {
         "en": (
             "Return strict JSON with keys: title, summary, sections "
-            "(list of {title, body}), highlights, limitations."
+            "(list of {title, body}), highlights, limitations. "
+            "Sections MUST include hypothesis->validation->conclusion->next steps."
         ),
         "zh": (
             "返回严格 JSON，字段包含：title、summary、sections（{title, body} 列表）、"
             "highlights、limitations。"
+            "各章节必须包含假设→验证→结论→后续。"
         ),
     },
     "data_quality": {
