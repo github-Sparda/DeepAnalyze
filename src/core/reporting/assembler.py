@@ -137,6 +137,47 @@ class ReportAssembler:
             return path
         return f"../{path}"
 
+    def _classify_visual(self, path: str) -> str:
+        lower = path.lower()
+        if "volcano" in lower:
+            return "diff"
+        if "top_features" in lower or "feature" in lower:
+            return "diff"
+        if "correlation" in lower or "heatmap" in lower:
+            return "correlation"
+        if "network" in lower:
+            return "correlation"
+        if "embedding" in lower or "scatter" in lower or "pca" in lower or "tsne" in lower:
+            return "embedding"
+        if "distribution" in lower or "comparison" in lower:
+            return "distribution"
+        return "other"
+
+    def _build_visual_block(self, visuals: list[Dict[str, Any]]) -> str:
+        lines: list[str] = []
+        for item in visuals:
+            name = item.get("name", "visual")
+            path = self._report_relative(item.get("relative_path", ""))
+            note = item.get("relative_path", "")
+            if path.lower().endswith((".png", ".jpg", ".jpeg", ".gif")):
+                lines.append(f"<figure><img src=\"{path}\" alt=\"{name}\"/>")
+                lines.append(f"<figcaption>来源: {note}</figcaption></figure>")
+            else:
+                lines.append(f"- 图表链接: {name} ({path})")
+        return "\n".join(lines)
+
+    def _table_preview_blocks(self, tables: list[Dict[str, Any]]) -> list[str]:
+        targets = {"top_features.json", "stats_summary.json", "model_eval.json"}
+        blocks: list[str] = []
+        for item in tables:
+            name = item.get("name", "")
+            if name not in targets:
+                continue
+            path = self._report_relative(item.get("relative_path", ""))
+            title = name.replace("_", " ").replace(".json", "").title()
+            blocks.append(f"<div class=\"table-preview\" data-src=\"{path}\" data-title=\"{title}\"></div>")
+        return blocks
+
     def assemble(
         self,
         outline: str,
@@ -195,6 +236,10 @@ class ReportAssembler:
         sections = report_payload.get("sections") or []
         if not has_advanced:
             sections = []
+        visuals_by_category: Dict[str, List[Dict[str, Any]]] = {}
+        for item in visuals:
+            category = self._classify_visual(item.get("relative_path", ""))
+            visuals_by_category.setdefault(category, []).append(item)
         for section in sections:
             title = section.get("title", "Section")
             body = section.get("body", "")
@@ -203,10 +248,26 @@ class ReportAssembler:
                 if any(
                     key in lowered
                     for key in ("roc", "auc", "volcano", "pca", "tsne", "umap", "lasso", "random forest")
-                ):
+                    ):
                     continue
             lines.append(f"## {title}")
             lines.append(body)
+            if "差异" in title or "Differential" in title:
+                block = self._build_visual_block(visuals_by_category.get("diff", []))
+                if block:
+                    lines.append(block)
+            elif "相关" in title or "Correlation" in title:
+                block = self._build_visual_block(visuals_by_category.get("correlation", []))
+                if block:
+                    lines.append(block)
+            elif "聚类" in title or "降维" in title or "Embedding" in title:
+                block = self._build_visual_block(visuals_by_category.get("embedding", []))
+                if block:
+                    lines.append(block)
+            elif "可视化" in title or "Visual" in title:
+                block = self._build_visual_block(visuals)
+                if block:
+                    lines.append(block)
             lines.append("")
         highlights = report_payload.get("highlights") or []
         if not has_advanced:
@@ -237,13 +298,41 @@ class ReportAssembler:
                     lines.append(f"- 表格: {name} ({path})")
                 lines.append("")
         if document_manifest and visuals:
-            lines.append("## 图表预览")
-            for item in visuals:
-                path = self._report_relative(item.get("relative_path", ""))
-                name = item.get("name", "visual")
-                if path.lower().endswith((".png", ".jpg", ".jpeg", ".gif")):
-                    lines.append(f"![{name}]({path})")
-                else:
-                    lines.append(f"- 图表链接: {name} ({path})")
-            lines.append("")
+            if not sections:
+                lines.append("## 图表预览")
+                lines.append(self._build_visual_block(visuals))
+                lines.append("")
+        if document_manifest and tables:
+            table_blocks = self._table_preview_blocks(tables)
+            if table_blocks:
+                lines.append("## 表格预览")
+                lines.extend(table_blocks)
+                lines.append(
+                    "<script>\n"
+                    "async function renderTable(block){\n"
+                    "  const src = block.dataset.src;\n"
+                    "  const title = block.dataset.title || src;\n"
+                    "  const res = await fetch(src);\n"
+                    "  const text = await res.text();\n"
+                    "  let rows = [];\n"
+                    "  if (src.endsWith('.json')) {\n"
+                    "    const data = JSON.parse(text);\n"
+                    "    rows = Array.isArray(data) ? data : (data.rows || []);\n"
+                    "  } else {\n"
+                    "    rows = text.trim().split('\\n').map(line => line.split(','));\n"
+                    "    rows = rows.slice(1).map(cols => Object.fromEntries(cols.map((c,i)=>[i,c])));\n"
+                    "  }\n"
+                    "  if (!rows.length){ block.innerHTML = `<h4>${title}</h4><div>无可展示数据</div>`; return; }\n"
+                    "  const cols = Object.keys(rows[0]);\n"
+                    "  let html = `<h4>${title}</h4><table border=1 cellpadding=4 cellspacing=0><thead><tr>`;\n"
+                    "  html += cols.map(c=>`<th>${c}</th>`).join('');\n"
+                    "  html += '</tr></thead><tbody>';\n"
+                    "  rows.slice(0,20).forEach(r=>{ html+='<tr>'+cols.map(c=>`<td>${r[c]}</td>`).join('')+'</tr>'; });\n"
+                    "  html += '</tbody></table>';\n"
+                    "  block.innerHTML = html;\n"
+                    "}\n"
+                    "document.querySelectorAll('.table-preview').forEach(renderTable);\n"
+                    "</script>"
+                )
+                lines.append("")
         return "\n".join(lines).strip()

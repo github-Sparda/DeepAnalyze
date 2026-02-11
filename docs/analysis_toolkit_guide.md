@@ -8,6 +8,25 @@ This toolkit provides reusable analysis components for runtime agents.
 python -m src.core.tools.analysis_toolkit.runner --input data.csv --output-dir outputs/toolkit
 ```
 
+## Example Config & Script
+Example config: `scripts/analysis_toolkit_example_config.json`
+
+```json
+{
+  "input_path": "data/examples/serum/Normal_EP_serum_data.xlsx",
+  "output_dir": "outputs/analysis_toolkit_examples",
+  "steps": ["data_profile", "stats_tests", "correlation", "feature_selection", "viz_manhattan_volcano", "viz_heatmap_cluster"]
+}
+```
+
+Run the minimal end-to-end example (profile -> stats -> visualization):
+
+```bash
+conda run -n common python scripts/run_analysis_toolkit_examples.py
+```
+
+The script writes `outputs/analysis_toolkit_examples/manifest.json` with `profile/`, `result/`, `plots/` contents for quick inspection.
+
 ## Output Structure
 - `profile/`: data_profile.json, data_quality.json
 - `result/`: stats_results.json, correlation.json, feature_selection.json, normalized.csv

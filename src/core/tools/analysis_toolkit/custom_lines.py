@@ -114,3 +114,18 @@ def maybe_summarize(
         return _load_json(summary_path, {"lines": []})
     promotion_candidates(base_dir, min_runs, min_success_rate)
     return summarize_lines(base_dir)
+
+
+def promote_line(base_dir: str | Path, line_id: str) -> dict[str, Any]:
+    line = load_line(base_dir, line_id)
+    if not line:
+        raise ValueError(f"Line ID not found: {line_id}")
+    promoted_path = Path(__file__).with_name("promoted_lines.json")
+    promoted = _load_json(promoted_path, [])
+    if not isinstance(promoted, list):
+        promoted = []
+    if any(item.get("line_id") == line_id for item in promoted if isinstance(item, dict)):
+        return {"status": "skipped", "reason": "already_promoted", "line_id": line_id}
+    promoted.append(line)
+    write_json(promoted_path, promoted)
+    return {"status": "ok", "line_id": line_id, "path": str(promoted_path)}

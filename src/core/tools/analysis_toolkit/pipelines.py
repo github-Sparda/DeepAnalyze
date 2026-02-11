@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import json
+from pathlib import Path
 from typing import Any
 
 
@@ -31,8 +33,49 @@ class PipelineSpec:
     variants: list[PipelineVariant]
 
 
+def _load_promoted_variants() -> list[PipelineVariant]:
+    path = Path(__file__).with_name("promoted_lines.json")
+    if not path.exists():
+        return []
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    if not isinstance(payload, list):
+        return []
+    variants: list[PipelineVariant] = []
+    for line in payload:
+        if not isinstance(line, dict):
+            continue
+        line_id = line.get("line_id") or line.get("id")
+        steps = []
+        for step in line.get("steps", []):
+            if not isinstance(step, dict):
+                continue
+            name = step.get("name")
+            method = step.get("method") or "default"
+            params = step.get("params") or {}
+            if name:
+                steps.append(PipelineStep(name, method, params))
+        if not line_id or not steps:
+            continue
+        variants.append(
+            PipelineVariant(
+                variant_id=str(line_id),
+                description=str(line.get("description", "Promoted custom line")),
+                steps=steps,
+                required_inputs=list(line.get("required_inputs", [])),
+                compatible_visuals=list(line.get("compatible_visuals", [])),
+                required_artifacts=list(line.get("required_artifacts", [])),
+                quality_gates=list(line.get("quality_gates", [])),
+                fallback_variant=None,
+            )
+        )
+    return variants
+
+
 def pipeline_registry() -> dict[str, PipelineSpec]:
-    return {
+    registry = {
         "key_feature_screening": PipelineSpec(
             pipeline_id="key_feature_screening",
             description="筛选关键特征并给出统计依据",
@@ -487,6 +530,14 @@ def pipeline_registry() -> dict[str, PipelineSpec]:
             ],
         ),
     }
+    promoted_variants = _load_promoted_variants()
+    if promoted_variants:
+        registry["promoted_custom_lines"] = PipelineSpec(
+            pipeline_id="promoted_custom_lines",
+            description="人工确认后的自增长执行线",
+            variants=promoted_variants,
+        )
+    return registry
 
 
 def list_pipelines() -> list[str]:

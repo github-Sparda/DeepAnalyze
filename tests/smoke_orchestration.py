@@ -63,6 +63,7 @@ def main():
         state: OrchestrationState = {
             "session_id": "smoke",
             "data_sessions_active_dir": str(data_sessions_active),
+            "session_dir": str(data_sessions_active),
             "depth": 1,
             "max_depth": 1,
             "config": {"report_format": "markdown", "report_language": "en"},
@@ -72,6 +73,9 @@ def main():
         report_versions = result.get("report_versions", [])
         if not report_versions:
             raise SystemExit("No report generated")
+        role_manifest = data_sessions_active / "meta" / "role_manifest.json"
+        if not role_manifest.exists():
+            raise SystemExit("No role manifest generated")
         print("OK")
 
 

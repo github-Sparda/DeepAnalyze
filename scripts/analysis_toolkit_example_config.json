@@ -1,0 +1,12 @@
+{
+  "input_path": "data/examples/serum/Normal_EP_serum_data.xlsx",
+  "output_dir": "outputs/analysis_toolkit_examples",
+  "steps": [
+    "data_profile",
+    "stats_tests",
+    "correlation",
+    "feature_selection",
+    "viz_manhattan_volcano",
+    "viz_heatmap_cluster"
+  ]
+}
