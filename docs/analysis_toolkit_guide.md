@@ -42,3 +42,19 @@ Each La is stored with inputs/outputs/quality gates and usage stats under `meta/
 ## Promotion
 A scheduled summary aggregates usage stats and produces `line_summary.json` and `promotion_candidates.json`.
 Lines with sufficient runs and success rate can be promoted to official registry after review.
+
+## Custom Line Example
+Example La definition (stored in meta/custom_lines/lines.json):
+```
+{
+  "line_id": "autogen_123",
+  "steps": [
+    {"name": "stats_tests", "method": "t_test", "params": {}},
+    {"name": "correlation", "method": "pearson", "params": {}}
+  ],
+  "required_inputs": ["numeric_columns"],
+  "required_artifacts": ["stats_results.json", "correlation.json"],
+  "quality_gates": ["result:stats_results.json", "result:correlation.json"],
+  "compatible_visuals": []
+}
+```

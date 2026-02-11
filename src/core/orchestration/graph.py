@@ -24,6 +24,7 @@ from src.api.config import (
     CUSTOM_LINE_PROMO_MIN_RUNS,
     CUSTOM_LINE_PROMO_MIN_SUCCESS,
     ROLE_GUARD_ENABLED,
+    CUSTOM_LINE_COOLDOWN_SEC,
 )
 from src.api.utils import collect_file_info
 
@@ -65,6 +66,7 @@ from src.core.tools.analysis_toolkit.custom_lines import (
     record_usage,
     maybe_summarize,
 )
+from src.core.tools.analysis_toolkit.cooldown import record_failure, in_cooldown
 from .state import OrchestrationState
 from .document_manager import DocumentManager
 
@@ -213,6 +215,9 @@ def _maybe_run_pipeline_variants(
             return [], [], []
         line_def = _generate_custom_line(llm, summary)
         line_def = register_line(session_dir, line_def)
+        line_id = line_def.get("line_id", "unknown")
+        if in_cooldown(session_dir, line_id):
+            return [], [], []
         success = True
         for step in line_def.get("steps", []):
             name = step.get("name")
@@ -221,10 +226,12 @@ def _maybe_run_pipeline_variants(
             result = run_step(name, dataset_path, session_dir, method=step.get("method"))
             if result.get("status") == "skipped":
                 success = False
-        record_usage(session_dir, line_def.get("line_id", "unknown"), success, None if success else "step_failed")
+        if not success:
+            record_failure(session_dir, line_id, CUSTOM_LINE_COOLDOWN_SEC)
+        record_usage(session_dir, line_id, success, None if success else "step_failed")
         custom_records.append(
             {
-                "line_id": line_def.get("line_id"),
+                "line_id": line_id,
                 "source": "autogen",
                 "success": success,
             }
