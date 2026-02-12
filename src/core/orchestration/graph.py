@@ -25,6 +25,7 @@ from src.api.config import (
     CUSTOM_LINE_PROMO_MIN_SUCCESS,
     ROLE_GUARD_ENABLED,
     ARTIFACT_COPY_ENABLED,
+    ARTIFACT_MIRROR_ENABLED,
     CUSTOM_LINE_COOLDOWN_SEC,
 )
 from src.api.utils import collect_file_info
@@ -105,6 +106,28 @@ def _safe_json_any(raw: str) -> Any:
 def _safe_json_load(raw: str) -> dict[str, Any]:
     payload = _safe_json_any(raw)
     return payload if isinstance(payload, dict) else {}
+
+
+def _register_plan_artifact(
+    registry: ArtifactRegistry,
+    session_dir: str | Path,
+    plan_id: str,
+    kind: str,
+    source_path: str | Path,
+    role: str,
+    metadata: dict[str, Any] | None = None,
+) -> Path:
+    src = Path(source_path)
+    if ARTIFACT_MIRROR_ENABLED:
+        dest_dir = artifact_dir(session_dir, plan_id, role)
+        if ARTIFACT_COPY_ENABLED:
+            stored = copy_artifact(src, dest_dir)
+        else:
+            stored = artifact_link(src, dest_dir)
+        registry.register(plan_id, kind, stored, metadata or {})
+        return stored
+    registry.register(plan_id, kind, src, metadata or {})
+    return src
 
 
 def _parse_plan_markdown(plan: str) -> dict[str, Any]:
@@ -1329,41 +1352,48 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
         cleaned_hypotheses = [str(item) for item in hypotheses if item]
         plan_id, _ = plan_store.save_plan(plan, plan_json, cleaned_hypotheses)
         artifact_registry = ArtifactRegistry(Path(state.get("session_dir", "")))
-        artifact_plan_dir = artifact_dir(state.get("session_dir", ""), plan_id, "plan")
-        artifact_plan_md = artifact_plan_dir / "analysis_plan.md"
-        artifact_plan_json = artifact_plan_dir / "analysis_plan.json"
-        artifact_registry.register(plan_id, "plan", artifact_plan_md, {"phase": "plan_analysis"})
-        if artifact_plan_json.exists():
-            artifact_registry.register(plan_id, "plan", artifact_plan_json, {"phase": "plan_analysis"})
+        _register_plan_artifact(
+            artifact_registry,
+            state.get("session_dir", ""),
+            plan_id,
+            "plan",
+            plan_path,
+            "plan",
+            {"phase": "plan_analysis"},
+        )
+        if plan_json_path.exists():
+            _register_plan_artifact(
+                artifact_registry,
+                state.get("session_dir", ""),
+                plan_id,
+                "plan",
+                plan_json_path,
+                "plan",
+                {"phase": "plan_analysis"},
+            )
         viz_plan_path = Path(state.get("session_dir", "")) / "plan" / "visualization_plan.json"
         if viz_plan_path.exists():
             visual_style = state.get("config", {}).get("visual_style", "academic")
-            viz_artifact_dir = artifact_dir(state.get("session_dir", ""), plan_id, "visualizations") / visual_style
-            viz_artifact_dir.mkdir(parents=True, exist_ok=True)
-            if ARTIFACT_COPY_ENABLED:
-                copied_viz_plan = copy_artifact(viz_plan_path, viz_artifact_dir)
-                artifact_registry.register(
-                    plan_id,
-                    "visualization_plan",
-                    copied_viz_plan,
-                    {"phase": "visualization_plan", "style": visual_style},
-                )
-            else:
-                linked = artifact_link(viz_plan_path, viz_artifact_dir)
-                artifact_registry.register(
-                    plan_id,
-                    "visualization_plan",
-                    linked,
-                    {"phase": "visualization_plan", "style": visual_style},
-                )
+            _register_plan_artifact(
+                artifact_registry,
+                state.get("session_dir", ""),
+                plan_id,
+                "visualization_plan",
+                viz_plan_path,
+                "visualizations",
+                {"phase": "visualization_plan", "style": visual_style},
+            )
         data_quality_path = state.get("data_quality_path")
         if data_quality_path:
-            if ARTIFACT_COPY_ENABLED:
-                copied = copy_artifact(data_quality_path, artifact_dir(state.get("session_dir", ""), plan_id, "data"))
-                artifact_registry.register(plan_id, "data", copied, {"phase": "data_quality"})
-            else:
-                linked = artifact_link(data_quality_path, artifact_dir(state.get("session_dir", ""), plan_id, "data"))
-                artifact_registry.register(plan_id, "data", linked, {"phase": "data_quality"})
+            _register_plan_artifact(
+                artifact_registry,
+                state.get("session_dir", ""),
+                plan_id,
+                "data",
+                data_quality_path,
+                "data",
+                {"phase": "data_quality"},
+            )
         return {"plan": plan, "plan_json": plan_json, "hypotheses": cleaned_hypotheses, "plan_id": plan_id}
 
     def parallel_generation(state: OrchestrationState) -> OrchestrationState:
@@ -1705,12 +1735,15 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
         write_text(analysis_path, analysis_text)
         record_artifact(state.get("session_dir", ""), analysis_path, "result", "analyze_results")
         if plan_id:
-            if ARTIFACT_COPY_ENABLED:
-                copied = copy_artifact(analysis_path, artifact_dir(state.get("session_dir", ""), plan_id, "result"))
-                artifact_registry.register(plan_id, "result", copied, {"phase": "analysis_results"})
-            else:
-                linked = artifact_link(analysis_path, artifact_dir(state.get("session_dir", ""), plan_id, "result"))
-                artifact_registry.register(plan_id, "result", linked, {"phase": "analysis_results"})
+            _register_plan_artifact(
+                artifact_registry,
+                state.get("session_dir", ""),
+                plan_id,
+                "result",
+                analysis_path,
+                "result",
+                {"phase": "analysis_results"},
+            )
         history = list(state.get("docs_analysis_history", []))
         history.append(analysis_text)
         summary_payload = maybe_summarize(
@@ -1959,15 +1992,15 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
         write_text(outline_path, outline)
         record_artifact(state.get("session_dir", ""), outline_path, "report", "report_outline")
         if plan_id:
-            if ARTIFACT_COPY_ENABLED:
-                copied = copy_artifact(
-                    outline_path,
-                    artifact_dir(state.get("session_dir", ""), plan_id, "report"),
-                )
-                artifact_registry.register(plan_id, "report", copied, {"phase": "report_outline"})
-            else:
-                linked = artifact_link(outline_path, artifact_dir(state.get("session_dir", ""), plan_id, "report"))
-                artifact_registry.register(plan_id, "report", linked, {"phase": "report_outline"})
+            _register_plan_artifact(
+                artifact_registry,
+                state.get("session_dir", ""),
+                plan_id,
+                "report",
+                outline_path,
+                "report",
+                {"phase": "report_outline"},
+            )
         return {"report_outline": outline}
 
     def generate_report(state: OrchestrationState) -> OrchestrationState:
@@ -2051,15 +2084,15 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
         versions = list(state.get("report_versions", []))
         versions.append(str(report_path))
         if plan_id:
-            if ARTIFACT_COPY_ENABLED:
-                copied = copy_artifact(
-                    report_path,
-                    artifact_dir(state.get("session_dir", ""), plan_id, "report"),
-                )
-                artifact_registry.register(plan_id, "report", copied, {"phase": "generate_report"})
-            else:
-                linked = artifact_link(report_path, artifact_dir(state.get("session_dir", ""), plan_id, "report"))
-                artifact_registry.register(plan_id, "report", linked, {"phase": "generate_report"})
+            _register_plan_artifact(
+                artifact_registry,
+                state.get("session_dir", ""),
+                plan_id,
+                "report",
+                report_path,
+                "report",
+                {"phase": "generate_report"},
+            )
         return {"report": report, "report_versions": versions}
 
     def finalize_run(state: OrchestrationState) -> OrchestrationState:

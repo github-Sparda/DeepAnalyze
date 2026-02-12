@@ -6,6 +6,8 @@ import time
 from pathlib import Path
 from typing import Any, Tuple
 
+from src.api.config import ARTIFACT_MIRROR_ENABLED
+
 from .io_utils import ensure_dir, write_json, write_text
 
 
@@ -38,11 +40,12 @@ class PlanStore:
             write_json(plan_dir / "analysis_plan.json", plan_json)
         write_json(plan_dir / "meta.json", plan_meta)
 
-        artifact_dir = self._artifact_plan_dir(plan_id)
-        write_text(artifact_dir / "analysis_plan.md", plan_text)
-        if plan_json:
-            write_json(artifact_dir / "analysis_plan.json", plan_json)
-        write_json(artifact_dir / "meta.json", plan_meta)
+        if ARTIFACT_MIRROR_ENABLED:
+            artifact_dir = self._artifact_plan_dir(plan_id)
+            write_text(artifact_dir / "analysis_plan.md", plan_text)
+            if plan_json:
+                write_json(artifact_dir / "analysis_plan.json", plan_json)
+            write_json(artifact_dir / "meta.json", plan_meta)
 
         return plan_id, plan_dir
 
@@ -50,9 +53,10 @@ class PlanStore:
         plan_dir = ensure_dir(self.plans_dir / plan_id)
         followup_path = plan_dir / f"followup_{int(time.time())}.md"
         write_text(followup_path, followup)
-        artifact_dir = self._artifact_plan_dir(plan_id)
-        artifact_followup = artifact_dir / followup_path.name
-        write_text(artifact_followup, followup)
+        if ARTIFACT_MIRROR_ENABLED:
+            artifact_dir = self._artifact_plan_dir(plan_id)
+            artifact_followup = artifact_dir / followup_path.name
+            write_text(artifact_followup, followup)
         return followup_path
 
     def load_plan(self, plan_id: str) -> dict[str, Any]:

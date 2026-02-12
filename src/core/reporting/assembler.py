@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 import pandas as pd
 
@@ -134,25 +134,47 @@ class ReportAssembler:
         self,
         visuals: list[Dict[str, Any]],
         tables: list[Dict[str, Any]],
+        document_manifest: Dict[str, Any] | None = None,
     ) -> Path | None:
+        def _candidate_root(path: Path) -> Path | None:
+            if not path.exists():
+                return None
+            for parent in [path] + list(path.parents):
+                markers = (
+                    (parent / "artifacts").exists(),
+                    (parent / "result").exists(),
+                    (parent / "report").exists(),
+                    (parent / "plan").exists(),
+                )
+                if any(markers):
+                    return parent
+            return None
+
         for item in visuals:
             raw = item.get("path") or ""
             if not raw:
                 continue
             p = Path(raw)
-            if not p.exists():
-                continue
-            if "plots" in p.parts:
-                return p.parent.parent
+            root = _candidate_root(p)
+            if root:
+                return root
         for item in tables:
             raw = item.get("path") or ""
             if not raw:
                 continue
             p = Path(raw)
-            if not p.exists():
-                continue
-            if "result" in p.parts:
-                return p.parent.parent
+            root = _candidate_root(p)
+            if root:
+                return root
+        plans = (document_manifest or {}).get("plans", []) if isinstance(document_manifest, dict) else []
+        for plan in plans:
+            for entry in plan.get("entries", []):
+                raw = entry.get("path") or ""
+                if not raw:
+                    continue
+                root = _candidate_root(Path(raw))
+                if root:
+                    return root
         return None
 
     def _load_json(self, path: Path) -> Any:
@@ -171,7 +193,20 @@ class ReportAssembler:
             return path
         return f"../{path}"
 
-    def _classify_visual(self, path: str) -> str:
+    def _classify_visual(self, item: Dict[str, Any]) -> str:
+        metadata = item.get("metadata", {}) if isinstance(item.get("metadata"), dict) else {}
+        visual_type = str(metadata.get("type", "")).lower()
+        if visual_type in {"correlation", "correlation_heatmap", "heatmap"}:
+            return "correlation"
+        if visual_type in {"correlation_network", "network"}:
+            return "correlation"
+        if visual_type in {"embedding", "scatter", "pca", "tsne", "umap"}:
+            return "embedding"
+        if visual_type in {"distribution", "comparison"}:
+            return "distribution"
+        if visual_type in {"volcano", "manhattan", "diff"}:
+            return "diff"
+        path = str(item.get("relative_path", ""))
         lower = path.lower()
         if "volcano" in lower:
             return "diff"
@@ -208,6 +243,11 @@ class ReportAssembler:
             group_a = df["group_a"].iloc[0] if "group_a" in df.columns else "Group A"
             group_b = df["group_b"].iloc[0] if "group_b" in df.columns else "Group B"
             sig_count = int((df["p_value"] < 0.05).sum()) if "p_value" in df.columns else 0
+            pos_count = 0
+            neg_count = 0
+            if "mean_diff" in df.columns:
+                pos_count = int(((df["p_value"] < 0.05) & (df["mean_diff"] > 0)).sum()) if "p_value" in df.columns else int((df["mean_diff"] > 0).sum())
+                neg_count = int(((df["p_value"] < 0.05) & (df["mean_diff"] < 0)).sum()) if "p_value" in df.columns else int((df["mean_diff"] < 0).sum())
             top = df.sort_values("p_value").head(3)
             top_items = []
             for _, row in top.iterrows():
@@ -223,7 +263,7 @@ class ReportAssembler:
                 "<p><strong>验证</strong>：对每个峰值进行组间检验，绘制火山图。</p>"
                 "<p><strong>坐标/颜色</strong>：X=mean_diff(组均值差)，Y=-log10(p)。"
                 "红色表示 p<0.05，灰色为不显著。</p>"
-                f"<p><strong>结论</strong>：显著特征数量约 {sig_count} 个；"
+                f"<p><strong>结论</strong>：显著特征数量约 {sig_count} 个（上调 {pos_count}，下调 {neg_count}）；"
                 f"代表性特征：{top_text}。</p>"
                 "<p><strong>后续</strong>：建议对 Top 特征进行效应量复核与独立验证，"
                 "并结合生物学/业务背景解释方向性。</p>"
@@ -265,13 +305,15 @@ class ReportAssembler:
             max_idx = divmod(np.abs(arr).argmax(), arr.shape[1])
             pair = (corr.index[max_idx[0]], corr.columns[max_idx[1]])
             max_corr = arr[max_idx]
+            edge_count = int((np.abs(arr) > 0.5).sum() / 2)
             return (
                 "<div class=\"chart-explain\">"
                 f"<p><strong>假设</strong>：{bound_hypothesis or '存在强相关的峰值网络结构'}。</p>"
                 "<p><strong>验证</strong>：对相关矩阵阈值筛边（|corr|>0.5）构建网络。</p>"
                 "<p><strong>颜色/图例</strong>：蓝线为正相关，红线为负相关，"
                 "仅显示 |corr|>0.5 的边。</p>"
-                f"<p><strong>结论</strong>：最强相关对为 {pair[0]} 与 {pair[1]}（|corr|≈{abs(max_corr):.3g}）。</p>"
+                f"<p><strong>结论</strong>：最强相关对为 {pair[0]} 与 {pair[1]}（|corr|≈{abs(max_corr):.3g}），"
+                f"网络边数约 {edge_count} 条。</p>"
                 "<p><strong>后续</strong>：可对网络中高度连接的变量进行共同变化分析。</p>"
                 "</div>"
             )
@@ -334,7 +376,8 @@ class ReportAssembler:
                 "<div class=\"chart-explain\">"
                 f"<p><strong>假设</strong>：{bound_hypothesis or '存在显著差异的关键峰值'}。</p>"
                 "<p><strong>验证</strong>：按 p/q 值排序，展示 Top 特征。</p>"
-                "<p><strong>坐标</strong>：Y 为特征名，X 为排名。</p>"
+                "<p><strong>坐标</strong>：Y 为特征名；X 轴取决于绘图实现（通常为显著性或效应相关指标）。"
+                "请结合 top_features.json 中的 p/q 值核对。</p>"
                 f"<p><strong>结论</strong>：Top 特征包括：{names_text}。</p>"
                 "<p><strong>后续</strong>：建议对 Top 特征做效应量与外部验证。</p>"
                 "</div>"
@@ -368,6 +411,99 @@ class ReportAssembler:
             explanation = self._visual_explanation(item, session_root, binding_map)
             if explanation:
                 lines.append(explanation)
+        return "\n".join(lines)
+
+    def _extract_plan_sections(self, session_root: Path | None) -> Tuple[str, str]:
+        if not session_root:
+            return "", ""
+        candidates = [
+            session_root / "plan" / "analysis_plan.md",
+        ]
+        artifact_root = session_root / "artifacts"
+        if artifact_root.exists():
+            for candidate in artifact_root.glob("*/plan/analysis_plan.md"):
+                candidates.append(candidate)
+        plan_text = ""
+        for path in candidates:
+            if path.exists():
+                try:
+                    plan_text = path.read_text(encoding="utf-8")
+                    break
+                except Exception:
+                    continue
+        if not plan_text:
+            return "", ""
+        hypotheses = ""
+        process = ""
+        if "### 1. 假设列表" in plan_text:
+            part = plan_text.split("### 1. 假设列表", 1)[1]
+            stop_idx = part.find("### 2.")
+            hypotheses = part[:stop_idx].strip() if stop_idx >= 0 else part.strip()
+            hypotheses = f"### 假设列表\n\n{hypotheses}".strip()
+        if "### 2. 详细分析步骤" in plan_text:
+            part = plan_text.split("### 2. 详细分析步骤", 1)[1]
+            stop_idx = part.find("### 3.")
+            process = part[:stop_idx].strip() if stop_idx >= 0 else part.strip()
+            process = f"### 详细分析步骤\n\n{process}".strip()
+        if not hypotheses:
+            hypotheses = plan_text.strip()
+        if not process:
+            process = plan_text.strip()
+        return hypotheses, process
+
+    def _render_appendix(
+        self,
+        document_manifest: Dict[str, Any],
+        used_visuals: set[str],
+        used_tables: set[str],
+    ) -> str:
+        lines: list[str] = ["## 附件（正文未展示）"]
+        visuals = document_manifest.get("visualizations", []) or []
+        tables = document_manifest.get("tables", []) or []
+        remaining_visuals = [v for v in visuals if v.get("relative_path", "") not in used_visuals]
+        remaining_tables = [t for t in tables if t.get("relative_path", "") not in used_tables]
+        plans = document_manifest.get("plans", []) or []
+        extra_groups: dict[str, list[str]] = {
+            "Plan": [],
+            "Code": [],
+            "Result": [],
+            "Meta": [],
+        }
+        for plan in plans:
+            for entry in plan.get("entries", []):
+                kind = str(entry.get("kind", "")).lower()
+                rel = entry.get("relative_path", "")
+                if not rel:
+                    continue
+                if kind == "visualization" and rel in used_visuals:
+                    continue
+                if kind in {"plan", "visualization_plan"}:
+                    extra_groups["Plan"].append(rel)
+                elif kind == "code":
+                    extra_groups["Code"].append(rel)
+                elif kind == "result":
+                    extra_groups["Result"].append(rel)
+                elif kind in {"meta", "audit"}:
+                    extra_groups["Meta"].append(rel)
+        if remaining_visuals:
+            lines.append("- Visualization (remaining):")
+            for item in remaining_visuals:
+                rel = item.get("relative_path", "")
+                lines.append(f"  - {self._report_relative(rel)} (fallback path: {rel})")
+        if remaining_tables:
+            lines.append("- Tables (remaining):")
+            for item in remaining_tables:
+                rel = item.get("relative_path", "")
+                lines.append(f"  - {self._report_relative(rel)} (fallback path: {rel})")
+        for group, paths in extra_groups.items():
+            uniq = sorted(set(paths))
+            if not uniq:
+                continue
+            lines.append(f"- {group}:")
+            for rel in uniq:
+                lines.append(f"  - {self._report_relative(rel)} (fallback path: {rel})")
+        if len(lines) == 1:
+            lines.append("- 无剩余附件。")
         return "\n".join(lines)
 
     def _visual_names(self, visuals: list[Dict[str, Any]]) -> str:
@@ -534,7 +670,7 @@ class ReportAssembler:
             outline_block = "\n".join([f"> {line}" if line.strip() else ">" for line in outline.splitlines()])
         visuals = document_manifest.get("visualizations", []) or []
         tables = document_manifest.get("tables", []) or []
-        session_root = self._infer_session_root(visuals, tables)
+        session_root = self._infer_session_root(visuals, tables, document_manifest)
         binding_map: dict[str, str] = {}
         if session_root:
             binding_path = session_root / "result" / "visual_binding.json"
@@ -604,11 +740,21 @@ class ReportAssembler:
         sections = report_payload.get("sections") or []
         visuals_by_category: Dict[str, List[Dict[str, Any]]] = {}
         for item in visuals:
-            category = self._classify_visual(item.get("relative_path", ""))
+            category = self._classify_visual(item)
             visuals_by_category.setdefault(category, []).append(item)
         if not sections:
             sections = self._auto_sections(visuals_by_category)
+        hypotheses_md, process_md = self._extract_plan_sections(session_root)
+        if hypotheses_md:
+            lines.append("## 原始假设与研究目标")
+            lines.append(hypotheses_md)
+            lines.append("")
+        if process_md:
+            lines.append("## 实现过程与验证路径")
+            lines.append(process_md)
+            lines.append("")
         used_visuals: set[str] = set()
+        used_tables: set[str] = set()
         for section in sections:
             title = section.get("title", "Section")
             body = section.get("body", "")
@@ -649,11 +795,13 @@ class ReportAssembler:
                     used_visuals.update(
                         v.get("relative_path", "") for v in visuals_by_category.get("embedding", [])
                     )
-            elif "可视化" in title or "Visual" in title:
-                block = self._build_visual_block(visuals, session_root, binding_map)
+            elif "补充" in title or "Supplement" in title:
+                block = self._build_visual_block(visuals_by_category.get("other", []), session_root, binding_map)
                 if block:
                     lines.append(block)
-                    used_visuals.update(v.get("relative_path", "") for v in visuals)
+                    used_visuals.update(
+                        v.get("relative_path", "") for v in visuals_by_category.get("other", [])
+                    )
             lines.append("")
         highlights = report_payload.get("highlights") or []
         if not has_advanced:
@@ -671,33 +819,14 @@ class ReportAssembler:
             for item in limitations:
                 lines.append(f"- {item}")
             lines.append("")
-        if document_manifest:
-            if visuals or tables:
-                lines.append("## 产物清单")
-                for item in visuals:
-                    name = item.get("name", "visual")
-                    path = self._report_relative(item.get("relative_path", ""))
-                    lines.append(f"- 图表: {name} ({path})")
-                for item in tables:
-                    name = item.get("name", "table")
-                    path = self._report_relative(item.get("relative_path", ""))
-                    lines.append(f"- 表格: {name} ({path})")
-                lines.append("")
-        if document_manifest and visuals:
-            remaining = [
-                v
-                for v in visuals
-                if v.get("relative_path", "") not in used_visuals
-            ]
-            if remaining:
-                lines.append("## 图表预览")
-                lines.append(self._build_visual_block(remaining, session_root, binding_map))
-                lines.append("")
         if document_manifest and tables:
             table_blocks = self._table_preview_blocks(tables, session_root)
             if table_blocks:
                 lines.append("## 表格预览")
                 lines.extend(table_blocks)
+                for item in tables:
+                    if item.get("name", "") in {"top_features.json", "stats_summary.json", "model_eval.json"}:
+                        used_tables.add(item.get("relative_path", ""))
                 lines.append(
                     "<script>\n"
                     "async function renderTable(block){\n"
@@ -726,4 +855,7 @@ class ReportAssembler:
                     "</script>"
                 )
                 lines.append("")
+        if document_manifest:
+            lines.append(self._render_appendix(document_manifest, used_visuals, used_tables))
+            lines.append("")
         return "\n".join(lines).strip()

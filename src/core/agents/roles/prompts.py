@@ -41,9 +41,17 @@ PROMPTS = {
     },
     "planning_struct": {
         "en": (
-            "Convert the plan to JSON with keys: hypotheses: [{title, steps, artifacts}]."
+            "Convert the plan to strict JSON. "
+            "Schema: {hypotheses:[{id,title,hypothesis,validation_plan_steps,expected_artifacts}]}. "
+            "Rules: id must be H1/H2...; keep original wording; "
+            "validation_plan_steps must be ordered strings; expected_artifacts must be concrete filenames or chart names."
         ),
-        "zh": "将计划转换为 JSON，包含 hypotheses: [{title, steps, artifacts}]。",
+        "zh": (
+            "将计划转换为严格 JSON。"
+            "格式：{hypotheses:[{id,title,hypothesis,validation_plan_steps,expected_artifacts}]}。"
+            "规则：id 必须是 H1/H2...；尽量保留原始表述；"
+            "validation_plan_steps 为有序字符串数组；expected_artifacts 为具体文件名或图表名。"
+        ),
     },
     "codegen": {
         "en": (
