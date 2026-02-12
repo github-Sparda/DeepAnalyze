@@ -100,8 +100,8 @@ def test_report_assembler_injects_plan_and_avoids_duplicate_visuals(tmp_path: Pa
         report_payload={"title": "t", "summary": "", "sections": [{"title": "差异分析", "body": "x"}]},
         execution_warning="",
     )
-    assert "原始假设与研究目标" in html
-    assert "实现过程与验证路径" in html
+    assert "研究目标与原始假设" in html
+    assert "分析方法与实施过程" in html
     assert "差异假设" in html
     assert "清洗数据" in html
     assert html.count("../plots/volcano_plot.png") == 1

@@ -655,6 +655,121 @@ class ReportAssembler:
             f"- 错误: {error}"
         )
 
+    def _load_plan_json(self, session_root: Path | None) -> dict[str, Any]:
+        if not session_root:
+            return {}
+        candidates = [
+            session_root / "plan" / "analysis_plan.json",
+        ]
+        artifact_root = session_root / "artifacts"
+        if artifact_root.exists():
+            candidates.extend(sorted(artifact_root.glob("*/plan/analysis_plan.json")))
+        for path in candidates:
+            if path.exists():
+                payload = self._load_json(path)
+                if isinstance(payload, dict) and payload.get("hypotheses"):
+                    return payload
+        return {}
+
+    def _load_hypothesis_results(self, session_root: Path | None) -> dict[str, Any]:
+        if not session_root:
+            return {}
+        path = session_root / "result" / "hypothesis_results.json"
+        if not path.exists():
+            return {}
+        payload = self._load_json(path)
+        return payload if isinstance(payload, dict) else {}
+
+    def _hypothesis_result_entry(self, hyp_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        for item in payload.get("hypotheses", []) if isinstance(payload, dict) else []:
+            name = str(item.get("hypothesis", ""))
+            if name.upper().startswith(hyp_id):
+                return item
+        return {}
+
+    def _hypothesis_data_analysis(self, hyp_id: str, session_root: Path | None) -> list[str]:
+        if not session_root:
+            return []
+        lines: list[str] = []
+        if hyp_id == "H1":
+            stats_path = session_root / "result" / "stats_results.json"
+            top_path = session_root / "result" / "top_features.json"
+            if stats_path.exists():
+                try:
+                    df = pd.read_json(stats_path)
+                    total = len(df)
+                    sig = int((df["p_value"] < 0.05).sum()) if "p_value" in df.columns else 0
+                    lines.append(f"统计检验覆盖 {total} 个特征，其中 p<0.05 为 {sig} 个。")
+                except Exception:
+                    pass
+            if top_path.exists():
+                try:
+                    top = pd.read_json(top_path).head(5)
+                    names = [str(x) for x in top["feature"].tolist()] if "feature" in top.columns else []
+                    if names:
+                        lines.append(f"Top 特征（前5）: {'、'.join(names)}。")
+                except Exception:
+                    pass
+        elif hyp_id == "H2":
+            eval_path = session_root / "result" / "model_eval.json"
+            cv_path = session_root / "result" / "cv_results.json"
+            if eval_path.exists():
+                model_eval = self._load_json(eval_path)
+                metrics = model_eval.get("metrics", {}) if isinstance(model_eval, dict) else {}
+                majority = metrics.get("majority_accuracy")
+                centroid = metrics.get("centroid_accuracy")
+                if majority is not None or centroid is not None:
+                    lines.append(
+                        f"模型评估：majority_accuracy={majority}, centroid_accuracy={centroid}。"
+                    )
+            if cv_path.exists():
+                cv = self._load_json(cv_path)
+                folds = cv.get("folds") if isinstance(cv, dict) else None
+                if isinstance(folds, list):
+                    lines.append(f"已执行交叉验证，折数={len(folds)}。")
+        elif hyp_id == "H3":
+            corr_path = session_root / "result" / "correlation.json"
+            if corr_path.exists():
+                try:
+                    corr = pd.read_json(corr_path)
+                    import numpy as np
+
+                    arr = corr.to_numpy().copy()
+                    np.fill_diagonal(arr, 0)
+                    max_idx = divmod(np.abs(arr).argmax(), arr.shape[1])
+                    pair = (corr.index[max_idx[0]], corr.columns[max_idx[1]])
+                    lines.append(
+                        f"最强相关变量对：{pair[0]} 与 {pair[1]}（|corr|≈{abs(arr[max_idx]):.3g}）。"
+                    )
+                except Exception:
+                    pass
+        elif hyp_id == "H4":
+            cluster_path = session_root / "result" / "clustering.json"
+            dim_path = session_root / "result" / "dimensionality.json"
+            if dim_path.exists():
+                lines.append("已生成降维结果（PCA/t-SNE）用于观察样本分离。")
+            if cluster_path.exists():
+                cluster = self._load_json(cluster_path)
+                if isinstance(cluster, dict):
+                    labels = cluster.get("labels")
+                    if isinstance(labels, list):
+                        lines.append(f"聚类标签已生成，样本标签数={len(labels)}。")
+        return lines
+
+    def _hypothesis_bound_visuals(
+        self,
+        hyp_id: str,
+        visuals: list[Dict[str, Any]],
+        binding_map: dict[str, str],
+    ) -> list[Dict[str, Any]]:
+        selected: list[Dict[str, Any]] = []
+        for item in visuals:
+            rel = item.get("relative_path", "")
+            bound = binding_map.get(rel, "")
+            if bound.upper().startswith(hyp_id):
+                selected.append(item)
+        return selected
+
     def assemble(
         self,
         outline: str,
@@ -665,9 +780,6 @@ class ReportAssembler:
     ) -> str:
         outline = outline.strip()
         analysis_md = analysis_md.strip()
-        outline_block = ""
-        if outline:
-            outline_block = "\n".join([f"> {line}" if line.strip() else ">" for line in outline.splitlines()])
         visuals = document_manifest.get("visualizations", []) or []
         tables = document_manifest.get("tables", []) or []
         session_root = self._infer_session_root(visuals, tables, document_manifest)
@@ -681,13 +793,6 @@ class ReportAssembler:
                     hypothesis = item.get("hypothesis")
                     if artifact and hypothesis:
                         binding_map[artifact] = hypothesis
-        artifact_names = " ".join(
-            [str(item.get("name", "")).lower() for item in visuals + tables]
-        )
-        has_advanced = any(
-            key in artifact_names
-            for key in ("roc", "auc", "volcano", "pca", "tsne", "umap", "model", "lasso")
-        )
         lines: list[str] = []
         title = report_payload.get("title") or "DeepAnalyze 报告"
         lines.append(f"# {title}")
@@ -695,134 +800,141 @@ class ReportAssembler:
         if execution_warning:
             lines.append(execution_warning)
             lines.append("")
-        summary = report_payload.get("summary")
-        if not has_advanced:
-            summary = "当前仅完成描述性统计与相关性分析，推断性统计与建模尚未执行。"
-        if not summary:
-            summary = "报告基于当前已生成产物自动装配，未启用 LLM 生成段落。"
-        if summary:
-            lines.append("## 摘要")
-            lines.append(summary)
-            lines.append("")
-        if outline_block:
-            lines.append("## 报告大纲")
-            lines.append(outline_block)
-            lines.append("")
-        if analysis_md:
-            lines.append("## 分析结果")
-            lines.append(analysis_md)
-            lines.append("")
+        summary = report_payload.get("summary") or "本报告基于自动化分析流程产物生成，重点按假设-验证-结果-分析进行组织。"
+        lines.append("## 摘要")
+        lines.append(summary)
+        lines.append("")
+
+        # Section 1: hypotheses and objectives
+        plan_json = self._load_plan_json(session_root)
+        hypotheses_md, process_md = self._extract_plan_sections(session_root)
+        lines.append("## 研究目标与原始假设")
+        if hypotheses_md:
+            lines.append(hypotheses_md)
+        elif outline:
+            lines.append("未读取到结构化假设，以下为报告大纲摘录：")
+            lines.append("\n".join([f"> {line}" if line.strip() else ">" for line in outline.splitlines()]))
+        else:
+            lines.append("未找到原始假设文件。")
+        lines.append("")
+
+        # Section 2: implementation process
+        lines.append("## 分析方法与实施过程")
+        if process_md:
+            lines.append(process_md)
+        else:
+            lines.append("未解析到详细过程，建议检查 plan/analysis_plan.md。")
+        lines.append("")
+
+        # Section 3: per-hypothesis validation sections
+        lines.append("## 假设验证与结果分析")
+        hypothesis_results = self._load_hypothesis_results(session_root)
+        used_visuals: set[str] = set()
+        used_tables: set[str] = set()
+        hypotheses = plan_json.get("hypotheses", []) if isinstance(plan_json, dict) else []
+        if not hypotheses and hypothesis_results.get("hypotheses"):
+            hypotheses = [{"id": f"H{i+1}", "title": item.get("hypothesis", ""), "hypothesis": ""} for i, item in enumerate(hypothesis_results.get("hypotheses", []))]
+        if hypotheses:
+            for idx, hyp in enumerate(hypotheses):
+                hyp_id = str(hyp.get("id") or f"H{idx+1}")
+                hyp_title = str(hyp.get("title") or hyp_id)
+                hyp_text = str(hyp.get("hypothesis") or "")
+                plan_steps = hyp.get("validation_plan_steps") or hyp.get("steps") or []
+                expected_artifacts = hyp.get("expected_artifacts") or hyp.get("artifacts") or []
+                run_entry = self._hypothesis_result_entry(hyp_id, hypothesis_results)
+                missing = run_entry.get("missing", []) if isinstance(run_entry, dict) else []
+                step_map = run_entry.get("steps", {}) if isinstance(run_entry, dict) else {}
+                lines.append(f"### {hyp_id} {hyp_title}")
+                if hyp_text:
+                    lines.append(f"**假设内容**：{hyp_text}")
+                    lines.append("")
+                lines.append("**验证方案**：")
+                if plan_steps:
+                    for i, step in enumerate(plan_steps, 1):
+                        lines.append(f"{i}. {step}")
+                else:
+                    lines.append("- 未提供结构化验证步骤。")
+                lines.append("")
+                lines.append("**执行结果**：")
+                if step_map:
+                    for step_name, payload in step_map.items():
+                        status = payload.get("status") if isinstance(payload, dict) else ""
+                        output = payload.get("output") if isinstance(payload, dict) else ""
+                        lines.append(f"- {step_name}: status={status}, output={output}")
+                else:
+                    lines.append("- 未读取到执行步骤明细。")
+                if expected_artifacts:
+                    lines.append(f"- 计划产物: {', '.join([str(x) for x in expected_artifacts])}")
+                if missing:
+                    lines.append(f"- 缺失产物: {', '.join([str(x) for x in missing])}")
+                else:
+                    lines.append("- 缺失产物: 无")
+                lines.append("")
+                lines.append("**结果分析**：")
+                details = self._hypothesis_data_analysis(hyp_id, session_root)
+                if details:
+                    for item in details:
+                        lines.append(f"- {item}")
+                else:
+                    lines.append("- 当前未提取到可自动解释的定量结果，请检查对应 result 文件。")
+                lines.append("")
+                bound_visuals = self._hypothesis_bound_visuals(hyp_id, visuals, binding_map)
+                if bound_visuals:
+                    lines.append("**图表与解释**：")
+                    lines.append(self._build_visual_block(bound_visuals, session_root, binding_map))
+                    lines.append("")
+                    used_visuals.update(v.get("relative_path", "") for v in bound_visuals)
+        else:
+            visuals_by_category: Dict[str, List[Dict[str, Any]]] = {}
+            for item in visuals:
+                category = self._classify_visual(item)
+                visuals_by_category.setdefault(category, []).append(item)
+            sections = report_payload.get("sections") or self._auto_sections(visuals_by_category)
+            for section in sections:
+                section_title = section.get("title", "Section")
+                section_body = section.get("body", "")
+                lines.append(f"### {section_title}")
+                lines.append(section_body)
+                if "差异" in section_title or "Differential" in section_title:
+                    scoped = visuals_by_category.get("diff", [])
+                elif "相关" in section_title or "Correlation" in section_title:
+                    scoped = visuals_by_category.get("correlation", [])
+                elif "分布" in section_title or "统计" in section_title or "Distribution" in section_title:
+                    scoped = visuals_by_category.get("distribution", [])
+                elif "聚类" in section_title or "降维" in section_title or "Embedding" in section_title:
+                    scoped = visuals_by_category.get("embedding", [])
+                else:
+                    scoped = visuals_by_category.get("other", [])
+                if scoped:
+                    lines.append(self._build_visual_block(scoped, session_root, binding_map))
+                    used_visuals.update(v.get("relative_path", "") for v in scoped)
+                lines.append("")
+        lines.append("")
+
+        # Section 4: quality, completion and risks
+        lines.append("## 质量校验与未完成项")
         failure_block = self._render_validation_failures(session_root)
-        if failure_block:
-            lines.append(failure_block)
-            lines.append("")
         quality_block = self._render_quality_warnings(session_root)
-        if quality_block:
-            lines.append(quality_block)
-            lines.append("")
         matrix_block = self._render_hypothesis_matrix(session_root)
+        coverage_block = self._render_coverage_report(session_root)
+        if failure_block:
+            lines.append(failure_block.replace("## 验证失败记录\n", ""))
+            lines.append("")
+        if quality_block:
+            lines.append(quality_block.replace("## 质量门槛未达标\n", ""))
+            lines.append("")
         if matrix_block:
             lines.append(matrix_block)
             lines.append("")
-        coverage_block = self._render_coverage_report(session_root)
         if coverage_block:
-            lines.append(coverage_block)
+            lines.append(coverage_block.replace("## 覆盖策略与遗漏项\n", ""))
             lines.append("")
-        if document_manifest:
-            lines.append("## 自动校验摘要")
-            lines.append(f"- 可视化产物数量: {len(visuals)}")
-            lines.append(f"- 表格/结果文件数量: {len(tables)}")
-            if visuals:
-                lines.append("- 可视化状态: 已生成")
-            else:
-                lines.append("- 可视化状态: 未生成")
-            lines.append("")
-        sections = report_payload.get("sections") or []
-        visuals_by_category: Dict[str, List[Dict[str, Any]]] = {}
-        for item in visuals:
-            category = self._classify_visual(item)
-            visuals_by_category.setdefault(category, []).append(item)
-        if not sections:
-            sections = self._auto_sections(visuals_by_category)
-        hypotheses_md, process_md = self._extract_plan_sections(session_root)
-        if hypotheses_md:
-            lines.append("## 原始假设与研究目标")
-            lines.append(hypotheses_md)
-            lines.append("")
-        if process_md:
-            lines.append("## 实现过程与验证路径")
-            lines.append(process_md)
-            lines.append("")
-        used_visuals: set[str] = set()
-        used_tables: set[str] = set()
-        for section in sections:
-            title = section.get("title", "Section")
-            body = section.get("body", "")
-            lowered = f"{title} {body}".lower()
-            if not has_advanced:
-                if any(
-                    key in lowered
-                    for key in ("roc", "auc", "volcano", "pca", "tsne", "umap", "lasso", "random forest")
-                    ):
-                    continue
-            lines.append(f"## {title}")
-            lines.append(body)
-            if "差异" in title or "Differential" in title:
-                block = self._build_visual_block(visuals_by_category.get("diff", []), session_root, binding_map)
-                if block:
-                    lines.append(block)
-                    used_visuals.update(
-                        v.get("relative_path", "") for v in visuals_by_category.get("diff", [])
-                    )
-            elif "相关" in title or "Correlation" in title:
-                block = self._build_visual_block(visuals_by_category.get("correlation", []), session_root, binding_map)
-                if block:
-                    lines.append(block)
-                    used_visuals.update(
-                        v.get("relative_path", "") for v in visuals_by_category.get("correlation", [])
-                    )
-            elif "分布" in title or "描述" in title or "统计" in title or "Distribution" in title:
-                block = self._build_visual_block(visuals_by_category.get("distribution", []), session_root, binding_map)
-                if block:
-                    lines.append(block)
-                    used_visuals.update(
-                        v.get("relative_path", "") for v in visuals_by_category.get("distribution", [])
-                    )
-            elif "聚类" in title or "降维" in title or "Embedding" in title:
-                block = self._build_visual_block(visuals_by_category.get("embedding", []), session_root, binding_map)
-                if block:
-                    lines.append(block)
-                    used_visuals.update(
-                        v.get("relative_path", "") for v in visuals_by_category.get("embedding", [])
-                    )
-            elif "补充" in title or "Supplement" in title:
-                block = self._build_visual_block(visuals_by_category.get("other", []), session_root, binding_map)
-                if block:
-                    lines.append(block)
-                    used_visuals.update(
-                        v.get("relative_path", "") for v in visuals_by_category.get("other", [])
-                    )
-            lines.append("")
-        highlights = report_payload.get("highlights") or []
-        if not has_advanced:
-            highlights = []
-        if highlights:
-            lines.append("## 关键结论")
-            for item in highlights:
-                lines.append(f"- {item}")
-            lines.append("")
-        limitations = report_payload.get("limitations") or []
-        if not has_advanced:
-            limitations = []
-        if limitations:
-            lines.append("## 局限性")
-            for item in limitations:
-                lines.append(f"- {item}")
-            lines.append("")
-        if document_manifest and tables:
+
+        # Section 5: table previews
+        if tables:
             table_blocks = self._table_preview_blocks(tables, session_root)
             if table_blocks:
-                lines.append("## 表格预览")
+                lines.append("## 关键数据表")
                 lines.extend(table_blocks)
                 for item in tables:
                     if item.get("name", "") in {"top_features.json", "stats_summary.json", "model_eval.json"}:
@@ -855,7 +967,8 @@ class ReportAssembler:
                     "</script>"
                 )
                 lines.append("")
-        if document_manifest:
-            lines.append(self._render_appendix(document_manifest, used_visuals, used_tables))
-            lines.append("")
+
+        # Section 6: appendix (non-duplicated)
+        lines.append(self._render_appendix(document_manifest, used_visuals, used_tables))
+        lines.append("")
         return "\n".join(lines).strip()

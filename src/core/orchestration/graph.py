@@ -193,6 +193,91 @@ def _parse_plan_markdown(plan: str) -> dict[str, Any]:
     return {"hypotheses": hypotheses}
 
 
+def _extract_plan_table_hypotheses(plan: str) -> dict[str, str]:
+    mapping: dict[str, str] = {}
+    if not plan:
+        return mapping
+    for raw in plan.splitlines():
+        line = raw.strip()
+        if not line.startswith("|"):
+            continue
+        parts = [p.strip() for p in line.strip("|").split("|")]
+        if len(parts) < 3:
+            continue
+        token = re.sub(r"[*` ]", "", parts[0]).upper()
+        if not re.fullmatch(r"H\d+", token):
+            continue
+        hypothesis = parts[2].strip()
+        if hypothesis:
+            mapping[token] = hypothesis
+    return mapping
+
+
+def _normalize_plan_json(plan_json: dict[str, Any], plan_md: str) -> dict[str, Any]:
+    fallback = _parse_plan_markdown(plan_md)
+    fallback_hypotheses = fallback.get("hypotheses", [])
+    table_hypothesis_map = _extract_plan_table_hypotheses(plan_md)
+    raw_hypotheses = plan_json.get("hypotheses", []) if isinstance(plan_json, dict) else []
+    if not isinstance(raw_hypotheses, list):
+        raw_hypotheses = []
+    if not raw_hypotheses:
+        raw_hypotheses = fallback_hypotheses
+    normalized: list[dict[str, Any]] = []
+    for idx, item in enumerate(raw_hypotheses):
+        base = item if isinstance(item, dict) else {"title": str(item)}
+        hyp_id = str(base.get("id") or "").strip().upper()
+        if not re.fullmatch(r"H\d+", hyp_id):
+            title = str(base.get("title", ""))
+            m = re.search(r"(H\d+)", title.upper())
+            hyp_id = m.group(1) if m else f"H{idx + 1}"
+        title = str(base.get("title") or f"{hyp_id}: hypothesis_{idx+1}").strip()
+        hypothesis_text = str(base.get("hypothesis") or "").strip()
+        if not hypothesis_text:
+            hypothesis_text = table_hypothesis_map.get(hyp_id, "")
+        fallback_steps = []
+        fallback_artifacts = []
+        if idx < len(fallback_hypotheses):
+            fallback_steps = fallback_hypotheses[idx].get("steps", []) or []
+            fallback_artifacts = fallback_hypotheses[idx].get("artifacts", []) or []
+        steps = base.get("validation_plan_steps")
+        if not isinstance(steps, list) or not steps:
+            steps = base.get("steps")
+        if not isinstance(steps, list) or not steps:
+            steps = fallback_steps
+        steps = [str(s).strip() for s in steps if str(s).strip()]
+        artifacts = base.get("expected_artifacts")
+        if not isinstance(artifacts, list) or not artifacts:
+            artifacts = base.get("artifacts")
+        if not isinstance(artifacts, list) or not artifacts:
+            artifacts = fallback_artifacts
+        artifacts = [str(a).strip() for a in artifacts if str(a).strip()]
+        normalized.append(
+            {
+                "id": hyp_id,
+                "title": title,
+                "hypothesis": hypothesis_text,
+                "validation_plan_steps": steps,
+                "expected_artifacts": artifacts,
+                # Backward-compatible fields
+                "steps": steps,
+                "artifacts": artifacts,
+            }
+        )
+    if not normalized:
+        normalized = [
+            {
+                "id": "H1",
+                "title": "H1: hypothesis_1",
+                "hypothesis": "",
+                "validation_plan_steps": [],
+                "expected_artifacts": [],
+                "steps": [],
+                "artifacts": [],
+            }
+        ]
+    return {"hypotheses": normalized}
+
+
 def _collect_result_evidence(session_dir: Path) -> list[str]:
     evidence: list[str] = []
     summary_path = session_dir / "result" / "summary.json"
@@ -1318,29 +1403,7 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
             {"role": "user", "content": f"{struct_prompt}\n\nPlan:\n{plan}"},
         ]
         plan_json_raw = llm.chat(struct_messages, max_tokens=2048)
-        plan_json = _safe_json_load(plan_json_raw)
-        fallback_plan = _parse_plan_markdown(plan)
-        if not plan_json:
-            plan_json = fallback_plan
-        if not plan_json.get("hypotheses"):
-            plan_json["hypotheses"] = fallback_plan.get("hypotheses", [])
-        for idx, hypothesis in enumerate(plan_json.get("hypotheses", [])):
-            if not hypothesis.get("steps"):
-                fallback_steps = []
-                if idx < len(fallback_plan.get("hypotheses", [])):
-                    fallback_steps = fallback_plan["hypotheses"][idx].get("steps", [])
-                hypothesis["steps"] = fallback_steps
-            if not hypothesis.get("artifacts"):
-                fallback_artifacts = []
-                if idx < len(fallback_plan.get("hypotheses", [])):
-                    fallback_artifacts = fallback_plan["hypotheses"][idx].get("artifacts", [])
-                hypothesis["artifacts"] = fallback_artifacts
-        if not plan_json.get("hypotheses"):
-            plan_json = {
-                "hypotheses": [
-                    {"title": "hypothesis_1", "steps": [], "artifacts": []}
-                ]
-            }
+        plan_json = _normalize_plan_json(_safe_json_load(plan_json_raw), plan)
         plan_json_path = Path(state.get("session_dir", "")) / "plan" / "analysis_plan.json"
         write_json(plan_json_path, plan_json)
         record_artifact(state.get("session_dir", ""), plan_json_path, "plan", "plan_analysis")
