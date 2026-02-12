@@ -78,13 +78,13 @@ def _extract_json_candidates(raw: str) -> list[str]:
     if not raw:
         return []
     candidates: list[str] = []
-    fence = re.compile(r"```(?:json)?\\s*([\\s\\S]*?)```", re.IGNORECASE)
+    fence = re.compile(r"```(?:json)?\s*([\s\S]*?)```", re.IGNORECASE)
     for match in fence.findall(raw):
         candidates.append(match.strip())
-    obj_match = re.search(r"(\\{[\\s\\S]*\\})", raw)
+    obj_match = re.search(r"(\{[\s\S]*\})", raw)
     if obj_match:
         candidates.append(obj_match.group(1))
-    arr_match = re.search(r"(\\[[\\s\\S]*\\])", raw)
+    arr_match = re.search(r"(\[[\s\S]*\])", raw)
     if arr_match:
         candidates.append(arr_match.group(1))
     return candidates
@@ -169,14 +169,18 @@ def _parse_plan_markdown(plan: str) -> dict[str, Any]:
             current_title = stripped.lstrip("#").strip()
             section = None
             continue
+        if stripped.startswith("###") and not stripped.startswith("####"):
+            _flush()
+            section = None
+            continue
         if "分析步骤" in stripped or "analysis steps" in stripped.lower():
             section = "steps"
             continue
         if "预期产物" in stripped or "expected artifacts" in stripped.lower():
             section = "artifacts"
             continue
-        step_match = re.match(r"^(\\d+)[\\.、\\)]\\s*(.+)", stripped)
-        if step_match and section == "steps":
+        step_match = re.match(r"^(\d+)[\.、\)]\s*(.+)", stripped)
+        if step_match and (section == "steps" or (section is None and current_title)):
             current_steps.append(step_match.group(2).strip())
             continue
         if stripped.startswith("*") and section == "artifacts":
@@ -213,10 +217,56 @@ def _extract_plan_table_hypotheses(plan: str) -> dict[str, str]:
     return mapping
 
 
+def _extract_hypothesis_descriptions(plan: str) -> dict[str, str]:
+    mapping: dict[str, str] = {}
+    if not plan:
+        return mapping
+    # Match lines like: * **假设 H1（差异性假设）**：Normal... 
+    pattern = re.compile(r"H(\d+)[^：:]*[：:]\s*(.+)")
+    for raw in plan.splitlines():
+        line = raw.strip().lstrip("*").strip()
+        if "假设" not in line or "H" not in line.upper():
+            continue
+        m = pattern.search(line)
+        if not m:
+            continue
+        hid = f"H{m.group(1)}"
+        desc = m.group(2).strip()
+        if desc:
+            mapping[hid] = desc
+    return mapping
+
+
+def _extract_hypothesis_table_steps_artifacts(plan: str) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
+    step_map: dict[str, list[str]] = {}
+    artifact_map: dict[str, list[str]] = {}
+    if not plan:
+        return step_map, artifact_map
+    for raw in plan.splitlines():
+        line = raw.strip()
+        if not line.startswith("|"):
+            continue
+        parts = [p.strip() for p in line.strip("|").split("|")]
+        if len(parts) < 3:
+            continue
+        first = re.sub(r"[*` ]", "", parts[0]).upper()
+        m = re.search(r"H(\d+)", first)
+        if not m:
+            continue
+        hid = f"H{m.group(1)}"
+        steps = [re.sub(r"<[^>]+>", " ", s).strip() for s in parts[1].split("<br>")]
+        artifacts = [re.sub(r"<[^>]+>", " ", s).strip() for s in parts[2].split("<br>")]
+        step_map[hid] = [s for s in steps if s and s not in {":---", "---"}]
+        artifact_map[hid] = [a for a in artifacts if a and a not in {":---", "---"}]
+    return step_map, artifact_map
+
+
 def _normalize_plan_json(plan_json: dict[str, Any], plan_md: str) -> dict[str, Any]:
     fallback = _parse_plan_markdown(plan_md)
     fallback_hypotheses = fallback.get("hypotheses", [])
     table_hypothesis_map = _extract_plan_table_hypotheses(plan_md)
+    inline_hypothesis_map = _extract_hypothesis_descriptions(plan_md)
+    table_step_map, table_artifact_map = _extract_hypothesis_table_steps_artifacts(plan_md)
     raw_hypotheses = plan_json.get("hypotheses", []) if isinstance(plan_json, dict) else []
     if not isinstance(raw_hypotheses, list):
         raw_hypotheses = []
@@ -232,7 +282,9 @@ def _normalize_plan_json(plan_json: dict[str, Any], plan_md: str) -> dict[str, A
             hyp_id = m.group(1) if m else f"H{idx + 1}"
         title = str(base.get("title") or f"{hyp_id}: hypothesis_{idx+1}").strip()
         hypothesis_text = str(base.get("hypothesis") or "").strip()
-        if not hypothesis_text:
+        if hyp_id in inline_hypothesis_map:
+            hypothesis_text = inline_hypothesis_map[hyp_id]
+        elif not hypothesis_text:
             hypothesis_text = table_hypothesis_map.get(hyp_id, "")
         fallback_steps = []
         fallback_artifacts = []
@@ -244,13 +296,53 @@ def _normalize_plan_json(plan_json: dict[str, Any], plan_md: str) -> dict[str, A
             steps = base.get("steps")
         if not isinstance(steps, list) or not steps:
             steps = fallback_steps
+        if not steps:
+            steps = table_step_map.get(hyp_id, [])
+        if fallback_steps:
+            step_texts = [str(s) for s in steps]
+            if (not step_texts) or all(("图" in s or "plot" in s.lower()) for s in step_texts):
+                steps = fallback_steps
         steps = [str(s).strip() for s in steps if str(s).strip()]
         artifacts = base.get("expected_artifacts")
         if not isinstance(artifacts, list) or not artifacts:
             artifacts = base.get("artifacts")
         if not isinstance(artifacts, list) or not artifacts:
             artifacts = fallback_artifacts
+        if not artifacts:
+            artifacts = table_artifact_map.get(hyp_id, [])
+        artifact_texts = [str(a) for a in artifacts]
+        if any("{'description':" in a for a in artifact_texts):
+            artifacts = table_artifact_map.get(hyp_id, fallback_artifacts)
         artifacts = [str(a).strip() for a in artifacts if str(a).strip()]
+        existing_paths = base.get("validation_paths")
+        if not isinstance(existing_paths, list) or len(existing_paths) < 2:
+            existing_paths = _default_validation_paths(hyp_id, steps, artifacts, title, hypothesis_text)
+        else:
+            normalized_paths: list[dict[str, Any]] = []
+            for pidx, p in enumerate(existing_paths):
+                if not isinstance(p, dict):
+                    continue
+                path_id = str(p.get("path_id") or f"path_{chr(97 + pidx)}").strip().lower()
+                method_family = str(p.get("method_family") or "").strip().lower()
+                if not method_family:
+                    method_family = _infer_method_family(hyp_id, title, hypothesis_text, pidx)
+                p_steps = p.get("steps") if isinstance(p.get("steps"), list) else steps
+                p_artifacts = p.get("expected_artifacts") if isinstance(p.get("expected_artifacts"), list) else artifacts
+                normalized_paths.append(
+                    {
+                        "path_id": path_id,
+                        "method_family": method_family,
+                        "steps": [str(s).strip() for s in (p_steps or []) if str(s).strip()],
+                        "expected_artifacts": [str(a).strip() for a in (p_artifacts or []) if str(a).strip()],
+                    }
+                )
+            existing_paths = normalized_paths if len(normalized_paths) >= 2 else _default_validation_paths(
+                hyp_id,
+                steps,
+                artifacts,
+                title,
+                hypothesis_text,
+            )
         normalized.append(
             {
                 "id": hyp_id,
@@ -258,6 +350,7 @@ def _normalize_plan_json(plan_json: dict[str, Any], plan_md: str) -> dict[str, A
                 "hypothesis": hypothesis_text,
                 "validation_plan_steps": steps,
                 "expected_artifacts": artifacts,
+                "validation_paths": existing_paths,
                 # Backward-compatible fields
                 "steps": steps,
                 "artifacts": artifacts,
@@ -271,11 +364,123 @@ def _normalize_plan_json(plan_json: dict[str, Any], plan_md: str) -> dict[str, A
                 "hypothesis": "",
                 "validation_plan_steps": [],
                 "expected_artifacts": [],
+                "validation_paths": [],
                 "steps": [],
                 "artifacts": [],
             }
         ]
     return {"hypotheses": normalized}
+
+
+def _infer_method_family(hyp_id: str, title: str, hypothesis_text: str, index: int) -> str:
+    haystack = f"{hyp_id} {title} {hypothesis_text}".lower()
+    path_kind = "primary" if index == 0 else "secondary"
+    if any(key in haystack for key in ("差异", "differ", "显著", "p值", "q值")):
+        return "parametric_test" if path_kind == "primary" else "nonparametric_or_fdr"
+    if any(key in haystack for key in ("特征", "预测", "模型", "auc", "分类")):
+        return "feature_modeling" if path_kind == "primary" else "cross_validation"
+    if any(key in haystack for key in ("相关", "网络", "协同", "corr")):
+        return "pearson_network" if path_kind == "primary" else "rank_or_sparse_network"
+    if any(key in haystack for key in ("聚类", "降维", "pca", "tsne", "umap")):
+        return "pca_cluster" if path_kind == "primary" else "tsne_or_umap_cluster"
+    return "primary" if index == 0 else "secondary"
+
+
+def _default_validation_paths(
+    hyp_id: str,
+    steps: list[str],
+    artifacts: list[str],
+    title: str,
+    hypothesis_text: str,
+) -> list[dict[str, Any]]:
+    return [
+        {
+            "path_id": "path_a",
+            "method_family": _infer_method_family(hyp_id, title, hypothesis_text, 0),
+            "steps": steps,
+            "expected_artifacts": artifacts,
+        },
+        {
+            "path_id": "path_b",
+            "method_family": _infer_method_family(hyp_id, title, hypothesis_text, 1),
+            "steps": list(reversed(steps)) if len(steps) > 1 else steps,
+            "expected_artifacts": artifacts,
+        },
+    ]
+
+
+def _needs_validation_path_repair(plan_json: dict[str, Any]) -> bool:
+    hypotheses = plan_json.get("hypotheses", []) if isinstance(plan_json, dict) else []
+    if not hypotheses:
+        return True
+    for hyp in hypotheses:
+        if not isinstance(hyp, dict):
+            return True
+        paths = hyp.get("validation_paths")
+        if not isinstance(paths, list) or len(paths) < 2:
+            return True
+        families = [str(p.get("method_family", "")).strip().lower() for p in paths if isinstance(p, dict)]
+        if len(set([f for f in families if f])) < 2:
+            return True
+    return False
+
+
+def _merge_validation_paths(
+    plan_json: dict[str, Any],
+    repair_payload: dict[str, Any],
+) -> dict[str, Any]:
+    repaired = dict(plan_json) if isinstance(plan_json, dict) else {"hypotheses": []}
+    hypotheses = repaired.get("hypotheses", []) if isinstance(repaired.get("hypotheses"), list) else []
+    repair_map: dict[str, list[dict[str, Any]]] = {}
+    for item in repair_payload.get("hypotheses", []) if isinstance(repair_payload, dict) else []:
+        if not isinstance(item, dict):
+            continue
+        hid = str(item.get("id", "")).strip().upper()
+        paths = item.get("validation_paths")
+        if hid and isinstance(paths, list):
+            repair_map[hid] = [p for p in paths if isinstance(p, dict)]
+    merged_hypotheses: list[dict[str, Any]] = []
+    for idx, hyp in enumerate(hypotheses):
+        if not isinstance(hyp, dict):
+            continue
+        hid = str(hyp.get("id", f"H{idx+1}")).strip().upper()
+        base_steps = [str(x).strip() for x in hyp.get("validation_plan_steps", []) if str(x).strip()]
+        base_artifacts = [str(x).strip() for x in hyp.get("expected_artifacts", []) if str(x).strip()]
+        candidate_paths = repair_map.get(hid, hyp.get("validation_paths", []))
+        normalized_paths: list[dict[str, Any]] = []
+        if isinstance(candidate_paths, list):
+            for pidx, path in enumerate(candidate_paths):
+                if not isinstance(path, dict):
+                    continue
+                normalized_paths.append(
+                    {
+                        "path_id": str(path.get("path_id") or f"path_{chr(97 + pidx)}").strip().lower(),
+                        "method_family": str(path.get("method_family") or "").strip().lower()
+                        or _infer_method_family(
+                            hid,
+                            str(hyp.get("title", "")),
+                            str(hyp.get("hypothesis", "")),
+                            pidx,
+                        ),
+                        "steps": [str(x).strip() for x in (path.get("steps") or base_steps) if str(x).strip()],
+                        "expected_artifacts": [
+                            str(x).strip()
+                            for x in (path.get("expected_artifacts") or base_artifacts)
+                            if str(x).strip()
+                        ],
+                    }
+                )
+        if len(normalized_paths) < 2 or len(set(p["method_family"] for p in normalized_paths if p["method_family"])) < 2:
+            normalized_paths = _default_validation_paths(
+                hid,
+                base_steps,
+                base_artifacts,
+                str(hyp.get("title", "")),
+                str(hyp.get("hypothesis", "")),
+            )
+        merged_hypotheses.append({**hyp, "validation_paths": normalized_paths})
+    repaired["hypotheses"] = merged_hypotheses
+    return repaired
 
 
 def _collect_result_evidence(session_dir: Path) -> list[str]:
@@ -589,6 +794,8 @@ def _run_deterministic_hypotheses(session_dir: Path, dataset_path: Path) -> dict
     write_json(session_dir / "result" / "coverage_report.json", coverage_report)
     visual_binding = _build_visual_binding(session_dir)
     write_json(session_dir / "result" / "visual_binding.json", visual_binding)
+    hypothesis_evidence = _build_hypothesis_evidence(session_dir, payload)
+    write_json(session_dir / "result" / "hypothesis_evidence.json", hypothesis_evidence)
     return payload
 
 
@@ -792,6 +999,481 @@ def _build_visual_binding(session_dir: Path) -> dict[str, Any]:
     return {"bindings": bindings}
 
 
+def _build_hypothesis_evidence(session_dir: Path, hypothesis_payload: dict[str, Any]) -> dict[str, Any]:
+    evidence_rows: list[dict[str, Any]] = []
+
+    def _status_for(hyp_name: str) -> str:
+        for item in hypothesis_payload.get("hypotheses", []) if isinstance(hypothesis_payload, dict) else []:
+            title = str(item.get("hypothesis", ""))
+            if title.startswith(hyp_name):
+                missing = item.get("missing", []) or []
+                if missing:
+                    return "partial" if len(missing) < len(item.get("expected_artifacts", []) or []) else "failed"
+                return "supported"
+        return "inconclusive"
+
+    # H1 evidence
+    h1_metrics: dict[str, Any] = {}
+    stats_path = session_dir / "result" / "stats_results.json"
+    top_path = session_dir / "result" / "top_features.json"
+    if stats_path.exists():
+        try:
+            df = pd.read_json(stats_path)
+            h1_metrics["tested_features"] = int(len(df))
+            if "p_value" in df.columns:
+                h1_metrics["significant_p_lt_0_05"] = int((df["p_value"] < 0.05).sum())
+        except Exception:
+            pass
+    if top_path.exists():
+        try:
+            top = pd.read_json(top_path)
+            if "feature" in top.columns:
+                h1_metrics["top_features"] = [str(x) for x in top["feature"].head(5).tolist()]
+        except Exception:
+            pass
+    evidence_rows.append(
+        {
+            "hypothesis_id": "H1",
+            "claim": "组间存在显著差异标志物",
+            "evidence_sources": [
+                p
+                for p in [
+                    "result/stats_results.json",
+                    "result/stats_summary.json",
+                    "result/group_means.csv",
+                    "result/differential_analysis_output.txt",
+                    "result/top_features.json",
+                    "plots/volcano_plot.png",
+                ]
+                if (session_dir / p).exists()
+            ],
+            "quant_metrics": h1_metrics,
+            "status": _status_for("H1"),
+        }
+    )
+
+    # H2 evidence
+    h2_metrics: dict[str, Any] = {}
+    eval_path = session_dir / "result" / "model_eval.json"
+    cv_path = session_dir / "result" / "cv_results.json"
+    if eval_path.exists():
+        try:
+            payload = json.loads(eval_path.read_text(encoding="utf-8"))
+            metrics = payload.get("metrics", {}) if isinstance(payload, dict) else {}
+            for k in ("majority_accuracy", "centroid_accuracy", "auc"):
+                if metrics.get(k) is not None:
+                    h2_metrics[k] = metrics.get(k)
+        except Exception:
+            pass
+    if cv_path.exists():
+        try:
+            cv = json.loads(cv_path.read_text(encoding="utf-8"))
+            if isinstance(cv, dict):
+                if cv.get("mean_accuracy") is not None:
+                    h2_metrics["cv_mean_accuracy"] = cv.get("mean_accuracy")
+                if isinstance(cv.get("folds"), list):
+                    h2_metrics["cv_folds"] = len(cv.get("folds"))
+        except Exception:
+            pass
+    evidence_rows.append(
+        {
+            "hypothesis_id": "H2",
+            "claim": "多特征组合具备诊断预测力",
+            "evidence_sources": [p for p in ["result/model_eval.json", "result/cv_results.json", "result/feature_selection.json"] if (session_dir / p).exists()],
+            "quant_metrics": h2_metrics,
+            "status": _status_for("H2"),
+        }
+    )
+
+    # H3 evidence
+    h3_metrics: dict[str, Any] = {}
+    corr_path = session_dir / "result" / "correlation.json"
+    if corr_path.exists():
+        try:
+            corr = pd.read_json(corr_path)
+            arr = corr.to_numpy().copy()
+            import numpy as np
+
+            np.fill_diagonal(arr, 0)
+            idx = divmod(np.abs(arr).argmax(), arr.shape[1])
+            h3_metrics["strongest_pair"] = [str(corr.index[idx[0]]), str(corr.columns[idx[1]])]
+            h3_metrics["strongest_abs_corr"] = float(abs(arr[idx]))
+        except Exception:
+            pass
+    evidence_rows.append(
+        {
+            "hypothesis_id": "H3",
+            "claim": "变量间存在结构化相关网络",
+            "evidence_sources": [p for p in ["result/correlation.json", "plots/heatmap.png", "plots/network.png"] if (session_dir / p).exists()],
+            "quant_metrics": h3_metrics,
+            "status": _status_for("H3"),
+        }
+    )
+
+    # H4 evidence
+    h4_metrics: dict[str, Any] = {}
+    cluster_path = session_dir / "result" / "clustering.json"
+    dim_path = session_dir / "result" / "dimensionality.json"
+    if dim_path.exists():
+        h4_metrics["has_pca_embedding"] = True
+    if (session_dir / "result" / "dimensionality_tsne.json").exists():
+        h4_metrics["has_tsne_embedding"] = True
+    if cluster_path.exists():
+        try:
+            cluster = json.loads(cluster_path.read_text(encoding="utf-8"))
+            labels = cluster.get("labels")
+            if isinstance(labels, list):
+                h4_metrics["cluster_label_count"] = len(labels)
+        except Exception:
+            pass
+    evidence_rows.append(
+        {
+            "hypothesis_id": "H4",
+            "claim": "样本在降维空间中存在可解释结构",
+            "evidence_sources": [p for p in ["result/dimensionality.json", "result/clustering.json", "plots/embedding_pca.png", "plots/embedding_tsne.png"] if (session_dir / p).exists()],
+            "quant_metrics": h4_metrics,
+            "status": _status_for("H4"),
+        }
+    )
+
+    return {"hypotheses": evidence_rows}
+
+
+def _build_hypothesis_contrast(evidence_payload: dict[str, Any], session_dir: Path) -> dict[str, Any]:
+    rows: list[dict[str, Any]] = []
+    for item in evidence_payload.get("hypotheses", []) if isinstance(evidence_payload, dict) else []:
+        hid = str(item.get("hypothesis_id", ""))
+        metrics = item.get("quant_metrics", {}) if isinstance(item.get("quant_metrics"), dict) else {}
+        primary = {"path_id": "path_a", "metrics": metrics, "status": "ok" if metrics else "partial"}
+        secondary_metrics: dict[str, Any] = {}
+        secondary_reason = ""
+        if hid == "H1":
+            mt_path = session_dir / "result" / "multiple_testing.json"
+            if mt_path.exists():
+                try:
+                    mt_df = pd.read_json(mt_path)
+                    if "q_value" in mt_df.columns:
+                        secondary_metrics["q_lt_0_05"] = int((mt_df["q_value"] < 0.05).sum())
+                    secondary_metrics["tested_features"] = int(len(mt_df))
+                except Exception as exc:
+                    secondary_reason = f"failed_to_parse_multiple_testing: {exc}"
+        elif hid == "H2":
+            cv_path = session_dir / "result" / "cv_results.json"
+            if cv_path.exists():
+                try:
+                    cv = json.loads(cv_path.read_text(encoding="utf-8"))
+                    if cv.get("mean_accuracy") is not None:
+                        secondary_metrics["cv_mean_accuracy"] = cv.get("mean_accuracy")
+                    if cv.get("std_accuracy") is not None:
+                        secondary_metrics["cv_std_accuracy"] = cv.get("std_accuracy")
+                except Exception as exc:
+                    secondary_reason = f"failed_to_parse_cv: {exc}"
+        elif hid == "H3":
+            corr_path = session_dir / "result" / "correlation.json"
+            if corr_path.exists():
+                try:
+                    corr = pd.read_json(corr_path)
+                    import numpy as np
+
+                    arr = corr.to_numpy().copy()
+                    np.fill_diagonal(arr, 0)
+                    secondary_metrics["abs_corr_gt_0_7_edges"] = int((np.abs(arr) > 0.7).sum() / 2)
+                    secondary_metrics["abs_corr_gt_0_5_edges"] = int((np.abs(arr) > 0.5).sum() / 2)
+                except Exception as exc:
+                    secondary_reason = f"failed_to_parse_correlation: {exc}"
+        elif hid == "H4":
+            if (session_dir / "result" / "dimensionality_tsne.json").exists():
+                secondary_metrics["has_tsne_embedding"] = True
+            cl_path = session_dir / "result" / "clustering.json"
+            if cl_path.exists():
+                try:
+                    cl = json.loads(cl_path.read_text(encoding="utf-8"))
+                    labels = cl.get("labels")
+                    if isinstance(labels, list):
+                        secondary_metrics["cluster_count"] = len(set(labels))
+                except Exception as exc:
+                    secondary_reason = f"failed_to_parse_clustering: {exc}"
+        secondary = {
+            "path_id": "path_b",
+            "metrics": secondary_metrics,
+            "status": "ok" if secondary_metrics else "missing",
+            "reason": secondary_reason or ("secondary evidence unavailable" if not secondary_metrics else ""),
+        }
+        consistency = "unknown"
+        conflict_reason = ""
+        if hid == "H1":
+            a = metrics.get("significant_p_lt_0_05")
+            b = secondary_metrics.get("q_lt_0_05")
+            if isinstance(a, int) and isinstance(b, int):
+                consistency = "consistent" if (a == 0 and b == 0) or (a > 0 and b > 0) else "conflict"
+                if consistency == "conflict":
+                    conflict_reason = f"p-significant={a}, q-significant={b}"
+        elif hid == "H2":
+            a = metrics.get("centroid_accuracy")
+            b = secondary_metrics.get("cv_mean_accuracy")
+            if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+                consistency = "consistent" if abs(float(a) - float(b)) <= 0.15 else "conflict"
+                if consistency == "conflict":
+                    conflict_reason = f"centroid_accuracy={a}, cv_mean_accuracy={b}"
+        elif hid == "H3":
+            a = metrics.get("strongest_abs_corr")
+            b = secondary_metrics.get("abs_corr_gt_0_7_edges")
+            if isinstance(a, (int, float)) and isinstance(b, int):
+                consistency = "consistent" if (a >= 0.7 and b > 0) or (a < 0.7 and b == 0) else "conflict"
+                if consistency == "conflict":
+                    conflict_reason = f"strongest_abs_corr={a}, abs_corr_gt_0_7_edges={b}"
+        elif hid == "H4":
+            a = metrics.get("has_pca_embedding")
+            b = secondary_metrics.get("has_tsne_embedding")
+            if isinstance(a, bool) and isinstance(b, bool):
+                consistency = "consistent" if a and b else "conflict"
+                if consistency == "conflict":
+                    conflict_reason = f"has_pca_embedding={a}, has_tsne_embedding={b}"
+
+        status = "validated"
+        if consistency == "conflict":
+            status = "inconclusive"
+        elif not secondary_metrics:
+            status = "partial"
+        conflict_category = ""
+        if consistency == "conflict":
+            if "failed_to_parse" in conflict_reason:
+                conflict_category = "path_failure"
+            elif "secondary evidence unavailable" in conflict_reason:
+                conflict_category = "data_sparse"
+            else:
+                conflict_category = "metric_disagreement"
+        rows.append(
+            {
+                "hypothesis_id": hid,
+                "path_a": primary,
+                "path_b": secondary,
+                "consistency": consistency,
+                "status": status,
+                "conflict_reason": conflict_reason or secondary.get("reason", ""),
+                "conflict_category": conflict_category,
+            }
+        )
+    return {"hypotheses": rows}
+
+
+def _build_hypothesis_validation_contract(
+    plan_json: dict[str, Any],
+    contrast_payload: dict[str, Any],
+    multipath_payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    required = []
+    for h in plan_json.get("hypotheses", []) if isinstance(plan_json, dict) else []:
+        hid = str(h.get("id", ""))
+        paths = h.get("validation_paths", [])
+        required.append({"hypothesis_id": hid, "required_paths": len(paths), "has_dual_paths": len(paths) >= 2})
+    contrast_map = {
+        str(h.get("hypothesis_id", "")): h for h in contrast_payload.get("hypotheses", []) if isinstance(contrast_payload, dict)
+    }
+    multipath_map = {
+        str(h.get("hypothesis_id", "")): h
+        for h in (multipath_payload or {}).get("hypotheses", [])
+        if isinstance(h, dict)
+    }
+    rows: list[dict[str, Any]] = []
+    for item in required:
+        hid = item["hypothesis_id"]
+        contrast = contrast_map.get(hid, {})
+        multipath = multipath_map.get(hid, {})
+        paths = multipath.get("paths", []) if isinstance(multipath, dict) else []
+        path_statuses = [str(p.get("status", "")) for p in paths if isinstance(p, dict)]
+        dual_paths_executed = len(paths) >= 2 and all(status not in {"skipped", ""} for status in path_statuses[:2])
+        rows.append(
+            {
+                **item,
+                "executed_status": multipath.get("status") or contrast.get("status", "missing"),
+                "consistency": contrast.get("consistency", "unknown"),
+                "conflict_reason": contrast.get("conflict_reason", ""),
+                "dual_paths_executed": dual_paths_executed,
+                "path_statuses": path_statuses,
+            }
+        )
+    satisfied = all(r.get("has_dual_paths") and r.get("dual_paths_executed") for r in rows)
+    return {"satisfied": satisfied, "hypotheses": rows}
+
+
+def _path_artifacts_status(
+    session_dir: Path,
+    expected_artifacts: list[str],
+    fallback_sources: list[str],
+) -> dict[str, Any]:
+    expected = [str(x).strip() for x in expected_artifacts if str(x).strip()]
+    if not expected and fallback_sources:
+        expected = [str(x).strip() for x in fallback_sources if str(x).strip()]
+    missing: list[str] = []
+    present: list[str] = []
+    for rel in expected:
+        target = rel.lstrip("./")
+        candidates = [
+            session_dir / target,
+            session_dir / "result" / target,
+            session_dir / "plots" / target,
+            session_dir / "report" / target,
+        ]
+        if any(path.exists() for path in candidates):
+            present.append(rel)
+        else:
+            missing.append(rel)
+    if not expected:
+        status = "skipped"
+    elif not missing:
+        status = "validated"
+    elif len(present) == 0:
+        status = "failed"
+    else:
+        status = "partial"
+    return {
+        "status": status,
+        "expected_artifacts": expected,
+        "present_artifacts": present,
+        "missing_artifacts": missing,
+    }
+
+
+def _evaluate_hypothesis_validation_paths(
+    session_dir: Path,
+    plan_json: dict[str, Any],
+    evidence_payload: dict[str, Any],
+    contrast_payload: dict[str, Any],
+) -> dict[str, Any]:
+    evidence_map = {
+        str(item.get("hypothesis_id", "")).upper(): item
+        for item in evidence_payload.get("hypotheses", [])
+        if isinstance(item, dict)
+    }
+    contrast_map = {
+        str(item.get("hypothesis_id", "")).upper(): item
+        for item in contrast_payload.get("hypotheses", [])
+        if isinstance(item, dict)
+    }
+    rows: list[dict[str, Any]] = []
+    for hyp in plan_json.get("hypotheses", []) if isinstance(plan_json, dict) else []:
+        if not isinstance(hyp, dict):
+            continue
+        hid = str(hyp.get("id", "")).upper()
+        title = str(hyp.get("title", ""))
+        hyp_paths = hyp.get("validation_paths") if isinstance(hyp.get("validation_paths"), list) else []
+        if len(hyp_paths) < 2:
+            hyp_paths = _default_validation_paths(
+                hid or "H1",
+                [str(x) for x in hyp.get("validation_plan_steps", []) if str(x).strip()],
+                [str(x) for x in hyp.get("expected_artifacts", []) if str(x).strip()],
+                title,
+                str(hyp.get("hypothesis", "")),
+            )
+        evidence_entry = evidence_map.get(hid, {})
+        evidence_sources = (
+            evidence_entry.get("evidence_sources", [])
+            if isinstance(evidence_entry.get("evidence_sources"), list)
+            else []
+        )
+        contrast_entry = contrast_map.get(hid, {})
+        path_results: list[dict[str, Any]] = []
+        for idx, path in enumerate(hyp_paths):
+            if not isinstance(path, dict):
+                continue
+            path_id = str(path.get("path_id") or f"path_{chr(97 + idx)}").strip().lower()
+            method_family = str(path.get("method_family") or "").strip().lower() or _infer_method_family(
+                hid,
+                title,
+                str(hyp.get("hypothesis", "")),
+                idx,
+            )
+            expected = path.get("expected_artifacts") if isinstance(path.get("expected_artifacts"), list) else []
+            start_ts = time.time()
+            status_payload = _path_artifacts_status(
+                session_dir,
+                [str(x) for x in expected if str(x).strip()],
+                [str(x) for x in evidence_sources if str(x).strip()],
+            )
+            contrast_metrics = {}
+            contrast_status = ""
+            if path_id in {"path_a", "a"} and isinstance(contrast_entry.get("path_a"), dict):
+                contrast_metrics = contrast_entry["path_a"].get("metrics", {})
+                contrast_status = str(contrast_entry["path_a"].get("status", ""))
+            elif path_id in {"path_b", "b"} and isinstance(contrast_entry.get("path_b"), dict):
+                contrast_metrics = contrast_entry["path_b"].get("metrics", {})
+                contrast_status = str(contrast_entry["path_b"].get("status", ""))
+            if status_payload["status"] in {"failed", "partial"} and contrast_status == "ok":
+                status_payload["status"] = "partial" if status_payload["status"] == "failed" else "validated"
+            path_results.append(
+                {
+                    "path_id": path_id,
+                    "method_family": method_family,
+                    "steps": [str(x) for x in path.get("steps", []) if str(x).strip()],
+                    "status": status_payload["status"],
+                    "expected_artifacts": status_payload["expected_artifacts"],
+                    "present_artifacts": status_payload["present_artifacts"],
+                    "missing_artifacts": status_payload["missing_artifacts"],
+                    "metrics": contrast_metrics if isinstance(contrast_metrics, dict) else {},
+                    "duration_ms": int((time.time() - start_ts) * 1000),
+                    "error": "" if status_payload["status"] != "failed" else "required_artifacts_missing",
+                }
+            )
+        consistency = str(contrast_entry.get("consistency", "unknown"))
+        statuses = [str(x.get("status", "")) for x in path_results]
+        if consistency == "conflict":
+            overall = "inconclusive"
+        elif statuses and all(x == "validated" for x in statuses):
+            overall = "validated"
+        elif statuses and any(x in {"validated", "partial"} for x in statuses):
+            overall = "partial"
+        elif statuses and all(x in {"failed", "skipped"} for x in statuses):
+            overall = "failed"
+        else:
+            overall = "inconclusive"
+        rows.append(
+            {
+                "hypothesis_id": hid,
+                "title": title,
+                "status": overall,
+                "consistency": consistency,
+                "conflict_reason": str(contrast_entry.get("conflict_reason", "")),
+                "conflict_category": str(contrast_entry.get("conflict_category", "")),
+                "recovery_action": (
+                    "retry_secondary_or_code_repair"
+                    if any(p.get("status") == "failed" for p in path_results)
+                    else ""
+                ),
+                "paths": path_results,
+            }
+        )
+    total = len(rows)
+    conflict_count = sum(1 for row in rows if row.get("consistency") == "conflict")
+    success_count = sum(1 for row in rows if row.get("status") == "validated")
+    return {
+        "hypotheses": rows,
+        "stats": {
+            "total_hypotheses": total,
+            "validated": success_count,
+            "inconclusive": sum(1 for row in rows if row.get("status") == "inconclusive"),
+            "failed": sum(1 for row in rows if row.get("status") == "failed"),
+            "partial": sum(1 for row in rows if row.get("status") == "partial"),
+            "conflict_rate": round((conflict_count / total), 4) if total else 0.0,
+            "path_success_rate": round(
+                (
+                    sum(
+                        1
+                        for row in rows
+                        for p in row.get("paths", [])
+                        if p.get("status") == "validated"
+                    )
+                    / max(
+                        1,
+                        sum(len(row.get("paths", [])) for row in rows),
+                    )
+                ),
+                4,
+            ),
+        },
+    }
+
+
 def _build_auto_analysis_payload(session_dir: Path, auto_evidence: list[str]) -> dict[str, Any]:
     summary_lines: list[str] = []
     key_findings: list[str] = []
@@ -910,6 +1592,46 @@ def _build_auto_analysis_payload(session_dir: Path, auto_evidence: list[str]) ->
         "limitations": limitations,
         "next_steps": next_steps,
     }
+
+
+def _load_structured_evidence(session_dir: Path) -> dict[str, Any]:
+    path = session_dir / "result" / "hypothesis_evidence.json"
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        return payload if isinstance(payload, dict) else {}
+    except Exception:
+        return {}
+
+
+def _metric_names_from_evidence(evidence_payload: dict[str, Any]) -> set[str]:
+    metric_names: set[str] = set()
+    for hyp in evidence_payload.get("hypotheses", []) if isinstance(evidence_payload, dict) else []:
+        if not isinstance(hyp, dict):
+            continue
+        quant_metrics = hyp.get("quant_metrics", {})
+        if isinstance(quant_metrics, dict):
+            metric_names.update(str(k).lower() for k in quant_metrics.keys() if str(k).strip())
+    return metric_names
+
+
+def _llm_analysis_has_metric_grounding(
+    analysis_payload: dict[str, Any],
+    evidence_payload: dict[str, Any],
+    min_metric_refs: int = 2,
+) -> bool:
+    metric_names = _metric_names_from_evidence(evidence_payload)
+    if not metric_names:
+        return False
+    text_parts = [
+        str(analysis_payload.get("summary", "")),
+        " ".join(str(x) for x in analysis_payload.get("key_findings", [])),
+        " ".join(str(x) for x in analysis_payload.get("evidence", [])),
+    ]
+    joined = " ".join(text_parts).lower()
+    hits = sum(1 for name in metric_names if name in joined)
+    return hits >= min_metric_refs
 
 
 def _sanitize_outline(outline: str, session_dir: Path) -> str:
@@ -1158,6 +1880,10 @@ def _run_audit(session_dir: Path) -> dict[str, Any]:
         "result/stats_results.json",
         "result/correlation.json",
         "result/feature_selection.json",
+        "result/hypothesis_evidence.json",
+        "result/hypothesis_contrast.json",
+        "result/hypothesis_multipath.json",
+        "result/hypothesis_validation_contract.json",
         "result/hypothesis_matrix.json",
         "result/coverage_report.json",
         "result/visual_binding.json",
@@ -1173,11 +1899,21 @@ def _run_audit(session_dir: Path) -> dict[str, Any]:
     visuals_present = visuals_dir.exists() and any(visuals_dir.rglob("*"))
     quality_gates = [f"result:{Path(rel).name}" for rel in required if rel.startswith("result/")]
     gate_missing = _check_quality_gates(session_dir, quality_gates)
+    multipath_stats: dict[str, Any] = {}
+    multipath_path = session_dir / "result" / "hypothesis_multipath.json"
+    if multipath_path.exists():
+        try:
+            multipath_payload = json.loads(multipath_path.read_text(encoding="utf-8"))
+            if isinstance(multipath_payload, dict):
+                multipath_stats = multipath_payload.get("stats", {}) or {}
+        except Exception:
+            multipath_stats = {}
     return {
         "missing_required": missing,
         "visuals_present": bool(visuals_present),
         "quality_gates": quality_gates,
         "quality_gate_missing": gate_missing,
+        "hypothesis_validation_stats": multipath_stats,
     }
 
 
@@ -1404,6 +2140,25 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
         ]
         plan_json_raw = llm.chat(struct_messages, max_tokens=2048)
         plan_json = _normalize_plan_json(_safe_json_load(plan_json_raw), plan)
+        if _needs_validation_path_repair(plan_json):
+            repair_prompt = (
+                "仅提取每条假设的 validation_paths，返回严格 JSON："
+                "{hypotheses:[{id,validation_paths:[{path_id,method_family,steps,expected_artifacts}]}]}。"
+                "必须每条假设至少两条路径，且 method_family 不同。"
+            )
+            repair_messages = [
+                {"role": "system", "content": get_system(language)},
+                {
+                    "role": "user",
+                    "content": (
+                        f"{repair_prompt}\n\n原始计划：\n{plan}\n\n当前结构化 JSON：\n"
+                        f"{json.dumps(plan_json, ensure_ascii=False)}"
+                    ),
+                },
+            ]
+            repair_raw = llm.chat(repair_messages, max_tokens=1536)
+            repair_payload = _safe_json_load(repair_raw)
+            plan_json = _merge_validation_paths(plan_json, repair_payload)
         plan_json_path = Path(state.get("session_dir", "")) / "plan" / "analysis_plan.json"
         write_json(plan_json_path, plan_json)
         record_artifact(state.get("session_dir", ""), plan_json_path, "plan", "plan_analysis")
@@ -1703,6 +2458,43 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
                             session_dir, data_profile, llm, summary
                         )
                     hypothesis_payload = _run_deterministic_hypotheses(session_dir, dataset_path)
+                    evidence_payload = _build_hypothesis_evidence(session_dir, hypothesis_payload)
+                    write_json(session_dir / "result" / "hypothesis_evidence.json", evidence_payload)
+                    contrast_payload = _build_hypothesis_contrast(evidence_payload, session_dir)
+                    write_json(session_dir / "result" / "hypothesis_contrast.json", contrast_payload)
+                    multipath_payload = _evaluate_hypothesis_validation_paths(
+                        session_dir,
+                        state.get("plan_json", {}) if isinstance(state.get("plan_json", {}), dict) else {},
+                        evidence_payload,
+                        contrast_payload,
+                    )
+                    write_json(session_dir / "result" / "hypothesis_multipath.json", multipath_payload)
+                    contract_payload = _build_hypothesis_validation_contract(
+                        state.get("plan_json", {}) if isinstance(state.get("plan_json", {}), dict) else {},
+                        contrast_payload,
+                        multipath_payload,
+                    )
+                    write_json(session_dir / "result" / "hypothesis_validation_contract.json", contract_payload)
+                    if plan_id:
+                        for row in multipath_payload.get("hypotheses", []):
+                            if not isinstance(row, dict):
+                                continue
+                            for path_row in row.get("paths", []):
+                                if not isinstance(path_row, dict):
+                                    continue
+                                artifact_registry.register(
+                                    plan_id,
+                                    "validation_path",
+                                    session_dir / "result" / "hypothesis_multipath.json",
+                                    {
+                                        "hypothesis_id": row.get("hypothesis_id"),
+                                        "hypothesis_status": row.get("status"),
+                                        "path_id": path_row.get("path_id"),
+                                        "method_family": path_row.get("method_family"),
+                                        "status": path_row.get("status"),
+                                        "missing_artifacts": path_row.get("missing_artifacts", []),
+                                    },
+                                )
                     hypothesis_md = _hypothesis_summary_md(hypothesis_payload, session_dir)
                     auto_evidence = _collect_result_evidence(session_dir)
                 except Exception:
@@ -1719,13 +2511,20 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
             if failed == len(outputs):
                 execution_warning = "执行告警：所有代码步骤执行失败，分析结果仅基于规划信息生成。"
         warning_block = f"{execution_warning}\n" if execution_warning else ""
+        structured_evidence = _load_structured_evidence(session_dir)
+        structured_evidence_block = ""
+        if structured_evidence:
+            structured_evidence_block = (
+                "\nStructured hypothesis evidence (JSON):\n"
+                + json.dumps(structured_evidence, ensure_ascii=False, indent=2)
+            )
         messages = render_role_prompt(
             "analysis",
             language,
             prompt_key="analysis_structured",
             outputs=(
                 f"{warning_block}Visual style: {visual_style}\nInteractive: {visual_interactive}\n\n"
-                f"Auto evidence:\n- " + "\n- ".join(auto_evidence) + f"\n\n{summary}"
+                f"Auto evidence:\n- " + "\n- ".join(auto_evidence) + f"\n\n{summary}{structured_evidence_block}"
             ),
             plan_id=plan_id,
             artifact_context=artifact_context,
@@ -1740,7 +2539,7 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
                         f"{prompt}\n\n{warning_block}Visual style: {visual_style}\n"
                         f"Interactive: {visual_interactive}\n\nAuto evidence:\n- "
                         + "\n- ".join(auto_evidence)
-                        + f"\n\nOutputs:\n{summary}"
+                        + f"\n\nOutputs:\n{summary}{structured_evidence_block}"
                     ),
                 },
             ]
@@ -1748,11 +2547,17 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
         use_llm = bool(state.get("config", {}).get("analysis_use_llm", ANALYSIS_USE_LLM))
         if use_llm:
             use_llm = _has_advanced_artifacts(Path(state.get("session_dir", "")))
+        if use_llm and not structured_evidence:
+            use_llm = False
+            errors.append("analysis_llm_disabled_no_structured_evidence")
         analysis_payload: dict[str, Any]
         if use_llm:
             try:
                 analysis_raw = llm.chat(messages, max_tokens=4096)
                 analysis_payload = normalize_analysis_payload(parse_structured_payload(analysis_raw))
+                if not _llm_analysis_has_metric_grounding(analysis_payload, structured_evidence, min_metric_refs=2):
+                    errors.append("analysis_llm_not_metric_grounded_fallback_to_auto")
+                    analysis_payload = _build_auto_analysis_payload(session_dir, auto_evidence)
             except Exception as exc:
                 errors.append(f"analysis_structured_failed: {exc}")
                 analysis_payload = {
@@ -1777,10 +2582,12 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
             if stats_exists or "未检测到高级分析产物" in summary_text or "LLM 分析失败" in summary_text or not summary_text:
                 analysis_payload["summary"] = auto_payload["summary"]
         if auto_payload.get("key_findings"):
-            existing = set(analysis_payload.get("key_findings", []))
+            existing = {str(x) for x in analysis_payload.get("key_findings", [])}
             for item in auto_payload["key_findings"]:
-                if item not in existing:
-                    analysis_payload.setdefault("key_findings", []).append(item)
+                item_text = str(item)
+                if item_text not in existing:
+                    analysis_payload.setdefault("key_findings", []).append(item_text)
+                    existing.add(item_text)
         if stats_exists:
             analysis_payload["limitations"] = auto_payload.get("limitations", [])
         elif auto_payload.get("limitations") and _has_advanced_artifacts(session_dir):
@@ -1823,6 +2630,7 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
             "pipeline_gate_failures": failures if "failures" in locals() else [],
             "custom_line_records": custom_records if "custom_records" in locals() else [],
             "custom_line_summary": summary_payload,
+            "hypothesis_multipath": multipath_payload if "multipath_payload" in locals() else {},
         }
 
     def generate_visualizations(state: OrchestrationState) -> OrchestrationState:
@@ -2170,6 +2978,8 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
         session_dir = Path(state.get("session_dir", ""))
         audit = _run_audit(session_dir)
         audit["pipeline_fallbacks"] = state.get("pipeline_fallbacks", [])
+        if state.get("hypothesis_multipath"):
+            audit["hypothesis_multipath"] = state.get("hypothesis_multipath", {})
         audit["custom_lines"] = state.get("custom_line_records", [])
         audit["custom_line_summary"] = state.get("custom_line_summary", {})
         summary["run_audit"] = audit

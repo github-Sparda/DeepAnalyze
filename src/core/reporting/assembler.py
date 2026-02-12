@@ -54,10 +54,10 @@ def normalize_analysis_payload(payload: Any) -> Dict[str, Any]:
         next_steps = [next_steps]
     return {
         "summary": str(payload.get("summary", "")),
-        "key_findings": list(key_findings or []),
-        "evidence": list(evidence or []),
-        "limitations": list(limitations or []),
-        "next_steps": list(next_steps or []),
+        "key_findings": [str(x) for x in (key_findings or [])],
+        "evidence": [str(x) for x in (evidence or [])],
+        "limitations": [str(x) for x in (limitations or [])],
+        "next_steps": [str(x) for x in (next_steps or [])],
     }
 
 
@@ -123,6 +123,7 @@ def normalize_report_payload(payload: Any) -> Dict[str, Any]:
         "sections": normalized_sections,
         "highlights": list(highlights or []),
         "limitations": list(limitations or []),
+        "outline_mode": str(payload.get("outline_mode", "structure_only")),
     }
 
 
@@ -140,13 +141,8 @@ class ReportAssembler:
             if not path.exists():
                 return None
             for parent in [path] + list(path.parents):
-                markers = (
-                    (parent / "artifacts").exists(),
-                    (parent / "result").exists(),
-                    (parent / "report").exists(),
-                    (parent / "plan").exists(),
-                )
-                if any(markers):
+                # Session root should at least contain result + report directories.
+                if (parent / "result").exists() and (parent / "report").exists():
                     return parent
             return None
 
@@ -183,6 +179,56 @@ class ReportAssembler:
         except Exception:
             return {}
 
+    def _preview_script(self) -> str:
+        return (
+            "<script>\n"
+            "async function renderTable(block){\n"
+            "  const src = block.dataset.src;\n"
+            "  const title = block.dataset.title || src;\n"
+            "  const res = await fetch(src);\n"
+            "  const text = await res.text();\n"
+            "  let rows = [];\n"
+            "  if (src.endsWith('.json')) {\n"
+            "    const data = JSON.parse(text);\n"
+            "    rows = Array.isArray(data) ? data : (data.rows || []);\n"
+            "  } else {\n"
+            "    rows = text.trim().split('\\n').map(line => line.split(','));\n"
+            "    rows = rows.slice(1).map(cols => Object.fromEntries(cols.map((c,i)=>[i,c])));\n"
+            "  }\n"
+            "  if (!rows.length){ block.innerHTML = `<h4>${title}</h4><div>无可展示数据</div>`; return; }\n"
+            "  const cols = Object.keys(rows[0]);\n"
+            "  let html = `<h4>${title}</h4><table border=1 cellpadding=4 cellspacing=0><thead><tr>`;\n"
+            "  html += cols.map(c=>`<th>${c}</th>`).join('');\n"
+            "  html += '</tr></thead><tbody>';\n"
+            "  rows.slice(0,20).forEach(r=>{ html+='<tr>'+cols.map(c=>`<td>${r[c]}</td>`).join('')+'</tr>'; });\n"
+            "  html += '</tbody></table>';\n"
+            "  block.innerHTML = html;\n"
+            "}\n"
+            "async function renderAttachment(block){\n"
+            "  const src = block.dataset.src;\n"
+            "  try {\n"
+            "    const res = await fetch(src);\n"
+            "    const text = await res.text();\n"
+            "    block.textContent = text.slice(0, 4000);\n"
+            "  } catch (e) {\n"
+            "    block.textContent = '预览失败: ' + e;\n"
+            "  }\n"
+            "}\n"
+            "document.querySelectorAll('.table-preview').forEach(renderTable);\n"
+            "document.querySelectorAll('.attachment-preview').forEach(renderAttachment);\n"
+            "const hypFilter = document.getElementById('appendix-hypothesis-filter');\n"
+            "if (hypFilter) {\n"
+            "  hypFilter.addEventListener('change', (ev) => {\n"
+            "    const selected = ev.target.value;\n"
+            "    document.querySelectorAll('.appendix-item').forEach((el) => {\n"
+            "      const hyp = el.dataset.hypothesis || 'ALL';\n"
+            "      el.style.display = (selected === 'ALL' || hyp === selected) ? '' : 'none';\n"
+            "    });\n"
+            "  });\n"
+            "}\n"
+            "</script>"
+        )
+
     def _report_relative(self, path: str) -> str:
         if not path:
             return path
@@ -192,6 +238,25 @@ class ReportAssembler:
         if path.startswith("../"):
             return path
         return f"../{path}"
+
+    def _resource_health(self, session_root: Path | None, relative_path: str) -> tuple[bool, str]:
+        if not relative_path:
+            return False, "empty_path"
+        lower = relative_path.lower()
+        if lower.startswith(("http://", "https://", "data:")):
+            return True, "ok_remote"
+        if "://" in relative_path:
+            return False, "illegal_scheme"
+        if relative_path.startswith("/"):
+            return False, "absolute_path_forbidden"
+        if ".." in Path(relative_path).parts:
+            return False, "path_traversal_forbidden"
+        if not session_root:
+            return True, "unknown_without_session_root"
+        target = session_root / relative_path
+        if target.exists():
+            return True, "ok"
+        return False, "missing_file"
 
     def _classify_visual(self, item: Dict[str, Any]) -> str:
         metadata = item.get("metadata", {}) if isinstance(item.get("metadata"), dict) else {}
@@ -221,6 +286,73 @@ class ReportAssembler:
         if "distribution" in lower or "comparison" in lower:
             return "distribution"
         return "other"
+
+    def _visual_priority(self, relative_path: str) -> int:
+        lower = relative_path.lower()
+        if lower.endswith((".html", ".htm")):
+            return 0
+        if lower.endswith((".png", ".jpg", ".jpeg", ".svg", ".gif")):
+            return 1
+        return 2
+
+    def _visual_group_key(self, relative_path: str) -> str:
+        stem = Path(relative_path).stem.lower()
+        for suffix in ("_interactive", "_plotly", "_echarts", "_html"):
+            if stem.endswith(suffix):
+                return stem[: -len(suffix)]
+        return stem
+
+    def _prioritize_visuals(self, visuals: list[Dict[str, Any]]) -> list[Dict[str, Any]]:
+        grouped: dict[str, list[Dict[str, Any]]] = {}
+        for item in visuals:
+            rel = str(item.get("relative_path", ""))
+            if not rel:
+                continue
+            key = self._visual_group_key(rel)
+            grouped.setdefault(key, []).append(item)
+        selected: list[Dict[str, Any]] = []
+        for _, candidates in grouped.items():
+            candidates_sorted = sorted(
+                candidates,
+                key=lambda x: (
+                    self._visual_priority(str(x.get("relative_path", ""))),
+                    str(x.get("relative_path", "")),
+                ),
+            )
+            selected.append(candidates_sorted[0])
+        selected.sort(key=lambda x: str(x.get("relative_path", "")))
+        return selected
+
+    def _extract_outline_hypothesis_ids(self, outline: str) -> set[str]:
+        ids: set[str] = set()
+        for line in outline.splitlines():
+            text = line.strip().upper()
+            m = re.findall(r"\bH\d+\b", text)
+            for item in m:
+                ids.add(item)
+        return ids
+
+    def _outline_conflict_note(self, outline: str, plan_json: Dict[str, Any]) -> str:
+        if not outline:
+            return ""
+        outline_ids = self._extract_outline_hypothesis_ids(outline)
+        plan_ids = {
+            str(h.get("id", "")).strip().upper()
+            for h in plan_json.get("hypotheses", [])
+            if isinstance(h, dict) and str(h.get("id", "")).strip()
+        }
+        if not outline_ids or not plan_ids:
+            return ""
+        if outline_ids == plan_ids:
+            return ""
+        missing_in_outline = sorted(plan_ids - outline_ids)
+        extra_in_outline = sorted(outline_ids - plan_ids)
+        notes: list[str] = []
+        if missing_in_outline:
+            notes.append(f"大纲缺失假设: {', '.join(missing_in_outline)}")
+        if extra_in_outline:
+            notes.append(f"大纲包含未执行假设: {', '.join(extra_in_outline)}")
+        return "；".join(notes)
 
     def _visual_explanation(
         self,
@@ -390,12 +522,28 @@ class ReportAssembler:
         visuals: list[Dict[str, Any]],
         session_root: Path | None,
         binding_map: dict[str, str],
+        render_manifest: list[dict[str, Any]] | None = None,
     ) -> str:
         lines: list[str] = []
         for item in visuals:
             name = item.get("name", "visual")
-            path = self._report_relative(item.get("relative_path", ""))
             note = item.get("relative_path", "")
+            path = self._report_relative(note)
+            ok, reason = self._resource_health(session_root, note)
+            if render_manifest is not None:
+                render_manifest.append(
+                    {
+                        "resource": note,
+                        "kind": "visualization",
+                        "ok": ok,
+                        "reason": reason,
+                    }
+                )
+            if not ok:
+                lines.append(
+                    f"<div class=\"render-warning\">图表资源不可渲染：{name}（{note}，原因：{reason}）</div>"
+                )
+                continue
             if path.lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".svg")):
                 lines.append(f"<figure><img src=\"{path}\" alt=\"{name}\"/>")
                 lines.append(f"<figcaption>来源: {note}</figcaption></figure>")
@@ -456,12 +604,23 @@ class ReportAssembler:
         document_manifest: Dict[str, Any],
         used_visuals: set[str],
         used_tables: set[str],
+        binding_map: dict[str, str] | None = None,
     ) -> str:
-        lines: list[str] = ["## 附件（正文未展示）"]
-        visuals = document_manifest.get("visualizations", []) or []
+        lines: list[str] = ["## 附件（正文未展示）", "<details><summary>点击展开附件预览</summary>"]
+        visuals = self._prioritize_visuals(document_manifest.get("visualizations", []) or [])
         tables = document_manifest.get("tables", []) or []
         remaining_visuals = [v for v in visuals if v.get("relative_path", "") not in used_visuals]
         remaining_tables = [t for t in tables if t.get("relative_path", "") not in used_tables]
+        binding_map = binding_map or {}
+        hypothesis_values = sorted({v for v in binding_map.values() if v})
+        if hypothesis_values:
+            lines.append(
+                "<label>按假设过滤附件：</label>"
+                "<select id=\"appendix-hypothesis-filter\">"
+                "<option value=\"ALL\">全部</option>"
+                + "".join([f"<option value=\"{h}\">{h}</option>" for h in hypothesis_values])
+                + "</select>"
+            )
         plans = document_manifest.get("plans", []) or []
         extra_groups: dict[str, list[str]] = {
             "Plan": [],
@@ -489,21 +648,46 @@ class ReportAssembler:
             lines.append("- Visualization (remaining):")
             for item in remaining_visuals:
                 rel = item.get("relative_path", "")
-                lines.append(f"  - {self._report_relative(rel)} (fallback path: {rel})")
+                hyp = binding_map.get(rel, "ALL")
+                lines.append(f"  - <div class=\"appendix-item\" data-hypothesis=\"{hyp}\">{self._report_relative(rel)} (fallback path: {rel})</div>")
+                lower = rel.lower()
+                if lower.endswith((".html", ".htm")):
+                    lines.append(
+                        f"    <iframe src=\"{self._report_relative(rel)}\" loading=\"lazy\" "
+                        "style=\"width:100%;height:360px;border:1px solid #ddd;\"></iframe>"
+                    )
+                elif lower.endswith((".png", ".jpg", ".jpeg", ".svg", ".gif")):
+                    lines.append(f"    <img src=\"{self._report_relative(rel)}\" style=\"max-width:100%;border:1px solid #ddd;\"/>")
         if remaining_tables:
             lines.append("- Tables (remaining):")
             for item in remaining_tables:
                 rel = item.get("relative_path", "")
-                lines.append(f"  - {self._report_relative(rel)} (fallback path: {rel})")
+                lines.append(f"  - <div class=\"appendix-item\" data-hypothesis=\"ALL\">{self._report_relative(rel)} (fallback path: {rel})</div>")
+                lines.append(f"    <div class=\"table-preview\" data-src=\"{self._report_relative(rel)}\" data-title=\"{item.get('name','table')}\"></div>")
         for group, paths in extra_groups.items():
             uniq = sorted(set(paths))
             if not uniq:
                 continue
             lines.append(f"- {group}:")
             for rel in uniq:
-                lines.append(f"  - {self._report_relative(rel)} (fallback path: {rel})")
-        if len(lines) == 1:
+                lines.append(f"  - <div class=\"appendix-item\" data-hypothesis=\"ALL\">{self._report_relative(rel)} (fallback path: {rel})</div>")
+                lower = rel.lower()
+                if lower.endswith((".txt", ".md", ".log")):
+                    lines.append(f"    <pre class=\"attachment-preview\" data-src=\"{self._report_relative(rel)}\"></pre>")
+                elif lower.endswith(".json"):
+                    lines.append(f"    <pre class=\"attachment-preview\" data-src=\"{self._report_relative(rel)}\"></pre>")
+                elif lower.endswith(".csv"):
+                    lines.append(f"    <div class=\"table-preview\" data-src=\"{self._report_relative(rel)}\" data-title=\"{Path(rel).name}\"></div>")
+                elif lower.endswith(".pdf"):
+                    lines.append(
+                        f"    <object data=\"{self._report_relative(rel)}\" type=\"application/pdf\" "
+                        "style=\"width:100%;height:420px;border:1px solid #ddd;\">"
+                        f"<a href=\"{self._report_relative(rel)}\" target=\"_blank\">PDF 预览失败，点击打开原文件</a>"
+                        "</object>"
+                    )
+        if len(lines) == 2:
             lines.append("- 无剩余附件。")
+        lines.append("</details>")
         return "\n".join(lines)
 
     def _visual_names(self, visuals: list[Dict[str, Any]]) -> str:
@@ -680,12 +864,67 @@ class ReportAssembler:
         payload = self._load_json(path)
         return payload if isinstance(payload, dict) else {}
 
+    def _load_hypothesis_evidence(self, session_root: Path | None) -> dict[str, Any]:
+        if not session_root:
+            return {}
+        path = session_root / "result" / "hypothesis_evidence.json"
+        if not path.exists():
+            return {}
+        payload = self._load_json(path)
+        return payload if isinstance(payload, dict) else {}
+
+    def _load_hypothesis_contrast(self, session_root: Path | None) -> dict[str, Any]:
+        if not session_root:
+            return {}
+        path = session_root / "result" / "hypothesis_contrast.json"
+        if not path.exists():
+            return {}
+        payload = self._load_json(path)
+        return payload if isinstance(payload, dict) else {}
+
     def _hypothesis_result_entry(self, hyp_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         for item in payload.get("hypotheses", []) if isinstance(payload, dict) else []:
             name = str(item.get("hypothesis", ""))
             if name.upper().startswith(hyp_id):
                 return item
         return {}
+
+    def _hypothesis_evidence_entry(self, hyp_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        for item in payload.get("hypotheses", []) if isinstance(payload, dict) else []:
+            if str(item.get("hypothesis_id", "")).upper() == hyp_id.upper():
+                return item
+        return {}
+
+    def _hypothesis_contrast_entry(self, hyp_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        for item in payload.get("hypotheses", []) if isinstance(payload, dict) else []:
+            if str(item.get("hypothesis_id", "")).upper() == hyp_id.upper():
+                return item
+        return {}
+
+    def _extract_evidence_snippet(self, session_root: Path | None, rel_path: str, max_lines: int = 6) -> str:
+        if not session_root or not rel_path:
+            return ""
+        path = session_root / rel_path
+        if not path.exists():
+            return ""
+        suffix = path.suffix.lower()
+        try:
+            if suffix in {".txt", ".md"}:
+                text = path.read_text(encoding="utf-8", errors="ignore")
+                lines = [ln for ln in text.splitlines() if ln.strip()][:max_lines]
+                return "\n".join(lines)
+            if suffix in {".json"}:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+                if isinstance(payload, dict):
+                    return json.dumps(payload, ensure_ascii=False, indent=2)[:1200]
+                if isinstance(payload, list):
+                    return json.dumps(payload[:3], ensure_ascii=False, indent=2)
+            if suffix in {".csv"}:
+                df = pd.read_csv(path)
+                return df.head(5).to_markdown(index=False)
+        except Exception:
+            return ""
+        return ""
 
     def _hypothesis_data_analysis(self, hyp_id: str, session_root: Path | None) -> list[str]:
         if not session_root:
@@ -768,7 +1007,91 @@ class ReportAssembler:
             bound = binding_map.get(rel, "")
             if bound.upper().startswith(hyp_id):
                 selected.append(item)
-        return selected
+        return self._prioritize_visuals(selected)
+
+    def _render_result_analysis_paragraph(
+        self,
+        hyp_id: str,
+        hyp_text: str,
+        details: list[str],
+        missing: list[str],
+        quant_metrics: dict[str, Any] | None = None,
+        conclusion_status: str = "inconclusive",
+    ) -> str:
+        premise = hyp_text.strip() or f"{hyp_id} 假设"
+        quant_metrics = quant_metrics or {}
+        quant_parts = []
+        for key, value in quant_metrics.items():
+            quant_parts.append(f"{key}={value}")
+        quant_text = f"定量指标包括：{'; '.join(quant_parts)}。" if quant_parts else ""
+        if details:
+            body = "；".join(details)
+            if conclusion_status in {"inconclusive", "failed"}:
+                return (
+                    f"围绕“{premise}”的验证已收集到以下观察：{body}。{quant_text}"
+                    "但多路径证据尚未形成一致支持，当前结论应标记为待定，"
+                    "仅可作为后续实验和补充分析的参考线索。"
+                )
+            if missing:
+                return (
+                    f"围绕“{premise}”的验证已产生核心证据：{body}。{quant_text}"
+                    f"但仍存在未完成产物（{', '.join(missing)}），因此当前结论应视为阶段性结论。"
+                )
+            return (
+                f"围绕“{premise}”的验证结果显示：{body}。{quant_text}"
+                "从现有证据看，该假设获得了可解释的经验支持，但仍建议在独立数据或替代方法下复核稳健性。"
+            )
+        if missing:
+            return (
+                f"针对“{premise}”的分析尚未形成足够证据，关键缺失产物为 {', '.join(missing)}。"
+                "当前无法给出可靠判断，建议优先补齐执行链路后再评估。"
+            )
+        return (
+            f"针对“{premise}”未提取到可自动解释的定量结果，"
+            "请结合 result 目录中的原始产物进行人工复核。"
+        )
+
+    def _render_cross_hypothesis_discussion(self, outcomes: list[dict[str, Any]]) -> str:
+        if not outcomes:
+            return "当前运行未形成可汇总的假设级结果。"
+        total = len(outcomes)
+        complete = sum(1 for x in outcomes if not x.get("missing"))
+        partial = total - complete
+        lines: list[str] = []
+        lines.append(
+            f"本次共评估 {total} 条核心假设，其中 {complete} 条在当前产物范围内形成了相对完整的证据链，"
+            f"{partial} 条仍存在不同程度的证据缺口。"
+        )
+        highlights = [x for x in outcomes if x.get("details")]
+        if highlights:
+            top = highlights[:3]
+            summary = "；".join(
+                [f"{x['id']} 关注“{x['title']}”并观察到 {x['details'][0]}" for x in top]
+            )
+            lines.append(f"从跨假设视角看，主要信息集中在：{summary}。")
+        missing = [x for x in outcomes if x.get("missing")]
+        if missing:
+            miss_text = "；".join([f"{x['id']} 缺失 {', '.join(x['missing'])}" for x in missing[:3]])
+            lines.append(
+                f"需要注意的是，仍有假设存在未闭环环节（{miss_text}），"
+                "这会降低跨模块结论的可比性与稳定性。"
+            )
+        return "\n\n".join(lines)
+
+    def _render_conclusion_recommendations(self, outcomes: list[dict[str, Any]]) -> str:
+        if not outcomes:
+            return "当前无可汇总结论。建议先补齐数据处理、统计分析和模型评估链路。"
+        supported = [x for x in outcomes if x.get("details") and not x.get("missing")]
+        uncertain = [x for x in outcomes if x.get("missing")]
+        lines: list[str] = []
+        if supported:
+            ids = "、".join([x["id"] for x in supported])
+            lines.append(f"结论上，{ids} 在当前数据与流程下形成了较完整证据，可作为后续解释与验证工作的优先基础。")
+        if uncertain:
+            ids = "、".join([x["id"] for x in uncertain])
+            lines.append(f"同时，{ids} 仍处于证据不充分状态，暂不建议输出强结论。")
+        lines.append("建议后续工作按“补齐缺失产物 → 交叉验证/对照验证 → 复现实验”顺序推进，并将失败路径与修复过程持续记录到报告附件。")
+        return "\n\n".join(lines)
 
     def assemble(
         self,
@@ -780,10 +1103,11 @@ class ReportAssembler:
     ) -> str:
         outline = outline.strip()
         analysis_md = analysis_md.strip()
-        visuals = document_manifest.get("visualizations", []) or []
+        visuals = self._prioritize_visuals(document_manifest.get("visualizations", []) or [])
         tables = document_manifest.get("tables", []) or []
         session_root = self._infer_session_root(visuals, tables, document_manifest)
         binding_map: dict[str, str] = {}
+        render_manifest: list[dict[str, Any]] = []
         if session_root:
             binding_path = session_root / "result" / "visual_binding.json"
             if binding_path.exists():
@@ -801,6 +1125,7 @@ class ReportAssembler:
             lines.append(execution_warning)
             lines.append("")
         summary = report_payload.get("summary") or "本报告基于自动化分析流程产物生成，重点按假设-验证-结果-分析进行组织。"
+        outline_mode = str(report_payload.get("outline_mode", "structure_only")).strip().lower()
         lines.append("## 摘要")
         lines.append(summary)
         lines.append("")
@@ -812,10 +1137,16 @@ class ReportAssembler:
         if hypotheses_md:
             lines.append(hypotheses_md)
         elif outline:
-            lines.append("未读取到结构化假设，以下为报告大纲摘录：")
-            lines.append("\n".join([f"> {line}" if line.strip() else ">" for line in outline.splitlines()]))
+            if outline_mode == "full_quote":
+                lines.append("未读取到结构化假设，以下为报告大纲摘录：")
+                lines.append("\n".join([f"> {line}" if line.strip() else ">" for line in outline.splitlines()]))
+            else:
+                lines.append("未读取到结构化假设，已启用 `structure_only` 模式：大纲仅作为章节结构参考，不直接并入正文。")
         else:
             lines.append("未找到原始假设文件。")
+        outline_conflict_note = self._outline_conflict_note(outline, plan_json)
+        if outline_conflict_note:
+            lines.append(f"冲突注记：{outline_conflict_note}。正文已以真实执行结果与证据为准。")
         lines.append("")
 
         # Section 2: implementation process
@@ -829,8 +1160,11 @@ class ReportAssembler:
         # Section 3: per-hypothesis validation sections
         lines.append("## 假设验证与结果分析")
         hypothesis_results = self._load_hypothesis_results(session_root)
+        hypothesis_evidence = self._load_hypothesis_evidence(session_root)
+        hypothesis_contrast = self._load_hypothesis_contrast(session_root)
         used_visuals: set[str] = set()
         used_tables: set[str] = set()
+        hypothesis_outcomes: list[dict[str, Any]] = []
         hypotheses = plan_json.get("hypotheses", []) if isinstance(plan_json, dict) else []
         if not hypotheses and hypothesis_results.get("hypotheses"):
             hypotheses = [{"id": f"H{i+1}", "title": item.get("hypothesis", ""), "hypothesis": ""} for i, item in enumerate(hypothesis_results.get("hypotheses", []))]
@@ -842,8 +1176,14 @@ class ReportAssembler:
                 plan_steps = hyp.get("validation_plan_steps") or hyp.get("steps") or []
                 expected_artifacts = hyp.get("expected_artifacts") or hyp.get("artifacts") or []
                 run_entry = self._hypothesis_result_entry(hyp_id, hypothesis_results)
+                evidence_entry = self._hypothesis_evidence_entry(hyp_id, hypothesis_evidence)
+                contrast_entry = self._hypothesis_contrast_entry(hyp_id, hypothesis_contrast)
                 missing = run_entry.get("missing", []) if isinstance(run_entry, dict) else []
                 step_map = run_entry.get("steps", {}) if isinstance(run_entry, dict) else {}
+                quant_metrics = evidence_entry.get("quant_metrics", {}) if isinstance(evidence_entry, dict) else {}
+                if not quant_metrics:
+                    if "quant_metrics_missing" not in missing:
+                        missing = list(missing) + ["quant_metrics_missing"]
                 lines.append(f"### {hyp_id} {hyp_title}")
                 if hyp_text:
                     lines.append(f"**假设内容**：{hyp_text}")
@@ -857,31 +1197,90 @@ class ReportAssembler:
                 lines.append("")
                 lines.append("**执行结果**：")
                 if step_map:
+                    step_desc: list[str] = []
                     for step_name, payload in step_map.items():
                         status = payload.get("status") if isinstance(payload, dict) else ""
                         output = payload.get("output") if isinstance(payload, dict) else ""
-                        lines.append(f"- {step_name}: status={status}, output={output}")
+                        step_desc.append(f"{step_name}(status={status}, output={output})")
+                    lines.append("；".join(step_desc) + "。")
                 else:
-                    lines.append("- 未读取到执行步骤明细。")
+                    lines.append("未读取到执行步骤明细。")
                 if expected_artifacts:
-                    lines.append(f"- 计划产物: {', '.join([str(x) for x in expected_artifacts])}")
+                    lines.append(f"计划产物：{', '.join([str(x) for x in expected_artifacts])}。")
                 if missing:
-                    lines.append(f"- 缺失产物: {', '.join([str(x) for x in missing])}")
+                    lines.append(f"缺失产物：{', '.join([str(x) for x in missing])}。")
                 else:
-                    lines.append("- 缺失产物: 无")
+                    lines.append("缺失产物：无。")
                 lines.append("")
                 lines.append("**结果分析**：")
                 details = self._hypothesis_data_analysis(hyp_id, session_root)
-                if details:
-                    for item in details:
-                        lines.append(f"- {item}")
-                else:
-                    lines.append("- 当前未提取到可自动解释的定量结果，请检查对应 result 文件。")
+                lines.append(
+                    self._render_result_analysis_paragraph(
+                        hyp_id,
+                        hyp_text,
+                        details,
+                        missing,
+                        quant_metrics,
+                        str(contrast_entry.get("status", "inconclusive")) if isinstance(contrast_entry, dict) else "inconclusive",
+                    )
+                )
                 lines.append("")
+                lines.append(
+                    f"**分析来源**：自动提取证据 + 规则化解释。"
+                    f"{'（定量指标不足，已降级为不确定结论）' if not quant_metrics else ''}"
+                )
+                lines.append("")
+                if contrast_entry:
+                    pa = contrast_entry.get("path_a", {}) if isinstance(contrast_entry, dict) else {}
+                    pb = contrast_entry.get("path_b", {}) if isinstance(contrast_entry, dict) else {}
+                    lines.append("**路径对照（A/B）**：")
+                    lines.append("<table border=1 cellpadding=4 cellspacing=0>")
+                    lines.append("<thead><tr><th>路径</th><th>状态</th><th>指标摘要</th></tr></thead><tbody>")
+                    lines.append(
+                        f"<tr><td>A</td><td>{pa.get('status','')}</td><td>{json.dumps(pa.get('metrics', {}), ensure_ascii=False)[:220]}</td></tr>"
+                    )
+                    lines.append(
+                        f"<tr><td>B</td><td>{pb.get('status','')}</td><td>{json.dumps(pb.get('metrics', {}), ensure_ascii=False)[:220]}</td></tr>"
+                    )
+                    lines.append("</tbody></table>")
+                    lines.append(
+                        f"一致性判定：{contrast_entry.get('consistency','unknown')}；"
+                        f"状态：{contrast_entry.get('status','inconclusive')}。"
+                    )
+                    if contrast_entry.get("conflict_reason"):
+                        lines.append(f"冲突说明：{contrast_entry.get('conflict_reason')}")
+                    if str(contrast_entry.get("status", "")).lower() == "inconclusive":
+                        lines.append(
+                            "一致性解释：A/B 路径出现冲突或证据不足，当前仅能给出不确定结论，"
+                            "需要补充数据、改进特征工程或增加独立验证路径后再作判断。"
+                        )
+                    lines.append("")
+                if isinstance(evidence_entry, dict):
+                    sources = evidence_entry.get("evidence_sources", []) or []
+                    if sources:
+                        lines.append("**证据摘录**：")
+                        for src in sources[:4]:
+                            rel = str(src)
+                            lines.append(f"来源：`{rel}`")
+                            snippet = self._extract_evidence_snippet(session_root, rel)
+                            if snippet:
+                                lines.append("```text")
+                                lines.append(snippet[:1200])
+                                lines.append("```")
+                        lines.append("")
+                hypothesis_outcomes.append(
+                    {
+                        "id": hyp_id,
+                        "title": hyp_title,
+                        "missing": missing,
+                        "details": details,
+                        "quant_metrics": quant_metrics,
+                    }
+                )
                 bound_visuals = self._hypothesis_bound_visuals(hyp_id, visuals, binding_map)
                 if bound_visuals:
                     lines.append("**图表与解释**：")
-                    lines.append(self._build_visual_block(bound_visuals, session_root, binding_map))
+                    lines.append(self._build_visual_block(bound_visuals, session_root, binding_map, render_manifest))
                     lines.append("")
                     used_visuals.update(v.get("relative_path", "") for v in bound_visuals)
         else:
@@ -906,12 +1305,22 @@ class ReportAssembler:
                 else:
                     scoped = visuals_by_category.get("other", [])
                 if scoped:
-                    lines.append(self._build_visual_block(scoped, session_root, binding_map))
+                    lines.append(self._build_visual_block(scoped, session_root, binding_map, render_manifest))
                     used_visuals.update(v.get("relative_path", "") for v in scoped)
                 lines.append("")
         lines.append("")
 
-        # Section 4: quality, completion and risks
+        # Section 4: cross-hypothesis synthesis
+        lines.append("## 跨假设综合讨论")
+        lines.append(self._render_cross_hypothesis_discussion(hypothesis_outcomes))
+        lines.append("")
+
+        # Section 5: conclusion and recommendations
+        lines.append("## 结论与建议")
+        lines.append(self._render_conclusion_recommendations(hypothesis_outcomes))
+        lines.append("")
+
+        # Section 6: quality, completion and risks
         lines.append("## 质量校验与未完成项")
         failure_block = self._render_validation_failures(session_root)
         quality_block = self._render_quality_warnings(session_root)
@@ -930,7 +1339,7 @@ class ReportAssembler:
             lines.append(coverage_block.replace("## 覆盖策略与遗漏项\n", ""))
             lines.append("")
 
-        # Section 5: table previews
+        # Section 7: table previews
         if tables:
             table_blocks = self._table_preview_blocks(tables, session_root)
             if table_blocks:
@@ -939,36 +1348,18 @@ class ReportAssembler:
                 for item in tables:
                     if item.get("name", "") in {"top_features.json", "stats_summary.json", "model_eval.json"}:
                         used_tables.add(item.get("relative_path", ""))
-                lines.append(
-                    "<script>\n"
-                    "async function renderTable(block){\n"
-                    "  const src = block.dataset.src;\n"
-                    "  const title = block.dataset.title || src;\n"
-                    "  const res = await fetch(src);\n"
-                    "  const text = await res.text();\n"
-                    "  let rows = [];\n"
-                    "  if (src.endsWith('.json')) {\n"
-                    "    const data = JSON.parse(text);\n"
-                    "    rows = Array.isArray(data) ? data : (data.rows || []);\n"
-                    "  } else {\n"
-                    "    rows = text.trim().split('\\n').map(line => line.split(','));\n"
-                    "    rows = rows.slice(1).map(cols => Object.fromEntries(cols.map((c,i)=>[i,c])));\n"
-                    "  }\n"
-                    "  if (!rows.length){ block.innerHTML = `<h4>${title}</h4><div>无可展示数据</div>`; return; }\n"
-                    "  const cols = Object.keys(rows[0]);\n"
-                    "  let html = `<h4>${title}</h4><table border=1 cellpadding=4 cellspacing=0><thead><tr>`;\n"
-                    "  html += cols.map(c=>`<th>${c}</th>`).join('');\n"
-                    "  html += '</tr></thead><tbody>';\n"
-                    "  rows.slice(0,20).forEach(r=>{ html+='<tr>'+cols.map(c=>`<td>${r[c]}</td>`).join('')+'</tr>'; });\n"
-                    "  html += '</tbody></table>';\n"
-                    "  block.innerHTML = html;\n"
-                    "}\n"
-                    "document.querySelectorAll('.table-preview').forEach(renderTable);\n"
-                    "</script>"
-                )
                 lines.append("")
 
-        # Section 6: appendix (non-duplicated)
-        lines.append(self._render_appendix(document_manifest, used_visuals, used_tables))
+        # Section 8: appendix (non-duplicated)
+        lines.append(self._render_appendix(document_manifest, used_visuals, used_tables, binding_map))
+        lines.append("")
+        if session_root:
+            meta_dir = session_root / "meta"
+            meta_dir.mkdir(parents=True, exist_ok=True)
+            (meta_dir / "render_manifest.json").write_text(
+                json.dumps({"resources": render_manifest}, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        lines.append(self._preview_script())
         lines.append("")
         return "\n".join(lines).strip()

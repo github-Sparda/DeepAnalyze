@@ -114,11 +114,12 @@ class DocumentManager:
             for entry in plan.get("entries", []):
                 if entry.get("kind") != "visualization":
                     continue
+                raw_path = entry.get("path", "")
                 visuals.append(
                     {
                         "plan_id": plan_id,
-                        "path": entry.get("path", ""),
-                        "relative_path": entry.get("relative_path", ""),
+                        "path": raw_path,
+                        "relative_path": self._relative_path(raw_path),
                         "metadata": entry.get("metadata", {}),
                         "timestamp": entry.get("timestamp"),
                     }

@@ -31,26 +31,30 @@ PROMPTS = {
         "en": (
             "Generate multiple testable hypotheses and an analysis plan with closure requirements. "
             "Return Markdown with: 1) hypotheses list, 2) steps per hypothesis, "
-            "3) expected artifacts (tables/plots), 4) success criteria, 5) follow-up action."
+            "3) expected artifacts (tables/plots), 4) success criteria, 5) follow-up action, "
+            "6) two validation paths per hypothesis (A/B) with different method families."
         ),
         "zh": (
             "生成多个可验证假设与分析计划（闭环要求）。返回 Markdown，包含："
             "1）假设列表；2）每个假设的步骤；3）预期产物（表/图）；"
-            "4）成功判据；5）后续行动建议。"
+            "4）成功判据；5）后续行动建议；6）每个假设必须给出 A/B 两条方法学不同的验证路径。"
         ),
     },
     "planning_struct": {
         "en": (
             "Convert the plan to strict JSON. "
-            "Schema: {hypotheses:[{id,title,hypothesis,validation_plan_steps,expected_artifacts}]}. "
+            "Schema: {hypotheses:[{id,title,hypothesis,validation_plan_steps,expected_artifacts,validation_paths:[{path_id,method_family,steps,expected_artifacts}]}]}. "
             "Rules: id must be H1/H2...; keep original wording; "
-            "validation_plan_steps must be ordered strings; expected_artifacts must be concrete filenames or chart names."
+            "validation_plan_steps must be ordered strings; expected_artifacts must be concrete filenames or chart names; "
+            "validation_paths must contain at least 2 entries and method_family must differ."
         ),
         "zh": (
             "将计划转换为严格 JSON。"
-            "格式：{hypotheses:[{id,title,hypothesis,validation_plan_steps,expected_artifacts}]}。"
+            "格式：{hypotheses:[{id,title,hypothesis,validation_plan_steps,expected_artifacts,"
+            "validation_paths:[{path_id,method_family,steps,expected_artifacts}]}]}。"
             "规则：id 必须是 H1/H2...；尽量保留原始表述；"
-            "validation_plan_steps 为有序字符串数组；expected_artifacts 为具体文件名或图表名。"
+            "validation_plan_steps 为有序字符串数组；expected_artifacts 为具体文件名或图表名；"
+            "validation_paths 至少包含两条路径且 method_family 必须不同。"
         ),
     },
     "codegen": {

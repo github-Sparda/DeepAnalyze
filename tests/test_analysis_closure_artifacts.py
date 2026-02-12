@@ -101,3 +101,132 @@ def test_validation_failure_report(tmp_path: Path) -> None:
         execution_warning="",
     )
     assert "验证失败" in html or "失败" in html
+
+
+def test_multipath_payload_and_contract(tmp_path: Path) -> None:
+    session_dir = tmp_path
+    result_dir = session_dir / "result"
+    result_dir.mkdir(parents=True, exist_ok=True)
+    (result_dir / "stats_results.json").write_text("[]", encoding="utf-8")
+    (result_dir / "multiple_testing.json").write_text("[]", encoding="utf-8")
+
+    plan_json = {
+        "hypotheses": [
+            {
+                "id": "H1",
+                "title": "H1: 差异检验",
+                "hypothesis": "组间差异",
+                "validation_plan_steps": ["A", "B"],
+                "expected_artifacts": ["stats_results.json"],
+                "validation_paths": [
+                    {
+                        "path_id": "path_a",
+                        "method_family": "parametric_test",
+                        "steps": ["A"],
+                        "expected_artifacts": ["stats_results.json"],
+                    },
+                    {
+                        "path_id": "path_b",
+                        "method_family": "nonparametric_or_fdr",
+                        "steps": ["B"],
+                        "expected_artifacts": ["multiple_testing.json"],
+                    },
+                ],
+            }
+        ]
+    }
+    evidence_payload = {
+        "hypotheses": [
+            {
+                "hypothesis_id": "H1",
+                "evidence_sources": ["result/stats_results.json", "result/multiple_testing.json"],
+                "quant_metrics": {"significant_p_lt_0_05": 2},
+                "status": "supported",
+            }
+        ]
+    }
+    contrast_payload = {
+        "hypotheses": [
+            {
+                "hypothesis_id": "H1",
+                "path_a": {"path_id": "path_a", "status": "ok", "metrics": {"significant_p_lt_0_05": 2}},
+                "path_b": {"path_id": "path_b", "status": "ok", "metrics": {"q_lt_0_05": 2}},
+                "consistency": "consistent",
+                "status": "validated",
+                "conflict_reason": "",
+            }
+        ]
+    }
+    multipath = orchestration_graph._evaluate_hypothesis_validation_paths(
+        session_dir, plan_json, evidence_payload, contrast_payload
+    )
+    assert multipath["stats"]["total_hypotheses"] == 1
+    assert multipath["hypotheses"][0]["status"] in {"validated", "partial"}
+
+    contract = orchestration_graph._build_hypothesis_validation_contract(
+        plan_json, contrast_payload, multipath
+    )
+    assert contract["hypotheses"][0]["has_dual_paths"] is True
+    assert contract["hypotheses"][0]["dual_paths_executed"] is True
+
+
+def test_multipath_status_partial_when_primary_failed(tmp_path: Path) -> None:
+    session_dir = tmp_path
+    result_dir = session_dir / "result"
+    result_dir.mkdir(parents=True, exist_ok=True)
+    # only secondary artifact exists
+    (result_dir / "multiple_testing.json").write_text("[]", encoding="utf-8")
+    plan_json = {
+        "hypotheses": [
+            {
+                "id": "H1",
+                "title": "H1: 差异检验",
+                "hypothesis": "组间差异",
+                "validation_plan_steps": ["A", "B"],
+                "expected_artifacts": ["stats_results.json", "multiple_testing.json"],
+                "validation_paths": [
+                    {
+                        "path_id": "path_a",
+                        "method_family": "parametric_test",
+                        "steps": ["A"],
+                        "expected_artifacts": ["stats_results.json"],
+                    },
+                    {
+                        "path_id": "path_b",
+                        "method_family": "nonparametric_or_fdr",
+                        "steps": ["B"],
+                        "expected_artifacts": ["multiple_testing.json"],
+                    },
+                ],
+            }
+        ]
+    }
+    evidence_payload = {
+        "hypotheses": [
+            {
+                "hypothesis_id": "H1",
+                "evidence_sources": ["result/multiple_testing.json"],
+                "quant_metrics": {"q_lt_0_05": 1},
+                "status": "partial",
+            }
+        ]
+    }
+    contrast_payload = {
+        "hypotheses": [
+            {
+                "hypothesis_id": "H1",
+                "path_a": {"path_id": "path_a", "status": "missing", "metrics": {}},
+                "path_b": {"path_id": "path_b", "status": "ok", "metrics": {"q_lt_0_05": 1}},
+                "consistency": "unknown",
+                "status": "partial",
+                "conflict_reason": "",
+            }
+        ]
+    }
+    multipath = orchestration_graph._evaluate_hypothesis_validation_paths(
+        session_dir, plan_json, evidence_payload, contrast_payload
+    )
+    assert multipath["hypotheses"][0]["status"] == "partial"
+    assert any(p["status"] == "failed" for p in multipath["hypotheses"][0]["paths"])
+    assert any(p["status"] in {"validated", "partial"} for p in multipath["hypotheses"][0]["paths"])
+    assert multipath["hypotheses"][0]["recovery_action"] == "retry_secondary_or_code_repair"

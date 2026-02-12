@@ -22,6 +22,8 @@ class OrchestrationState(TypedDict, total=False):
      docs_analysis_history: list[str]
      pipeline_variants: list[dict[str, Any]]
      pipeline_gate_failures: list[dict[str, Any]]
+     pipeline_fallbacks: list[dict[str, Any]]
+     hypothesis_multipath: dict[str, Any]
      custom_line_records: list[dict[str, Any]]
      custom_line_summary: dict[str, Any]
      artifact_validation: dict[str, Any]
