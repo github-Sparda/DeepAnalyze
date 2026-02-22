@@ -385,6 +385,194 @@ def test_report_enforces_hypothesis_section_schema(tmp_path: Path) -> None:
     assert "#### 局限性与下一步" in html
 
 
+def test_report_includes_threshold_judgement_and_gate_rule_type(tmp_path: Path) -> None:
+    session_dir = tmp_path / "session_8"
+    (session_dir / "result").mkdir(parents=True, exist_ok=True)
+    (session_dir / "report").mkdir(parents=True, exist_ok=True)
+    (session_dir / "plan").mkdir(parents=True, exist_ok=True)
+    (session_dir / "plan" / "analysis_plan.json").write_text(
+        json.dumps(
+            {
+                "hypotheses": [
+                    {"id": "H1", "title": "差异假设", "hypothesis": "Normal 与 EP 存在差异", "validation_plan_steps": ["差异检验"], "expected_artifacts": []}
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (session_dir / "result" / "hypothesis_results.json").write_text(
+        json.dumps({"hypotheses": [{"hypothesis": "H1", "steps": {}, "missing": []}]}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    (session_dir / "result" / "hypothesis_evidence_pack.json").write_text(
+        json.dumps(
+            {
+                "hypotheses": [
+                    {
+                        "hypothesis_id": "H1",
+                        "quant_metrics": [
+                            {"name": "significant_p_lt_0_05", "display_name": "显著特征数", "value": 5, "threshold": ">=1", "unit": "count", "category": "significance"},
+                            {"name": "strongest_abs_corr", "display_name": "最强绝对相关系数", "value": 0.74, "threshold": ">=0.5", "unit": "corr", "category": "correlation"},
+                        ],
+                        "effect_metrics": [{"name": "strongest_abs_corr", "value": 0.74}],
+                        "method_trace": [],
+                        "evidence_sources": [],
+                        "claim": "supported",
+                        "status": "validated",
+                        "consistency": {"flag": "consistent"},
+                        "reason_code": "",
+                        "recovery_action": "",
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (session_dir / "result" / "hypothesis_gate_report.json").write_text(
+        json.dumps(
+            {
+                "hypotheses": [
+                    {
+                        "hypothesis_id": "H1",
+                        "gate_status": "pass",
+                        "gate_rule_type": "significance_and_effect",
+                        "calibration_profile": "standard",
+                        "checks": {"has_significance_metric": True, "has_effect_metric": True},
+                        "failed_checks": [],
+                        "decision_evidence": [{"check": "has_significance_metric", "passed": True, "detail": {"value": 5}}],
+                        "reason_code": "",
+                        "recovery_action": "",
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    assembler = ReportAssembler(language="zh")
+    html = assembler.assemble(
+        outline="",
+        analysis_md="",
+        document_manifest={
+            "visualizations": [],
+            "tables": [
+                {
+                    "name": "hypothesis_gate_report.json",
+                    "path": str(session_dir / "result" / "hypothesis_gate_report.json"),
+                    "relative_path": "result/hypothesis_gate_report.json",
+                }
+            ],
+        },
+        report_payload={"title": "t", "summary": "", "sections": []},
+        execution_warning="",
+    )
+    assert "阈值判定结果：" in html
+    assert "规则类型：significance_and_effect" in html
+    assert "校准档位：standard" in html
+    assert "判定依据" in html
+    assert "依据：" in html
+    assert "反证/冲突：" in html
+    assert "边界：" in html
+    assert "下一步：" in html
+
+
+def test_volcano_explanation_contains_axes_and_color_legend(tmp_path: Path) -> None:
+    session_dir = tmp_path / "session_9"
+    (session_dir / "result").mkdir(parents=True, exist_ok=True)
+    (session_dir / "report").mkdir(parents=True, exist_ok=True)
+    (session_dir / "plan").mkdir(parents=True, exist_ok=True)
+    (session_dir / "plots").mkdir(parents=True, exist_ok=True)
+    (session_dir / "result" / "stats_results.json").write_text(
+        json.dumps(
+            [
+                {"feature": "peak1", "group_a": "Normal", "group_b": "EP", "p_value": 0.01, "mean_diff": 0.5},
+                {"feature": "peak2", "group_a": "Normal", "group_b": "EP", "p_value": 0.2, "mean_diff": -0.2},
+            ],
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (session_dir / "plan" / "analysis_plan.json").write_text(
+        json.dumps(
+            {
+                "hypotheses": [
+                    {"id": "H1", "title": "差异假设", "hypothesis": "Normal 与 EP 存在差异", "validation_plan_steps": [], "expected_artifacts": []}
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (session_dir / "result" / "hypothesis_results.json").write_text(
+        json.dumps({"hypotheses": [{"hypothesis": "H1", "steps": {}, "missing": []}]}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    (session_dir / "result" / "hypothesis_evidence_pack.json").write_text(
+        json.dumps({"hypotheses": [{"hypothesis_id": "H1", "quant_metrics": [], "effect_metrics": [], "method_trace": [], "evidence_sources": ["result/stats_results.json"], "claim": "", "status": "inconclusive", "consistency": {}, "reason_code": "", "recovery_action": ""}]}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    (session_dir / "result" / "hypothesis_gate_report.json").write_text(
+        json.dumps({"hypotheses": [{"hypothesis_id": "H1", "gate_status": "partial", "gate_rule_type": "significance_and_effect", "checks": {}, "failed_checks": [], "reason_code": "", "recovery_action": ""}]}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    (session_dir / "result" / "visual_binding.json").write_text(
+        json.dumps({"bindings": [{"artifact": "plots/volcano_plot.png", "hypothesis": "H1"}]}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    (session_dir / "plots" / "volcano_plot.png").write_bytes(b"fake")
+    assembler = ReportAssembler(language="zh")
+    html = assembler.assemble(
+        outline="",
+        analysis_md="",
+        document_manifest={
+            "visualizations": [
+                {
+                    "name": "volcano",
+                    "path": str(session_dir / "plots" / "volcano_plot.png"),
+                    "relative_path": "plots/volcano_plot.png",
+                    "metadata": {"type": "volcano"},
+                }
+            ],
+            "tables": [],
+        },
+        report_payload={"title": "t", "summary": "", "sections": []},
+        execution_warning="",
+    )
+    assert "X=mean_diff" in html
+    assert "Y=-log10(p)" in html
+    assert "红色表示 p<0.05" in html
+
+
+def test_report_substance_audit_detects_missing_next_step() -> None:
+    assembler = ReportAssembler(language="zh")
+    report_text = (
+        "### H1 假设\n"
+        "依据：已获得定量证据。\n"
+        "反证/冲突：未检测到冲突。\n"
+        "边界：当前结论适用于当前数据。\n"
+        # intentionally missing 下一步
+    )
+    audit = assembler._build_report_substance_audit(
+        outcomes=[
+            {
+                "id": "H1",
+                "title": "h1",
+                "details": ["m1=1"],
+                "missing": [],
+                "quant_metrics": {"m1": 1},
+                "evidence_sources": ["result/a.json"],
+            }
+        ],
+        report_text=report_text,
+    )
+    assert audit["basis_coverage"] == 1.0
+    assert audit["next_step_coverage"] == 0.0
+    missing = audit.get("missing_elements_by_hypothesis", [])
+    assert missing and "next_step" in missing[0].get("missing_elements", [])
+
+
 def test_report_disables_free_text_when_hypotheses_missing() -> None:
     assembler = ReportAssembler(language="zh")
     html = assembler.assemble(

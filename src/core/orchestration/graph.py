@@ -219,6 +219,46 @@ def _parse_plan_markdown(plan: str) -> dict[str, Any]:
     return {"hypotheses": hypotheses}
 
 
+_NON_HYPOTHESIS_TITLE_HINTS = {
+    "成功判据",
+    "后续行动建议",
+    "后续建议",
+    "预期产物",
+    "验证路径与执行步骤",
+}
+
+
+def _is_path_like_artifact(value: str) -> bool:
+    text = str(value or "").strip()
+    if not text:
+        return False
+    if len(text) > 256:
+        return False
+    if text.startswith("**") or text.startswith("- ") or text.startswith("* "):
+        return False
+    if any(ch in text for ch in ("：", "。", "；", "\n", "\t")):
+        return False
+    if " " in text and "/" not in text and "\\" not in text:
+        return False
+    if re.search(r"[<>|]", text):
+        return False
+    return bool(re.fullmatch(r"[A-Za-z0-9_\-./*?]+", text))
+
+
+def _sanitize_expected_artifacts(values: list[Any]) -> tuple[list[str], list[str]]:
+    valid: list[str] = []
+    invalid: list[str] = []
+    for raw in values:
+        item = str(raw).strip()
+        if not item:
+            continue
+        if _is_path_like_artifact(item):
+            valid.append(item)
+        else:
+            invalid.append(item)
+    return valid, invalid
+
+
 def _extract_plan_table_hypotheses(plan: str) -> dict[str, str]:
     mapping: dict[str, str] = {}
     if not plan:
@@ -243,11 +283,13 @@ def _extract_hypothesis_descriptions(plan: str) -> dict[str, str]:
     mapping: dict[str, str] = {}
     if not plan:
         return mapping
-    # Match lines like: * **假设 H1（差异性假设）**：Normal... 
-    pattern = re.compile(r"H(\d+)[^：:]*[：:]\s*(.+)")
+    # Match lines like:
+    # * **假设 H1（差异性假设）**：Normal...
+    # * **假设 1：...**
+    pattern = re.compile(r"假设\s*(?:H)?(\d+)[^：:]*[：:]\s*(.+)", re.IGNORECASE)
     for raw in plan.splitlines():
         line = raw.strip().lstrip("*").strip()
-        if "假设" not in line or "H" not in line.upper():
+        if "假设" not in line:
             continue
         m = pattern.search(line)
         if not m:
@@ -274,6 +316,8 @@ def _extract_hypothesis_table_steps_artifacts(plan: str) -> tuple[dict[str, list
         first = re.sub(r"[*` ]", "", parts[0]).upper()
         m = re.search(r"H(\d+)", first)
         if not m:
+            m = re.search(r"假设\s*(\d+)", first)
+        if not m:
             continue
         hid = f"H{m.group(1)}"
         steps = [re.sub(r"<[^>]+>", " ", s).strip() for s in parts[1].split("<br>")]
@@ -293,7 +337,8 @@ def _normalize_plan_json(plan_json: dict[str, Any], plan_md: str) -> dict[str, A
     if not isinstance(raw_hypotheses, list):
         raw_hypotheses = []
     if not raw_hypotheses:
-        raw_hypotheses = fallback_hypotheses
+        # Markdown is display-only; never infer authoritative hypothesis structure from it.
+        return {"hypotheses": []}
     normalized: list[dict[str, Any]] = []
     for idx, item in enumerate(raw_hypotheses):
         base = item if isinstance(item, dict) else {"title": str(item)}
@@ -335,7 +380,7 @@ def _normalize_plan_json(plan_json: dict[str, Any], plan_md: str) -> dict[str, A
         artifact_texts = [str(a) for a in artifacts]
         if any("{'description':" in a for a in artifact_texts):
             artifacts = table_artifact_map.get(hyp_id, fallback_artifacts)
-        artifacts = [str(a).strip() for a in artifacts if str(a).strip()]
+        artifacts, invalid_artifacts = _sanitize_expected_artifacts(artifacts)
         existing_paths = base.get("validation_paths")
         if not isinstance(existing_paths, list) or len(existing_paths) < 2:
             existing_paths = _default_validation_paths(hyp_id, steps, artifacts, title, hypothesis_text)
@@ -355,7 +400,9 @@ def _normalize_plan_json(plan_json: dict[str, Any], plan_md: str) -> dict[str, A
                         "path_id": path_id,
                         "method_family": method_family,
                         "steps": [str(s).strip() for s in (p_steps or []) if str(s).strip()],
-                        "expected_artifacts": [str(a).strip() for a in (p_artifacts or []) if str(a).strip()],
+                        "expected_artifacts": _sanitize_expected_artifacts(
+                            [str(a).strip() for a in (p_artifacts or []) if str(a).strip()]
+                        )[0],
                     }
                 )
             existing_paths = normalized_paths if len(normalized_paths) >= 2 else _default_validation_paths(
@@ -385,21 +432,9 @@ def _normalize_plan_json(plan_json: dict[str, Any], plan_md: str) -> dict[str, A
                 # Backward-compatible fields
                 "steps": steps,
                 "artifacts": artifacts,
+                "invalid_expected_artifacts": invalid_artifacts,
             }
         )
-    if not normalized:
-        normalized = [
-            {
-                "id": "H1",
-                "title": "H1: hypothesis_1",
-                "hypothesis": "",
-                "validation_plan_steps": [],
-                "expected_artifacts": [],
-                "validation_paths": [],
-                "steps": [],
-                "artifacts": [],
-            }
-        ]
     return {"hypotheses": normalized}
 
 
@@ -438,6 +473,42 @@ def _default_validation_paths(
             "expected_artifacts": artifacts,
         },
     ]
+
+
+def _strict_markdown_hypothesis_fallback(plan_md: str) -> dict[str, Any]:
+    hypothesis_map = _extract_hypothesis_descriptions(plan_md)
+    table_map = _extract_plan_table_hypotheses(plan_md)
+    step_map, artifact_map = _extract_hypothesis_table_steps_artifacts(plan_md)
+    ids = sorted(set([*hypothesis_map.keys(), *table_map.keys()]), key=lambda x: int(x[1:]) if x[1:].isdigit() else 999)
+    hypotheses: list[dict[str, Any]] = []
+    for hid in ids:
+        hypothesis_text = hypothesis_map.get(hid) or table_map.get(hid) or ""
+        hypothesis_text = re.sub(r"[*`_]+", "", hypothesis_text).strip()
+        if not hypothesis_text.strip():
+            continue
+        title = f"{hid}: hypothesis"
+        steps = [str(x).strip() for x in step_map.get(hid, []) if str(x).strip()]
+        artifacts, invalid = _sanitize_expected_artifacts(artifact_map.get(hid, []))
+        hypotheses.append(
+            {
+                "id": hid,
+                "title": title,
+                "hypothesis": hypothesis_text.strip(),
+                "validation_plan_steps": steps,
+                "expected_artifacts": artifacts,
+                "invalid_expected_artifacts": invalid,
+                "minimum_evidence_requirements": {
+                    "quant_metrics_min": 2,
+                    "require_significance_metric": True,
+                    "require_effect_metric": True,
+                },
+                "assumption_checks": ["data_quality_ready", "group_definition_valid"],
+                "validation_paths": _default_validation_paths(hid, steps, artifacts, title, hypothesis_text.strip()),
+                "steps": steps,
+                "artifacts": artifacts,
+            }
+        )
+    return {"hypotheses": hypotheses}
 
 
 def _needs_validation_path_repair(plan_json: dict[str, Any]) -> bool:
@@ -539,10 +610,15 @@ def _collect_result_evidence(session_dir: Path) -> list[str]:
 
 
 def _find_first_dataset(session_dir: Path) -> Path | None:
-    for path in session_dir.iterdir():
-        if not path.is_file():
-            continue
-        if path.suffix.lower() in {".csv", ".tsv", ".xlsx", ".xls", ".json"}:
+    preferred = [".xlsx", ".xls", ".csv", ".tsv", ".json"]
+    files = [p for p in session_dir.iterdir() if p.is_file()]
+    # Prefer tabular datasets first; keep JSON as fallback but skip manifest-like metadata files.
+    for suffix in preferred:
+        for path in files:
+            if path.suffix.lower() != suffix:
+                continue
+            if suffix == ".json" and path.name.lower() in {"manifest.json", "run_state.json", "run_summary.json"}:
+                continue
             return path
     return None
 
@@ -688,6 +764,7 @@ def _has_advanced_artifacts(session_dir: Path) -> bool:
         "exec_results.json",
         "analysis_step_output.txt",
         "analysis_results.md",
+        "expected_artifact_validation.json",
     }
     result_dir = session_dir / "result"
     if not result_dir.exists():
@@ -874,6 +951,7 @@ def _run_audit(session_dir: Path) -> dict[str, Any]:
         "result/hypothesis_multipath.json",
         "result/hypothesis_validation_contract.json",
         "result/hypothesis_gate_report.json",
+        "result/expected_artifact_validation.json",
         "result/hypothesis_matrix.json",
         "result/coverage_report.json",
         "result/visual_binding.json",
@@ -930,10 +1008,19 @@ def _build_evidence_trace(session_dir: Path) -> dict[str, Any]:
         if not isinstance(hyp, dict):
             continue
         quant_metrics = hyp.get("quant_metrics", {})
+        metric_names: list[str] = []
+        if isinstance(quant_metrics, dict):
+            metric_names = list(quant_metrics.keys())
+        elif isinstance(quant_metrics, list):
+            for item in quant_metrics:
+                if isinstance(item, dict):
+                    name = str(item.get("name", "")).strip()
+                    if name:
+                        metric_names.append(name)
         rows.append(
             {
                 "hypothesis_id": hyp.get("hypothesis_id", ""),
-                "metrics": list(quant_metrics.keys()) if isinstance(quant_metrics, dict) else [],
+                "metrics": metric_names,
                 "sources": hyp.get("evidence_sources", []),
             }
         )
@@ -984,9 +1071,16 @@ def _build_analysis_quality_score(session_dir: Path) -> dict[str, Any]:
         if not isinstance(hyp, dict):
             continue
         metrics = hyp.get("quant_metrics", {})
-        if isinstance(metrics, dict) and metrics:
+        metric_count = 0
+        if isinstance(metrics, dict):
+            metric_count = len([k for k in metrics.keys() if str(k).strip()])
+        elif isinstance(metrics, list):
+            metric_count = len(
+                [m for m in metrics if isinstance(m, dict) and str(m.get("name", "")).strip()]
+            )
+        if metric_count > 0:
             with_quant += 1
-            if len(metrics) >= 2:
+            if metric_count >= 2:
                 quant_ge_2 += 1
     contract_path = session_dir / "result" / "hypothesis_validation_contract.json"
     closure_rate = 0.0
@@ -1028,6 +1122,31 @@ def _build_analysis_quality_score(session_dir: Path) -> dict[str, Any]:
         "conflict_explain_rate": conflict_explain_rate,
         "fluff_sentence_rate": fluff_sentence_rate,
     }
+
+
+def _quality_consistency_errors(session_dir: Path, quality_score: dict[str, Any]) -> dict[str, Any]:
+    evidence = _load_structured_evidence(session_dir)
+    hypotheses = evidence.get("hypotheses", []) if isinstance(evidence, dict) else []
+    total = len(hypotheses)
+    quant_ge_2 = 0
+    for hyp in hypotheses:
+        if not isinstance(hyp, dict):
+            continue
+        metrics = hyp.get("quant_metrics", {})
+        if isinstance(metrics, list):
+            count = len([m for m in metrics if isinstance(m, dict) and str(m.get("name", "")).strip()])
+        elif isinstance(metrics, dict):
+            count = len([k for k in metrics.keys() if str(k).strip()])
+        else:
+            count = 0
+        if count >= 2:
+            quant_ge_2 += 1
+    expected = round((quant_ge_2 / total), 4) if total else 0.0
+    actual = float(quality_score.get("quant_metric_ge_2_rate", 0.0) or 0.0)
+    errors: list[str] = []
+    if abs(expected - actual) > 1e-6:
+        errors.append(f"quant_metric_ge_2_rate_mismatch: expected={expected}, actual={actual}")
+    return {"valid": not errors, "errors": errors, "expected_quant_metric_ge_2_rate": expected, "actual_quant_metric_ge_2_rate": actual}
 
 
 def _check_quality_gates(session_dir: Path, gates: list[str]) -> list[str]:
@@ -1088,6 +1207,110 @@ def _artifact_validation_report(session_dir: Path) -> dict[str, Any]:
     return report
 
 
+def _extract_hypothesis_ids_from_report(report_path: Path) -> list[str]:
+    if not report_path.exists():
+        return []
+    try:
+        text = report_path.read_text(encoding="utf-8", errors="ignore")
+    except Exception:
+        return []
+    ids: set[str] = set()
+    # Markdown headings: ### H1 ...
+    for line in text.splitlines():
+        m = re.search(r"^\s*#{2,6}\s*(H\d+)\b", line.strip(), re.IGNORECASE)
+        if m:
+            ids.add(m.group(1).upper())
+    # HTML headings: <h3>H1 ...</h3>
+    for m in re.finditer(r"<h[1-6][^>]*>\s*(H\d+)\b", text, flags=re.IGNORECASE):
+        ids.add(m.group(1).upper())
+    if ids:
+        return sorted(ids)
+    # Fallback for legacy reports without heading structure
+    return sorted(set(x.upper() for x in re.findall(r"\bH\d+\b", text)))
+
+
+def _build_hypothesis_set_consistency(
+    session_dir: Path,
+    plan_json: dict[str, Any] | None = None,
+    require_report_ids: bool = True,
+) -> dict[str, Any]:
+    def _ids_from(payload: dict[str, Any], key: str) -> list[str]:
+        rows = payload.get("hypotheses", []) if isinstance(payload, dict) else []
+        ids: list[str] = []
+        for item in rows:
+            if not isinstance(item, dict):
+                continue
+            raw = str(item.get(key, "")).strip().upper()
+            m = re.search(r"\b(H\d+)\b", raw)
+            if m:
+                ids.append(m.group(1))
+        return sorted(set(ids))
+
+    plan_payload = plan_json if isinstance(plan_json, dict) else {}
+    if not plan_payload:
+        path = session_dir / "plan" / "analysis_plan.json"
+        if path.exists():
+            try:
+                plan_payload = json.loads(path.read_text(encoding="utf-8"))
+            except Exception:
+                plan_payload = {}
+    plan_ids = _ids_from(plan_payload, "id")
+
+    def _load(rel: str) -> dict[str, Any]:
+        p = session_dir / rel
+        if not p.exists():
+            return {}
+        try:
+            payload = json.loads(p.read_text(encoding="utf-8"))
+            return payload if isinstance(payload, dict) else {}
+        except Exception:
+            return {}
+
+    results_ids = _ids_from(_load("result/hypothesis_results.json"), "hypothesis")
+    multipath_ids = _ids_from(_load("result/hypothesis_multipath.json"), "hypothesis_id")
+    evidence_ids = _ids_from(_load("result/hypothesis_evidence_pack.json"), "hypothesis_id")
+    gate_ids = _ids_from(_load("result/hypothesis_gate_report.json"), "hypothesis_id")
+    report_ids = _extract_hypothesis_ids_from_report(session_dir / "report" / "report_v1.html")
+
+    base = set(plan_ids)
+    checks = {
+        "plan_ids": plan_ids,
+        "results_ids": results_ids,
+        "multipath_ids": multipath_ids,
+        "evidence_pack_ids": evidence_ids,
+        "gate_ids": gate_ids,
+        "report_ids": report_ids,
+    }
+    mismatches: dict[str, Any] = {}
+    for name, ids in checks.items():
+        if name == "plan_ids":
+            continue
+        if name == "report_ids" and not require_report_ids:
+            continue
+        current = set(ids)
+        extra = sorted(current - base)
+        missing = sorted(base - current)
+        if extra or missing:
+            mismatches[name] = {"missing_from_current": missing, "extra_in_current": extra}
+    repair = {
+        "deterministic_repair_applied": False,
+        "repairable": False,
+        "notes": [],
+    }
+    if mismatches and (set(mismatches.keys()) == {"report_ids"}) and not require_report_ids:
+        repair["repairable"] = True
+        repair["deterministic_repair_applied"] = True
+        repair["notes"].append("pre_report_stage: report_ids check skipped deterministically")
+        mismatches = {}
+    return {
+        "satisfied": not mismatches and bool(plan_ids),
+        "checks": checks,
+        "mismatches": mismatches,
+        "repair": repair,
+        "reason": "" if not mismatches else "incomplete_hypothesis_set",
+    }
+
+
 def _validate_plan_json_contract(plan_json: dict[str, Any]) -> tuple[bool, list[str]]:
     errors: list[str] = []
     hypotheses = plan_json.get("hypotheses", []) if isinstance(plan_json, dict) else []
@@ -1097,12 +1320,97 @@ def _validate_plan_json_contract(plan_json: dict[str, Any]) -> tuple[bool, list[
         if not isinstance(hyp, dict):
             errors.append(f"hypothesis[{idx}]_not_object")
             continue
+        required_fields = {"id", "title", "hypothesis", "validation_paths", "expected_artifacts"}
+        missing_fields = sorted([f for f in required_fields if f not in hyp])
+        if missing_fields:
+            errors.append(f"hypothesis[{idx}]_missing_fields:{','.join(missing_fields)}")
         hid = str(hyp.get("id", "")).strip()
         if not re.fullmatch(r"H\d+", hid):
             errors.append(f"hypothesis[{idx}]_invalid_id:{hid}")
-        if not isinstance(hyp.get("validation_paths"), list) or len(hyp.get("validation_paths", [])) < 2:
+        title = str(hyp.get("title", "")).strip()
+        if title in _NON_HYPOTHESIS_TITLE_HINTS or any(k in title for k in _NON_HYPOTHESIS_TITLE_HINTS):
+            errors.append(f"hypothesis[{idx}]_invalid_title_non_hypothesis_section:{title}")
+        hypothesis_text = str(hyp.get("hypothesis", "")).strip()
+        if not hypothesis_text:
+            errors.append(f"hypothesis[{idx}]_empty_hypothesis_text")
+        paths = hyp.get("validation_paths")
+        if not isinstance(paths, list) or len(paths) < 2:
             errors.append(f"hypothesis[{idx}]_missing_dual_validation_paths")
+            paths = []
+        path_ids: list[str] = []
+        for pidx, path in enumerate(paths):
+            if not isinstance(path, dict):
+                errors.append(f"hypothesis[{idx}]_validation_path[{pidx}]_not_object")
+                continue
+            path_id = str(path.get("path_id", "")).strip().lower()
+            if not path_id:
+                errors.append(f"hypothesis[{idx}]_validation_path[{pidx}]_missing_path_id")
+            else:
+                path_ids.append(path_id)
+            p_artifacts = path.get("expected_artifacts", [])
+            if isinstance(p_artifacts, list):
+                bad = [x for x in p_artifacts if not _is_path_like_artifact(str(x))]
+                if bad:
+                    errors.append(
+                        f"hypothesis[{idx}]_validation_path[{pidx}]_non_path_like_expected_artifacts:{len(bad)}"
+                    )
+        if path_ids and len(set(path_ids)) != len(path_ids):
+            errors.append(f"hypothesis[{idx}]_duplicate_validation_path_id")
+        invalid_artifacts = hyp.get("invalid_expected_artifacts", [])
+        if isinstance(invalid_artifacts, list) and invalid_artifacts:
+            errors.append(f"hypothesis[{idx}]_invalid_expected_artifacts:{len(invalid_artifacts)}")
+        expected_artifacts = hyp.get("expected_artifacts", [])
+        if isinstance(expected_artifacts, list):
+            bad = [x for x in expected_artifacts if not _is_path_like_artifact(str(x))]
+            if bad:
+                errors.append(f"hypothesis[{idx}]_non_path_like_expected_artifacts:{len(bad)}")
+        else:
+            errors.append(f"hypothesis[{idx}]_expected_artifacts_not_list")
+        requirements = hyp.get("minimum_evidence_requirements")
+        if not isinstance(requirements, dict):
+            errors.append(f"hypothesis[{idx}]_missing_minimum_evidence_requirements")
+        else:
+            if int(requirements.get("quant_metrics_min", 0) or 0) < 1:
+                errors.append(f"hypothesis[{idx}]_invalid_quant_metrics_min")
     return len(errors) == 0, errors
+
+
+def _plan_validation_suggestions(errors: list[str]) -> list[str]:
+    suggestions: list[str] = []
+    for err in errors:
+        if "missing_hypotheses" in err:
+            suggestions.append("planner 必须输出 JSON，包含 hypotheses 数组，且至少一条假设。")
+        elif "missing_fields" in err:
+            suggestions.append("每条假设必须包含 id/title/hypothesis/validation_paths/expected_artifacts。")
+        elif "empty_hypothesis_text" in err:
+            suggestions.append("为每条假设补充可检验的 hypothesis 文本，不允许空字符串。")
+        elif "missing_dual_validation_paths" in err:
+            suggestions.append("每条假设至少提供两条验证路径（A/B），用于交叉验证。")
+        elif "duplicate_validation_path_id" in err:
+            suggestions.append("validation_paths 的 path_id 必须唯一（如 path_a/path_b）。")
+        elif "non_path_like_expected_artifacts" in err:
+            suggestions.append("expected_artifacts 仅允许路径样式字符串，禁止自然语言描述。")
+        elif "missing_minimum_evidence_requirements" in err:
+            suggestions.append("补充 minimum_evidence_requirements，定义最小证据门槛。")
+        elif "invalid_title_non_hypothesis_section" in err:
+            suggestions.append("禁止将“成功判据/后续建议”等章节标题作为假设标题。")
+    # 保持顺序同时去重
+    dedup: list[str] = []
+    for item in suggestions:
+        if item not in dedup:
+            dedup.append(item)
+    return dedup
+
+
+def _upgrade_plan_schema_preview(plan_json: dict[str, Any], plan_md: str) -> dict[str, Any]:
+    # 只读升级预览：不覆盖原始 plan 输入，仅生成兼容 v2 的预览结构
+    normalized = _normalize_plan_json(plan_json if isinstance(plan_json, dict) else {}, plan_md)
+    return {
+        "schema_version": "analysis_plan_schema_v2_preview",
+        "generated_at": int(time.time()),
+        "hypothesis_count": len(normalized.get("hypotheses", [])) if isinstance(normalized, dict) else 0,
+        "preview": normalized,
+    }
 
 
 def _validate_codegen_steps(steps: list[dict[str, Any]]) -> tuple[bool, list[str]]:
@@ -1122,16 +1430,34 @@ def _validate_codegen_steps(steps: list[dict[str, Any]]) -> tuple[bool, list[str
 
 
 def _run_node(name: str, func, config: dict[str, Any]):
+    def _artifact_paths_snapshot(session_dir: str | Path) -> set[str]:
+        path = Path(session_dir) / "manifest.json"
+        if not path.exists():
+            return set()
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            return set()
+        paths: set[str] = set()
+        if isinstance(payload, list):
+            for item in payload:
+                if isinstance(item, dict) and item.get("path"):
+                    paths.add(str(item.get("path")))
+        return paths
+
     def wrapper(state: OrchestrationState) -> OrchestrationState:
         monitoring = config.get("graph_monitoring", GRAPH_MONITORING)
         start = time.time()
         error = None
         output: dict[str, Any] = {}
+        before_artifacts = _artifact_paths_snapshot(state.get("session_dir", ""))
         try:
             output = func(state)
         except Exception as exc:
             error = str(exc)
             output = {"errors": [error]}
+        after_artifacts = _artifact_paths_snapshot(state.get("session_dir", ""))
+        new_artifacts = sorted(list(after_artifacts - before_artifacts))
         duration = time.time() - start
         telemetry = list(state.get("telemetry", []))
         telemetry.append(
@@ -1163,6 +1489,7 @@ def _run_node(name: str, func, config: dict[str, Any]):
             error=error,
             duration_sec=round(duration, 3),
             inputs=sorted(list(state.keys())),
+            artifacts=new_artifacts,
         )
         return output
 
@@ -1286,7 +1613,11 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
             {"role": "user", "content": f"{struct_prompt}\n\nPlan:\n{plan}"},
         ]
         plan_json_raw = llm.chat(struct_messages, max_tokens=2048)
-        plan_json = _normalize_plan_json(_safe_json_load(plan_json_raw), plan)
+        raw_plan_json = _safe_json_load(plan_json_raw)
+        plan_json = _normalize_plan_json(raw_plan_json, plan)
+        upgrade_preview = _upgrade_plan_schema_preview(raw_plan_json, plan)
+        error_dir = ensure_dir(Path(state.get("session_dir", "")) / "meta" / "plan_validation")
+        write_json(error_dir / "upgrade_preview.json", upgrade_preview)
         if _needs_validation_path_repair(plan_json):
             repair_prompt = (
                 "仅提取每条假设的 validation_paths，返回严格 JSON："
@@ -1308,19 +1639,53 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
             plan_json = _merge_validation_paths(plan_json, repair_payload)
         valid_plan, plan_errors = _validate_plan_json_contract(plan_json)
         if not valid_plan:
-            plan_json = _normalize_plan_json({}, plan)
+            # strict fallback: extract only explicit H1/H2/... hypothesis statements from markdown
+            plan_json = _strict_markdown_hypothesis_fallback(plan)
             valid_plan, plan_errors = _validate_plan_json_contract(plan_json)
+        if not valid_plan:
+            write_json(
+                error_dir / "plan_contract_invalid.json",
+                {
+                    "plan_contract_invalid": True,
+                    "errors": plan_errors,
+                    "suggestions": _plan_validation_suggestions(plan_errors),
+                },
+            )
+            plan_json = {"hypotheses": []}
         if plan_errors:
-            error_dir = ensure_dir(Path(state.get("session_dir", "")) / "meta" / "plan_validation")
-            write_json(error_dir / "errors.json", {"errors": plan_errors, "valid": valid_plan})
+            write_json(
+                error_dir / "errors.json",
+                {
+                    "errors": plan_errors,
+                    "valid": valid_plan,
+                    "suggestions": _plan_validation_suggestions(plan_errors),
+                },
+            )
+        expected_validation_rows: list[dict[str, Any]] = []
+        for hyp in plan_json.get("hypotheses", []) if isinstance(plan_json, dict) else []:
+            if not isinstance(hyp, dict):
+                continue
+            hid = str(hyp.get("id", ""))
+            expected = hyp.get("expected_artifacts", []) if isinstance(hyp.get("expected_artifacts"), list) else []
+            invalid = hyp.get("invalid_expected_artifacts", []) if isinstance(hyp.get("invalid_expected_artifacts"), list) else []
+            expected_validation_rows.append(
+                {
+                    "hypothesis_id": hid,
+                    "valid_count": len(expected),
+                    "invalid_count": len(invalid),
+                    "invalid_items": invalid,
+                }
+            )
+        write_json(
+            Path(state.get("session_dir", "")) / "result" / "expected_artifact_validation.json",
+            {"hypotheses": expected_validation_rows, "valid": all(r["invalid_count"] == 0 for r in expected_validation_rows)},
+        )
         plan_json_path = Path(state.get("session_dir", "")) / "plan" / "analysis_plan.json"
         write_json(plan_json_path, plan_json)
         record_artifact(state.get("session_dir", ""), plan_json_path, "plan", "plan_analysis")
         hypotheses = [
             h.get("title") for h in plan_json.get("hypotheses", []) if h.get("title")
         ]
-        if not hypotheses:
-            hypotheses = _extract_hypotheses(plan)
         cleaned_hypotheses = [str(item) for item in hypotheses if item]
         plan_id, _ = plan_store.save_plan(plan, plan_json, cleaned_hypotheses)
         artifact_registry = ArtifactRegistry(Path(state.get("session_dir", "")))
@@ -1621,7 +1986,28 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
                             session_dir, data_profile, llm, summary
                         )
                     hypothesis_payload = _run_deterministic_hypotheses(session_dir, dataset_path)
-                    evidence_payload = _build_hypothesis_evidence(session_dir, hypothesis_payload)
+                    plan_ids = []
+                    for hyp in state.get("plan_json", {}).get("hypotheses", []) if isinstance(state.get("plan_json", {}), dict) else []:
+                        if isinstance(hyp, dict) and re.fullmatch(r"H\d+", str(hyp.get("id", "")).strip().upper()):
+                            plan_ids.append(str(hyp.get("id", "")).strip().upper())
+                    if plan_ids and isinstance(hypothesis_payload.get("hypotheses"), list):
+                        filtered_rows: list[dict[str, Any]] = []
+                        for row in hypothesis_payload.get("hypotheses", []):
+                            if not isinstance(row, dict):
+                                continue
+                            raw = str(row.get("hypothesis", "")).upper()
+                            m = re.search(r"\b(H\d+)\b", raw)
+                            hid = m.group(1) if m else ""
+                            if hid in plan_ids:
+                                filtered_rows.append(row)
+                        if filtered_rows:
+                            hypothesis_payload["hypotheses"] = filtered_rows
+                            write_json(session_dir / "result" / "hypothesis_results.json", hypothesis_payload)
+                    evidence_payload = _build_hypothesis_evidence(
+                        session_dir,
+                        hypothesis_payload,
+                        set(plan_ids) if plan_ids else None,
+                    )
                     write_json(session_dir / "result" / "hypothesis_evidence.json", evidence_payload)
                     contrast_payload = _build_hypothesis_contrast(evidence_payload, session_dir)
                     write_json(session_dir / "result" / "hypothesis_contrast.json", contrast_payload)
@@ -1798,7 +2184,13 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
 
     def evidence_curation(state: OrchestrationState) -> OrchestrationState:
         session_dir = Path(state.get("session_dir", ""))
-        evidence_payload = _load_structured_evidence(session_dir)
+        evidence_payload: dict[str, Any] = {}
+        raw_evidence_path = session_dir / "result" / "hypothesis_evidence.json"
+        if raw_evidence_path.exists():
+            try:
+                evidence_payload = json.loads(raw_evidence_path.read_text(encoding="utf-8"))
+            except Exception:
+                evidence_payload = {}
         contrast_payload = {}
         multipath_payload = {}
         contrast_path = session_dir / "result" / "hypothesis_contrast.json"
@@ -1816,6 +2208,45 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
         metric_dict = load_metric_dictionary(session_dir)
         feature_dict = load_feature_dictionary(session_dir)
         method_dict = load_method_dictionary(session_dir)
+        gate_profile = str(state.get("config", {}).get("gate_calibration_profile", "standard") or "standard")
+        gate_overrides = state.get("config", {}).get("gate_calibration_overrides", {})
+        dynamic_overrides: dict[str, Any] = {}
+        calibration_context: dict[str, Any] = {"profile": gate_profile}
+        summary_path = session_dir / "result" / "summary.json"
+        if summary_path.exists():
+            try:
+                summary_payload = json.loads(summary_path.read_text(encoding="utf-8"))
+                rows = int(summary_payload.get("rows", 0) or 0)
+                calibration_context["rows"] = rows
+                if rows and rows < 50:
+                    dynamic_overrides.update(
+                        {
+                            "primary_performance_min": 0.55,
+                            "secondary_performance_min": 0.5,
+                            "corr_strength_min": 0.45,
+                        }
+                    )
+                    calibration_context["small_sample_adjustment"] = True
+            except Exception:
+                calibration_context["rows"] = None
+        try:
+            conflict_rate = float((multipath_payload.get("stats", {}) if isinstance(multipath_payload, dict) else {}).get("conflict_rate", 0.0) or 0.0)
+        except Exception:
+            conflict_rate = 0.0
+        calibration_context["conflict_rate"] = conflict_rate
+        if conflict_rate > 0.3:
+            dynamic_overrides.update(
+                {
+                    "significance_count_min": 2.0,
+                    "primary_performance_min": max(0.65, float(dynamic_overrides.get("primary_performance_min", 0.6))),
+                    "secondary_performance_min": max(0.62, float(dynamic_overrides.get("secondary_performance_min", 0.6))),
+                }
+            )
+            calibration_context["high_conflict_adjustment"] = True
+        merged_overrides: dict[str, Any] = {}
+        if isinstance(gate_overrides, dict):
+            merged_overrides.update(gate_overrides)
+        merged_overrides.update(dynamic_overrides)
         evidence_pack = build_hypothesis_evidence_pack(
             evidence_payload,
             contrast_payload,
@@ -1825,7 +2256,18 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
             method_dict,
         )
         validation = validate_hypothesis_evidence_pack(evidence_pack)
-        gate_report = build_hypothesis_gate_report(evidence_pack)
+        gate_report = build_hypothesis_gate_report(
+            evidence_pack,
+            calibration_profile=gate_profile,
+            calibration_overrides=merged_overrides,
+        )
+        if isinstance(gate_report, dict):
+            gate_report["calibration_context"] = calibration_context
+            gate_rows = gate_report.get("hypotheses", []) if isinstance(gate_report.get("hypotheses"), list) else []
+            if gate_rows:
+                partial_count = sum(1 for row in gate_rows if isinstance(row, dict) and str(row.get("gate_status", "")) == "partial")
+                if partial_count == len(gate_rows):
+                    gate_report["escalation_hint"] = "all_partial: add third_path or use exploratory profile for discovery stage"
         if not validation.get("valid", False):
             for row in gate_report.get("hypotheses", []) if isinstance(gate_report, dict) else []:
                 if not isinstance(row, dict):
@@ -2161,6 +2603,20 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
             else:
                 execution_warning = f"执行门槛告警：{fail_reason}。"
             warning_block = f"{execution_warning}\n\n"
+        set_consistency = _build_hypothesis_set_consistency(
+            session_dir,
+            state.get("plan_json", {}),
+            require_report_ids=False,
+        )
+        write_json(session_dir / "meta" / "hypothesis_set_consistency.json", set_consistency)
+        if not set_consistency.get("satisfied", False):
+            fail_reason = "incomplete_hypothesis_set"
+            detail = json.dumps(set_consistency.get("mismatches", {}), ensure_ascii=False)
+            if execution_warning:
+                execution_warning = execution_warning + f"\n执行门槛告警：{fail_reason}。{detail}"
+            else:
+                execution_warning = f"执行门槛告警：{fail_reason}。{detail}"
+            warning_block = f"{execution_warning}\n\n"
         messages = render_role_prompt(
             "report",
             language,
@@ -2188,13 +2644,18 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
             ]
         report_payload: dict[str, Any]
         use_report_llm = bool(state.get("config", {}).get("report_use_llm", REPORT_USE_LLM))
-        if not gate_payload or not pack_validation.get("valid", False):
+        if (not gate_payload or not pack_validation.get("valid", False)) or not set_consistency.get("satisfied", False):
             use_report_llm = False
         if use_report_llm:
             report_raw = llm.chat(messages, max_tokens=4096)
             report_payload = normalize_report_payload(parse_structured_payload(report_raw))
         else:
-            report_payload = normalize_report_payload({"outline_mode": "structure_only"})
+            report_payload = normalize_report_payload(
+                {
+                    "outline_mode": "structure_only",
+                    "summary": "假设集合或证据门槛未通过校验，已中止最终结论生成，仅保留可追溯结构化装配结果。",
+                }
+            )
             outline = _sanitize_outline(outline, Path(state.get("session_dir", "")))
         doc_manager = DocumentManager(Path(state.get("session_dir", "")))
         document_manifest = doc_manager.manifest()
@@ -2251,14 +2712,22 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
         summary["custom_lines"] = audit["custom_lines"]
         summary["custom_line_summary"] = audit["custom_line_summary"]
         quality_score = _build_analysis_quality_score(session_dir)
+        quality_consistency = _quality_consistency_errors(session_dir, quality_score)
         evidence_trace = _build_evidence_trace(session_dir)
         reason_code_summary = _build_reason_code_summary(session_dir)
+        hypothesis_set_consistency = _build_hypothesis_set_consistency(session_dir, state.get("plan_json", {}))
         audit["analysis_quality_score"] = quality_score
+        audit["quality_consistency"] = quality_consistency
+        audit["hypothesis_set_consistency"] = hypothesis_set_consistency
         write_json(session_dir / "meta" / "run_audit.json", audit)
         write_json(session_dir / "meta" / "analysis_quality_score.json", quality_score)
+        write_json(session_dir / "meta" / "quality_consistency_errors.json", quality_consistency)
+        write_json(session_dir / "meta" / "hypothesis_set_consistency.json", hypothesis_set_consistency)
         write_json(session_dir / "meta" / "evidence_trace.json", evidence_trace)
         write_json(session_dir / "meta" / "reason_code_summary.json", reason_code_summary)
         summary["analysis_quality_score"] = quality_score
+        summary["quality_consistency"] = quality_consistency
+        summary["hypothesis_set_consistency"] = hypothesis_set_consistency
         summary["evidence_trace"] = evidence_trace
         summary["reason_code_summary"] = reason_code_summary
         doc_manager = DocumentManager(session_dir)

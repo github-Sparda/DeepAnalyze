@@ -13,6 +13,7 @@ from .common import (
     write_json,
     normalize_output_dir,
     select_group_labels,
+    evaluate_label_health,
 )
 
 
@@ -49,7 +50,31 @@ def run(input_path: str | Path, output_dir: str | Path, method: str = "centroid"
     df = df.copy()
     df["_group_norm"] = group_series
     df = df[df["_group_norm"].notna()]
+    mapping = (
+        pd.DataFrame({"raw_label": df[label_col].astype(str), "analysis_label": df["_group_norm"].astype(str)})
+        .drop_duplicates()
+        .sort_values(["analysis_label", "raw_label"])
+    )
+    write_json(
+        out_dir / "analysis_label_mapping.json",
+        {
+            "source_label_col": label_col,
+            "analysis_label_col": "_group_norm",
+            "group_info": group_info,
+            "mappings": mapping.to_dict(orient="records"),
+        },
+    )
     labels = df["_group_norm"].astype(str)
+    health = evaluate_label_health(labels)
+    write_json(out_dir / "label_health_report.json", health)
+    if not health.get("valid", False):
+        payload = {
+            "status": "skipped",
+            "reason": "label_invalid_for_modeling",
+            "label_health": health,
+        }
+        write_json(out_dir / "model_results.json", payload)
+        return {"module": "model_train", "status": "skipped", "output": str(out_dir / "model_results.json")}
     data = df[num_cols].fillna(0).to_numpy()
     rng = np.random.default_rng(0)
     indices = np.arange(len(df))
@@ -59,7 +84,7 @@ def run(input_path: str | Path, output_dir: str | Path, method: str = "centroid"
     test_idx = indices[split:] if split < len(indices) else indices[:split]
     train_df = df.iloc[train_idx]
     test_df = df.iloc[test_idx] if len(test_idx) else train_df
-    centroids = _compute_centroids(train_df, label_col, num_cols)
+    centroids = _compute_centroids(train_df, "_group_norm", num_cols)
     train_pred = [
         _predict_centroid(train_df[num_cols].iloc[i].fillna(0).to_numpy(), centroids)
         for i in range(len(train_df))
@@ -68,8 +93,8 @@ def run(input_path: str | Path, output_dir: str | Path, method: str = "centroid"
         _predict_centroid(test_df[num_cols].iloc[i].fillna(0).to_numpy(), centroids)
         for i in range(len(test_df))
     ]
-    train_acc = float(np.mean(train_df[label_col].astype(str).to_numpy() == np.array(train_pred))) if len(train_df) else 0.0
-    test_acc = float(np.mean(test_df[label_col].astype(str).to_numpy() == np.array(test_pred))) if len(test_df) else 0.0
+    train_acc = float(np.mean(train_df["_group_norm"].astype(str).to_numpy() == np.array(train_pred))) if len(train_df) else 0.0
+    test_acc = float(np.mean(test_df["_group_norm"].astype(str).to_numpy() == np.array(test_pred))) if len(test_df) else 0.0
     payload = {
         "model": method,
         "label_col": label_col,

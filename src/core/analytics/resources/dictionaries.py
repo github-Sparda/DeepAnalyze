@@ -13,7 +13,59 @@ REASON_RECOVERY_MAP: dict[str, str] = {
     "extract_failed": "repair_parser_and_retry_extraction",
     "execution_error": "invoke_code_repair_then_rerun",
     "invalid_evidence_pack": "repair_evidence_pack_schema_and_rerun",
+    "path_conflict": "run_third_path_and_compare_stability",
+    "metric_missing": "rerun_missing_step_and_verify_outputs",
+    "threshold_not_met": "adjust_method_or_data_processing_and_rerun",
+    "performance_gap": "improve_label_quality_and_feature_strategy_then_rerun",
 }
+
+GATE_RULE_TYPE_RECOVERY: dict[str, str] = {
+    "significance_and_effect": "add_effect_size_and_multiple_testing_control",
+    "predictive_performance": "improve_label_quality_and_cross_validation",
+    "correlation_structure": "add_rank_based_or_sparse_network_validation",
+    "embedding_structure": "add_cluster_quality_and_group_separation_metrics",
+    "generic_evidence": "add_quantitative_metrics_and_secondary_path",
+}
+
+GATE_RULE_TYPE_EXPECTED_ARTIFACTS: dict[str, list[str]] = {
+    "significance_and_effect": ["result/stats_results.json", "result/multiple_testing.json"],
+    "predictive_performance": ["result/model_eval.json", "result/cv_results.json"],
+    "correlation_structure": ["result/correlation.json", "plots/network.png"],
+    "embedding_structure": ["result/dimensionality.json", "result/clustering.json"],
+    "generic_evidence": ["result/hypothesis_evidence_pack.json"],
+}
+
+
+def default_gate_calibration_profiles() -> dict[str, dict[str, Any]]:
+    return {
+        "strict": {
+            "significance_count_min": 2.0,
+            "primary_performance_min": 0.7,
+            "secondary_performance_min": 0.68,
+            "corr_strength_min": 0.6,
+            "corr_edge_min": 2.0,
+            "cluster_count_min": 2.0,
+            "generic_quant_min": 3,
+        },
+        "standard": {
+            "significance_count_min": 1.0,
+            "primary_performance_min": 0.6,
+            "secondary_performance_min": 0.6,
+            "corr_strength_min": 0.5,
+            "corr_edge_min": 1.0,
+            "cluster_count_min": 2.0,
+            "generic_quant_min": 2,
+        },
+        "exploratory": {
+            "significance_count_min": 1.0,
+            "primary_performance_min": 0.55,
+            "secondary_performance_min": 0.5,
+            "corr_strength_min": 0.4,
+            "corr_edge_min": 1.0,
+            "cluster_count_min": 1.0,
+            "generic_quant_min": 1,
+        },
+    }
 
 
 def default_metric_dictionary() -> dict[str, dict[str, Any]]:
@@ -173,7 +225,7 @@ def _effect_metrics_from_quant(metrics: list[dict[str, Any]]) -> list[dict[str, 
     effects: list[dict[str, Any]] = []
     for item in metrics:
         name = str(item.get("name", "")).lower()
-        if any(k in name for k in ("corr", "accuracy", "auc", "fold", "diff")):
+        if any(k in name for k in ("corr", "accuracy", "auc", "fold", "diff", "effect", "change", "log2")):
             effects.append(
                 {
                     "name": item.get("name"),
@@ -196,6 +248,158 @@ def _reason_and_recovery(status: str, consistency: str, missing_artifacts: list[
     if status == "partial":
         return "execution_error", REASON_RECOVERY_MAP["execution_error"]
     return "", ""
+
+
+def _to_float(value: Any) -> float | None:
+    try:
+        if isinstance(value, bool):
+            return None
+        return float(value)
+    except Exception:
+        return None
+
+
+def _detect_gate_rule_type(quant: list[dict[str, Any]], method_trace: list[dict[str, Any]]) -> str:
+    names = {str(item.get("name", "")).lower() for item in quant if isinstance(item, dict)}
+    categories = {str(item.get("category", "")).lower() for item in quant if isinstance(item, dict)}
+    families = {
+        str(item.get("method_family", "")).lower()
+        for item in method_trace
+        if isinstance(item, dict) and str(item.get("method_family", "")).strip()
+    }
+    if "significance" in categories or any("p_" in n or "q_" in n for n in names):
+        return "significance_and_effect"
+    if "performance" in categories or any(n in {"auc", "centroid_accuracy", "cv_mean_accuracy"} for n in names):
+        return "predictive_performance"
+    if "correlation" in categories or any("corr" in n for n in names):
+        return "correlation_structure"
+    if "clustering" in categories or any("cluster" in n or "embedding" in n for n in names):
+        return "embedding_structure"
+    if any("model" in family or "cross_validation" in family for family in families):
+        return "predictive_performance"
+    if any("network" in family or "corr" in family for family in families):
+        return "correlation_structure"
+    return "generic_evidence"
+
+
+def _metric_index(quant: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    index: dict[str, dict[str, Any]] = {}
+    for metric in quant:
+        if not isinstance(metric, dict):
+            continue
+        name = str(metric.get("name", "")).strip().lower()
+        if name:
+            index[name] = metric
+    return index
+
+
+def _gate_checks_for_type(
+    gate_rule_type: str,
+    quant: list[dict[str, Any]],
+    effects: list[dict[str, Any]],
+    consistency: str,
+    status: str,
+    thresholds: dict[str, Any] | None = None,
+) -> tuple[dict[str, bool], dict[str, Any], list[str]]:
+    metric_map = _metric_index(quant)
+    thresholds = thresholds or {}
+    check_details: dict[str, Any] = {}
+    required_checks: list[str] = []
+
+    def _check(name: str, passed: bool, detail: Any) -> None:
+        check_details[name] = detail
+        checks[name] = bool(passed)
+
+    checks: dict[str, bool] = {}
+    _check("has_dual_path_status", status not in {"failed", "skipped"}, {"status": status})
+    _check("path_consistency", consistency != "conflict", {"consistency": consistency})
+
+    if gate_rule_type == "significance_and_effect":
+        required_checks.extend(["has_significance_metric", "has_effect_metric", "significance_count_ge_min"])
+        sig = metric_map.get("significant_p_lt_0_05") or metric_map.get("q_lt_0_05")
+        sig_value = _to_float(sig.get("value")) if isinstance(sig, dict) else None
+        sig_min = float(thresholds.get("significance_count_min", 1.0))
+        _check("has_significance_metric", sig_value is not None, {"value": sig_value})
+        _check("has_effect_metric", bool(effects), {"effect_metric_count": len(effects)})
+        _check(
+            "significance_count_ge_min",
+            (sig_value or 0.0) >= sig_min,
+            {"value": sig_value, "threshold": f">={sig_min}"},
+        )
+    elif gate_rule_type == "predictive_performance":
+        required_checks.extend(
+            [
+                "has_primary_performance",
+                "has_secondary_performance",
+                "primary_performance_ge_min",
+                "secondary_performance_ge_min",
+            ]
+        )
+        primary = metric_map.get("centroid_accuracy") or metric_map.get("auc")
+        secondary = metric_map.get("cv_mean_accuracy")
+        p_val = _to_float(primary.get("value")) if isinstance(primary, dict) else None
+        s_val = _to_float(secondary.get("value")) if isinstance(secondary, dict) else None
+        p_min = float(thresholds.get("primary_performance_min", 0.6))
+        s_min = float(thresholds.get("secondary_performance_min", 0.6))
+        _check("has_primary_performance", p_val is not None, {"value": p_val})
+        _check("has_secondary_performance", s_val is not None, {"value": s_val})
+        _check(
+            "primary_performance_ge_min",
+            (p_val or 0.0) >= p_min,
+            {"value": p_val, "threshold": f">={p_min}"},
+        )
+        _check(
+            "secondary_performance_ge_min",
+            (s_val or 0.0) >= s_min,
+            {"value": s_val, "threshold": f">={s_min}"},
+        )
+    elif gate_rule_type == "correlation_structure":
+        required_checks.extend(["has_corr_strength", "has_corr_edge_support", "corr_strength_ge_min", "corr_edge_ge_min"])
+        strongest = metric_map.get("strongest_abs_corr")
+        edges = metric_map.get("abs_corr_gt_0_7_edges") or metric_map.get("abs_corr_gt_0_5_edges")
+        strongest_val = _to_float(strongest.get("value")) if isinstance(strongest, dict) else None
+        edge_val = _to_float(edges.get("value")) if isinstance(edges, dict) else None
+        corr_min = float(thresholds.get("corr_strength_min", 0.5))
+        edge_min = float(thresholds.get("corr_edge_min", 1.0))
+        _check("has_corr_strength", strongest_val is not None, {"value": strongest_val})
+        _check("has_corr_edge_support", edge_val is not None, {"value": edge_val})
+        _check(
+            "corr_strength_ge_min",
+            (strongest_val or 0.0) >= corr_min,
+            {"value": strongest_val, "threshold": f">={corr_min}"},
+        )
+        _check(
+            "corr_edge_ge_min",
+            (edge_val or 0.0) >= edge_min,
+            {"value": edge_val, "threshold": f">={edge_min}"},
+        )
+    elif gate_rule_type == "embedding_structure":
+        required_checks.extend(["has_cluster_or_embedding_metric"])
+        has_cluster = "cluster_count" in metric_map and _to_float(metric_map["cluster_count"].get("value")) is not None
+        has_embedding = any("embedding" in name for name in metric_map.keys())
+        cluster_val = _to_float(metric_map["cluster_count"].get("value")) if "cluster_count" in metric_map else None
+        cluster_min = float(thresholds.get("cluster_count_min", 2.0))
+        _check(
+            "has_cluster_or_embedding_metric",
+            has_cluster or has_embedding,
+            {"cluster_count": cluster_val, "has_embedding_metric": has_embedding},
+        )
+        _check(
+            "cluster_count_ge_min",
+            (cluster_val or 0.0) >= cluster_min if cluster_val is not None else False,
+            {"value": cluster_val, "threshold": f">={cluster_min}"},
+        )
+    else:
+        required_checks.extend(["quant_metric_count_ge_2"])
+        quant_min = int(thresholds.get("generic_quant_min", 2))
+        _check(
+            "quant_metric_count_ge_min",
+            len(quant) >= quant_min,
+            {"count": len(quant), "threshold": f">={quant_min}"},
+        )
+        _check("effect_or_consistency_support", bool(effects) or consistency == "consistent", {"effect_metric_count": len(effects), "consistency": consistency})
+
+    return checks, check_details, required_checks
 
 
 def build_hypothesis_evidence_pack(
@@ -223,12 +427,18 @@ def build_hypothesis_evidence_pack(
             continue
         hid = str(item.get("hypothesis_id", "")).upper()
         claim = str(item.get("claim", ""))
-        quant_metrics = _annotated_quant_metrics(
-            item.get("quant_metrics", {}) if isinstance(item.get("quant_metrics"), dict) else {},
-            metric_dict,
-        )
-        effect_metrics = _effect_metrics_from_quant(quant_metrics)
+        base_quant = item.get("quant_metrics", {}) if isinstance(item.get("quant_metrics"), dict) else {}
         contrast = contrast_map.get(hid, {})
+        # Merge path-level metrics as fallback quantitative evidence for gate checks.
+        for path_key in ("path_a", "path_b"):
+            path_payload = contrast.get(path_key, {}) if isinstance(contrast.get(path_key), dict) else {}
+            path_metrics = path_payload.get("metrics", {}) if isinstance(path_payload.get("metrics"), dict) else {}
+            for name, value in path_metrics.items():
+                key = str(name).strip()
+                if key and key not in base_quant:
+                    base_quant[key] = value
+        quant_metrics = _annotated_quant_metrics(base_quant, metric_dict)
+        effect_metrics = _effect_metrics_from_quant(quant_metrics)
         multipath = multipath_map.get(hid, {})
         status = str(multipath.get("status") or contrast.get("status") or item.get("status") or "inconclusive")
         consistency = str(contrast.get("consistency", "unknown"))
@@ -275,34 +485,143 @@ def build_hypothesis_evidence_pack(
     return {"hypotheses": rows}
 
 
-def build_hypothesis_gate_report(evidence_pack: dict[str, Any]) -> dict[str, Any]:
+def build_hypothesis_gate_report(
+    evidence_pack: dict[str, Any],
+    calibration_profile: str = "standard",
+    calibration_overrides: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    profiles = default_gate_calibration_profiles()
+    profile_name = calibration_profile if calibration_profile in profiles else "standard"
+    thresholds = dict(profiles.get(profile_name, profiles["standard"]))
+    if isinstance(calibration_overrides, dict):
+        thresholds.update(calibration_overrides)
     rows: list[dict[str, Any]] = []
+
+    def _infer_reason_code(
+        failed_checks: list[str],
+        consistency: str,
+        gate_rule_type: str,
+        existing: str,
+    ) -> str:
+        if existing:
+            return existing
+        if consistency == "conflict" or "path_consistency" in failed_checks:
+            return "path_conflict"
+        if any(name.startswith("has_") for name in failed_checks):
+            return "metric_missing"
+        if any(name.endswith("_ge_min") for name in failed_checks):
+            if gate_rule_type == "predictive_performance":
+                return "performance_gap"
+            return "threshold_not_met"
+        if "has_dual_path_status" in failed_checks:
+            return "missing_artifact"
+        return "assumption_violation"
+
+    def _build_recovery_plan(gate_rule_type: str, failed_checks: list[str], reason_code: str) -> list[dict[str, Any]]:
+        plan: list[dict[str, Any]] = []
+        if not failed_checks:
+            return plan
+        expected = GATE_RULE_TYPE_EXPECTED_ARTIFACTS.get(gate_rule_type, GATE_RULE_TYPE_EXPECTED_ARTIFACTS["generic_evidence"])
+        if reason_code in {"metric_missing", "missing_artifact"}:
+            plan.append(
+                {
+                    "priority": "P0",
+                    "action": "rerun_missing_modules_and_verify_expected_artifacts",
+                    "expected_artifacts": expected,
+                }
+            )
+        if reason_code in {"threshold_not_met", "performance_gap"}:
+            plan.append(
+                {
+                    "priority": "P1",
+                    "action": "adjust_method_or_feature_strategy_then_rerun",
+                    "expected_artifacts": expected,
+                }
+            )
+        if reason_code in {"path_conflict", "method_conflict"}:
+            plan.append(
+                {
+                    "priority": "P1",
+                    "action": "run_third_validation_path_for_conflict_resolution",
+                    "expected_artifacts": expected,
+                }
+            )
+        if not plan:
+            plan.append(
+                {
+                    "priority": "P2",
+                    "action": "manual_review_and_relabel_if_needed",
+                    "expected_artifacts": expected,
+                }
+            )
+        return plan
+
     for hyp in evidence_pack.get("hypotheses", []) if isinstance(evidence_pack, dict) else []:
         if not isinstance(hyp, dict):
             continue
         quant = hyp.get("quant_metrics", []) if isinstance(hyp.get("quant_metrics"), list) else []
         effects = hyp.get("effect_metrics", []) if isinstance(hyp.get("effect_metrics"), list) else []
+        method_trace = hyp.get("method_trace", []) if isinstance(hyp.get("method_trace"), list) else []
         status = str(hyp.get("status", ""))
         consistency = (hyp.get("consistency", {}) if isinstance(hyp.get("consistency"), dict) else {}).get("flag", "unknown")
-        checks = {
-            "quant_metric_count": len(quant) >= 2,
-            "effect_plus_significance": bool(effects) and any(
-                str(item.get("category", "")) == "significance" for item in quant
-            ),
-            "consistency": consistency != "conflict",
-            "status": status not in {"failed", "skipped"},
-        }
-        gate_status = "pass" if all(checks.values()) else ("partial" if any(checks.values()) else "fail")
+        gate_rule_type = _detect_gate_rule_type(quant, method_trace)
+        checks, check_details, required_checks = _gate_checks_for_type(
+            gate_rule_type,
+            quant,
+            effects,
+            consistency,
+            status,
+            thresholds,
+        )
+        required_pass = all(checks.get(name, False) for name in required_checks) if required_checks else True
+        consistency_pass = checks.get("path_consistency", False)
+        status_pass = checks.get("has_dual_path_status", False)
+        if required_pass and consistency_pass and status_pass:
+            gate_status = "pass"
+        elif any(checks.values()):
+            gate_status = "partial"
+        else:
+            gate_status = "fail"
+        failed_checks = [name for name, passed in checks.items() if not passed]
+        reason_code = str(hyp.get("reason_code", "")).strip()
+        recovery_action = str(hyp.get("recovery_action", "")).strip()
+        reason_code = _infer_reason_code(failed_checks, consistency, gate_rule_type, reason_code)
+        if not recovery_action and reason_code:
+            recovery_action = REASON_RECOVERY_MAP.get(reason_code, "")
+        if not recovery_action and failed_checks:
+            recovery_action = GATE_RULE_TYPE_RECOVERY.get(gate_rule_type, "")
+        recovery_plan = _build_recovery_plan(gate_rule_type, failed_checks, reason_code)
+        decision_evidence = []
+        for check_name in required_checks:
+            decision_evidence.append(
+                {
+                    "check": check_name,
+                    "passed": bool(checks.get(check_name, False)),
+                    "detail": check_details.get(check_name, {}),
+                }
+            )
+        decision_trace = (
+            f"profile={profile_name}; rule={gate_rule_type}; "
+            f"required={','.join(required_checks)}; failed={','.join(failed_checks)}"
+        )
         rows.append(
             {
                 "hypothesis_id": hyp.get("hypothesis_id", ""),
                 "gate_status": gate_status,
+                "gate_rule_type": gate_rule_type,
+                "calibration_profile": profile_name,
                 "checks": checks,
-                "reason_code": hyp.get("reason_code", ""),
-                "recovery_action": hyp.get("recovery_action", ""),
+                "check_details": check_details,
+                "required_checks": required_checks,
+                "failed_checks": failed_checks,
+                "reason_code": reason_code,
+                "recovery_action": recovery_action,
+                "recovery_plan": recovery_plan,
+                "decision_evidence": decision_evidence,
+                "decision_trace": decision_trace,
             }
         )
-    return {"hypotheses": rows}
+    return {"hypotheses": rows, "calibration_profile": profile_name, "thresholds": thresholds}
 
 
 def validate_hypothesis_evidence_pack(evidence_pack: dict[str, Any]) -> dict[str, Any]:

@@ -237,12 +237,12 @@ def test_analysis_quality_score_and_traces(tmp_path: Path) -> None:
     result_dir = session_dir / "result"
     result_dir.mkdir(parents=True, exist_ok=True)
     _write_json(
-        result_dir / "hypothesis_evidence.json",
+        result_dir / "hypothesis_evidence_pack.json",
         {
             "hypotheses": [
                 {
                     "hypothesis_id": "H1",
-                    "quant_metrics": {"m1": 1, "m2": 2},
+                    "quant_metrics": [{"name": "m1", "value": 1}, {"name": "m2", "value": 2}],
                     "evidence_sources": ["result/stats_results.json"],
                 }
             ]
@@ -275,9 +275,13 @@ def test_plan_and_codegen_contract_validators() -> None:
         "hypotheses": [
             {
                 "id": "H1",
+                "title": "H1: test",
+                "hypothesis": "test hypothesis",
+                "expected_artifacts": ["result/stats_results.json"],
+                "minimum_evidence_requirements": {"quant_metrics_min": 2},
                 "validation_paths": [
-                    {"path_id": "path_a"},
-                    {"path_id": "path_b"},
+                    {"path_id": "path_a", "expected_artifacts": ["result/stats_results.json"]},
+                    {"path_id": "path_b", "expected_artifacts": ["result/multiple_testing.json"]},
                 ],
             }
         ]
@@ -311,3 +315,153 @@ def test_normalized_plan_contains_evidence_requirements() -> None:
     assert "minimum_evidence_requirements" in hyp
     assert hyp["minimum_evidence_requirements"]["quant_metrics_min"] == 2
     assert "assumption_checks" in hyp
+
+
+def test_normalized_plan_does_not_infer_from_markdown_sections() -> None:
+    normalized = orchestration_graph._normalize_plan_json(
+        {},
+        "### 1. 假设列表\n- H1\n### 4. 成功判据\n- xxx\n",
+    )
+    assert normalized["hypotheses"] == []
+
+
+def test_hypothesis_set_consistency_detects_mismatch(tmp_path: Path) -> None:
+    session_dir = tmp_path
+    (session_dir / "plan").mkdir(parents=True, exist_ok=True)
+    (session_dir / "result").mkdir(parents=True, exist_ok=True)
+    (session_dir / "report").mkdir(parents=True, exist_ok=True)
+    _write_json(
+        session_dir / "plan" / "analysis_plan.json",
+        {"hypotheses": [{"id": "H1", "title": "t", "hypothesis": "x", "validation_paths": [{"path_id": "path_a"}, {"path_id": "path_b"}]}]},
+    )
+    _write_json(session_dir / "result" / "hypothesis_results.json", {"hypotheses": [{"hypothesis": "H1"}]})
+    _write_json(session_dir / "result" / "hypothesis_multipath.json", {"hypotheses": [{"hypothesis_id": "H1"}]})
+    _write_json(session_dir / "result" / "hypothesis_evidence_pack.json", {"hypotheses": []})
+    _write_json(session_dir / "result" / "hypothesis_gate_report.json", {"hypotheses": []})
+    (session_dir / "report" / "report_v1.html").write_text("<h3>H1</h3>", encoding="utf-8")
+    consistency = orchestration_graph._build_hypothesis_set_consistency(session_dir)
+    assert consistency["satisfied"] is False
+    assert "evidence_pack_ids" in consistency["mismatches"]
+
+
+def test_strict_markdown_hypothesis_fallback_ignores_sections() -> None:
+    plan_md = (
+        "* **假设 H1（差异性假设）**：A 与 B 存在差异。\n"
+        "* **假设 H2（分类假设）**：可以区分。\n"
+        "#### 4. 成功判据\n"
+        "- AUC > 0.8\n"
+        "| 假设 | 路径 A | 路径 B |\n"
+        "| H1 | s1 | result/stats_results.json |\n"
+        "| H2 | s2 | result/model_eval.json |\n"
+    )
+    payload = orchestration_graph._strict_markdown_hypothesis_fallback(plan_md)
+    hypotheses = payload.get("hypotheses", [])
+    assert len(hypotheses) == 2
+    assert [h["id"] for h in hypotheses] == ["H1", "H2"]
+
+
+def test_strict_markdown_hypothesis_fallback_accepts_numeric_form() -> None:
+    plan_md = (
+        "#### **假设 1：A 与 B 差异显著。**\n"
+        "#### **假设 2：可用于分类。**\n"
+    )
+    payload = orchestration_graph._strict_markdown_hypothesis_fallback(plan_md)
+    assert [h["id"] for h in payload.get("hypotheses", [])] == ["H1", "H2"]
+
+
+def test_find_first_dataset_prefers_tabular_over_manifest(tmp_path: Path) -> None:
+    (tmp_path / "manifest.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "data.xlsx").write_text("x", encoding="utf-8")
+    picked = orchestration_graph._find_first_dataset(tmp_path)
+    assert picked is not None
+    assert picked.name == "data.xlsx"
+
+
+def test_has_advanced_artifacts_ignores_expected_artifact_validation(tmp_path: Path) -> None:
+    result_dir = tmp_path / "result"
+    result_dir.mkdir(parents=True, exist_ok=True)
+    (result_dir / "summary.json").write_text("{}", encoding="utf-8")
+    (result_dir / "expected_artifact_validation.json").write_text("{}", encoding="utf-8")
+    assert orchestration_graph._has_advanced_artifacts(tmp_path) is False
+
+
+def test_extract_hypothesis_ids_from_report_prefers_headings(tmp_path: Path) -> None:
+    report = tmp_path / "report_v1.html"
+    report.write_text(
+        "### H1 差异\n正文提及 H4 但不是章节。\n<h3>H2 分类</h3>\n",
+        encoding="utf-8",
+    )
+    ids = orchestration_graph._extract_hypothesis_ids_from_report(report)
+    assert ids == ["H1", "H2"]
+
+
+def test_plan_validator_rejects_duplicate_path_id_and_missing_requirements() -> None:
+    bad_plan = {
+        "hypotheses": [
+            {
+                "id": "H1",
+                "title": "H1",
+                "hypothesis": "x",
+                "expected_artifacts": ["result/a.json"],
+                "validation_paths": [
+                    {"path_id": "path_a", "expected_artifacts": ["result/a.json"]},
+                    {"path_id": "path_a", "expected_artifacts": ["result/b.json"]},
+                ],
+            }
+        ]
+    }
+    ok, errors = orchestration_graph._validate_plan_json_contract(bad_plan)
+    assert ok is False
+    assert any("duplicate_validation_path_id" in e for e in errors)
+    assert any("missing_minimum_evidence_requirements" in e for e in errors)
+
+
+def test_plan_validation_suggestions_generated() -> None:
+    suggestions = orchestration_graph._plan_validation_suggestions(
+        [
+            "missing_hypotheses",
+            "hypothesis[0]_missing_dual_validation_paths",
+            "hypothesis[0]_non_path_like_expected_artifacts:1",
+        ]
+    )
+    assert suggestions
+    assert any("两条验证路径" in s for s in suggestions)
+
+
+def test_multipath_stats_split_invalid_vs_missing_artifacts(tmp_path: Path) -> None:
+    session_dir = tmp_path
+    result_dir = session_dir / "result"
+    result_dir.mkdir(parents=True, exist_ok=True)
+    (result_dir / "stats_results.json").write_text("[]", encoding="utf-8")
+    plan_json = {
+        "hypotheses": [
+            {
+                "id": "H1",
+                "title": "H1",
+                "hypothesis": "x",
+                "validation_plan_steps": ["A", "B"],
+                "expected_artifacts": ["result/stats_results.json"],
+                "invalid_expected_artifacts": ["显著结果输出"],
+                "validation_paths": [
+                    {"path_id": "path_a", "method_family": "parametric_test", "steps": ["A"], "expected_artifacts": ["result/stats_results.json"]},
+                    {"path_id": "path_b", "method_family": "nonparametric_or_fdr", "steps": ["B"], "expected_artifacts": ["result/missing.json"]},
+                ],
+            }
+        ]
+    }
+    evidence_payload = {"hypotheses": [{"hypothesis_id": "H1", "evidence_sources": [], "quant_metrics": {}, "status": "partial"}]}
+    contrast_payload = {
+        "hypotheses": [
+            {
+                "hypothesis_id": "H1",
+                "path_a": {"status": "ok", "metrics": {}},
+                "path_b": {"status": "missing", "metrics": {}},
+                "consistency": "unknown",
+                "status": "partial",
+                "conflict_reason": "",
+            }
+        ]
+    }
+    payload = orchestration_graph._evaluate_hypothesis_validation_paths(session_dir, plan_json, evidence_payload, contrast_payload)
+    assert payload["stats"]["invalid_expected_artifact_total"] == 1
+    assert payload["stats"]["missing_expected_artifact_total"] >= 1

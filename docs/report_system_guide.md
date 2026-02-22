@@ -408,6 +408,25 @@ def get_reports_paginated(session_id, page=1, page_size=20):
 ## 自动化装配与结构化输出
 报告内容由自动化装配器拼装，LLM 输出采用结构化 JSON（summary/sections/highlights），避免自由文本不稳定。
 
+## 假设节强制结构（当前实现）
+- 研究问题与假设
+- 方法与前置条件检查
+- 执行事实（产物与状态）
+- 定量结果（指标与证据）
+- 结果解释（绑定具体数值、阈值对比、gate 规则类型）
+- 一致性与冲突解释（A/B 路径）
+- 局限性与下一步
+
+## 证据优先约束
+- 报告解释段必须从 `result/hypothesis_evidence_pack.json` 取数。
+- 结论需显式携带 `gate_status/gate_rule_type/failed_checks/reason_code/recovery_action`。
+- `inconclusive/failed` 场景禁止确定性措辞。
+
+## 报告打开方式（渲染稳定性）
+- 推荐通过本地 HTTP 服务打开 HTML 报告，避免 `file://` 跨文件读取限制。
+- `file://` 模式下附件预览会显示限制提示与原始路径，非静默失败。
+- iframe 图表显示失败时，正文必须给出 fallback 路径。
+
 ### 验证方式
 运行以下命令，确认报告仍可正常生成：
 ```bash

@@ -15,6 +15,9 @@ except Exception:  # pragma: no cover - optional runtime dependency
 from .templates import DEFAULT_TEMPLATE, ReportTemplate
 
 
+_MD_EXTENSIONS = ["extra", "tables", "fenced_code", "sane_lists"]
+
+
 class ReportExporter:
     """报告导出器"""
     def __init__(self):
@@ -81,7 +84,7 @@ def export_report(
             html_body = content
         else:
             if mode in {"html_convert", "html_print"}:
-                html_body = _wrap_html(md.markdown(content), template)
+                html_body = _wrap_html(md.markdown(content, extensions=_MD_EXTENSIONS), template)
             else:
                 html_body = _wrap_html(content, template)
         path = out_dir / f"{base_name}.html"
@@ -98,7 +101,7 @@ def export_report(
         if mode in {"html_convert", "html_print"}:
             html_body = content
             if "<html" not in content.lower():
-                html_body = _wrap_html(md.markdown(content), template)
+                html_body = _wrap_html(md.markdown(content, extensions=_MD_EXTENSIONS), template)
             html_path = out_dir / f"{base_name}.html"
             html_path.write_text(html_body, encoding="utf-8")
 

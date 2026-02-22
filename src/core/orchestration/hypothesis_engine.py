@@ -422,7 +422,12 @@ def _build_visual_binding(session_dir: Path) -> dict[str, Any]:
     return {"bindings": bindings}
 
 
-def _build_hypothesis_evidence(session_dir: Path, hypothesis_payload: dict[str, Any]) -> dict[str, Any]:
+def _build_hypothesis_evidence(
+    session_dir: Path,
+    hypothesis_payload: dict[str, Any],
+    allowed_hypothesis_ids: set[str] | None = None,
+) -> dict[str, Any]:
+    allowed_ids = {str(x).upper() for x in (allowed_hypothesis_ids or set()) if str(x).strip()}
     evidence_rows: list[dict[str, Any]] = []
 
     def _status_for(hyp_name: str) -> str:
@@ -559,6 +564,8 @@ def _build_hypothesis_evidence(session_dir: Path, hypothesis_payload: dict[str, 
         }
     )
 
+    if allowed_ids:
+        evidence_rows = [row for row in evidence_rows if str(row.get("hypothesis_id", "")).upper() in allowed_ids]
     return {"hypotheses": evidence_rows}
 
 
@@ -775,6 +782,8 @@ def _evaluate_hypothesis_validation_paths(
         if isinstance(item, dict)
     }
     rows: list[dict[str, Any]] = []
+    total_invalid_expected = 0
+    total_missing_expected = 0
     for hyp in plan_json.get("hypotheses", []) if isinstance(plan_json, dict) else []:
         if not isinstance(hyp, dict):
             continue
@@ -796,6 +805,7 @@ def _evaluate_hypothesis_validation_paths(
             else []
         )
         contrast_entry = contrast_map.get(hid, {})
+        invalid_expected = hyp.get("invalid_expected_artifacts", []) if isinstance(hyp.get("invalid_expected_artifacts"), list) else []
         path_results: list[dict[str, Any]] = []
         for idx, path in enumerate(hyp_paths):
             if not isinstance(path, dict):
@@ -838,6 +848,9 @@ def _evaluate_hypothesis_validation_paths(
                     "error": "" if status_payload["status"] != "failed" else "required_artifacts_missing",
                 }
             )
+        missing_total = sum(len(p.get("missing_artifacts", [])) for p in path_results if isinstance(p, dict))
+        total_missing_expected += int(missing_total)
+        total_invalid_expected += int(len(invalid_expected))
         consistency = str(contrast_entry.get("consistency", "unknown"))
         statuses = [str(x.get("status", "")) for x in path_results]
         if consistency == "conflict":
@@ -863,6 +876,7 @@ def _evaluate_hypothesis_validation_paths(
                     if any(p.get("status") == "failed" for p in path_results)
                     else ""
                 ),
+                "invalid_expected_artifacts": [str(x) for x in invalid_expected if str(x).strip()],
                 "paths": path_results,
             }
         )
@@ -893,6 +907,8 @@ def _evaluate_hypothesis_validation_paths(
                 ),
                 4,
             ),
+            "invalid_expected_artifact_total": total_invalid_expected,
+            "missing_expected_artifact_total": total_missing_expected,
         },
     }
 
@@ -1018,10 +1034,7 @@ def _build_auto_analysis_payload(session_dir: Path, auto_evidence: list[str]) ->
 
 
 def _load_structured_evidence(session_dir: Path) -> dict[str, Any]:
-    candidates = [
-        session_dir / "result" / "hypothesis_evidence_pack.json",
-        session_dir / "result" / "hypothesis_evidence.json",
-    ]
+    candidates = [session_dir / "result" / "hypothesis_evidence_pack.json"]
     for path in candidates:
         if not path.exists():
             continue
@@ -1065,5 +1078,3 @@ def _llm_analysis_has_metric_grounding(
     joined = " ".join(text_parts).lower()
     hits = sum(1 for name in metric_names if name in joined)
     return hits >= min_metric_refs
-
-

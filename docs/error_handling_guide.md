@@ -304,6 +304,18 @@ handler.max_error_history = 500  # 默认1000
 - `@safe_operation`: 安全操作装饰器
 - `@critical_operation`: 关键操作装饰器
 
+## 编排链路 Reason Code（新增）
+- `missing_artifact`: 缺核心产物，需回补执行路径。
+- `method_conflict`: A/B 路径冲突，需第三路径或稳健性验证。
+- `execution_error`: 执行报错，优先走 code_repair。
+- `assumption_violation`: 门槛规则未满足，需调整方法或数据前处理。
+- `label_invalid_for_modeling`: 标签健康检查失败，禁止建模。
+- `invalid_evidence_pack`: 证据包 schema 不合法，需修复后重跑。
+
+## 恢复动作约定
+- 所有 `inconclusive/failed` 假设必须产出 `recovery_action`。
+- `meta/reason_code_summary.json` 作为统一追踪入口。
+
 ---
 *文档版本: 1.0*
 *最后更新: 2026-02-07*

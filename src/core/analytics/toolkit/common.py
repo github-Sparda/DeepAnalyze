@@ -92,6 +92,51 @@ def select_group_labels(series: pd.Series) -> tuple[pd.Series, dict[str, Any]]:
     return filtered, info
 
 
+def evaluate_label_health(
+    labels: pd.Series,
+    max_class_count: int = 20,
+    min_samples_per_class: int = 2,
+    cv_folds: int = 5,
+) -> dict[str, Any]:
+    series = labels.astype(str).fillna("")
+    total = int(len(series))
+    unique = int(series.nunique()) if total else 0
+    unique_ratio = float(unique / total) if total else 0.0
+    counts = series.value_counts().to_dict() if total else {}
+    min_class_size = int(min(counts.values())) if counts else 0
+    max_class_size = int(max(counts.values())) if counts else 0
+    feasible_cv_folds = int(min(cv_folds, min_class_size)) if counts else 0
+    issues: list[str] = []
+    if total == 0:
+        issues.append("empty_labels")
+    if unique_ratio > 0.8:
+        issues.append("label_id_like_unique_ratio_high")
+    if len(counts) < 2:
+        issues.append("insufficient_class_count")
+    if len(counts) > max_class_count:
+        issues.append("class_count_exceeds_limit")
+    if min_class_size < min_samples_per_class and len(counts) >= 2:
+        issues.append("class_size_too_small_for_modeling")
+    if len(counts) >= 2 and min_class_size < 2:
+        issues.append("split_not_feasible")
+    if len(counts) >= 2 and feasible_cv_folds < 2:
+        issues.append("cross_validation_not_feasible")
+    return {
+        "valid": len(issues) == 0,
+        "total_samples": total,
+        "unique_labels": unique,
+        "unique_ratio": unique_ratio,
+        "class_counts": counts,
+        "min_class_size": min_class_size,
+        "max_class_size": max_class_size,
+        "max_class_count": max_class_count,
+        "min_samples_per_class": min_samples_per_class,
+        "requested_cv_folds": cv_folds,
+        "feasible_cv_folds": feasible_cv_folds,
+        "issues": issues,
+    }
+
+
 def numeric_columns(df: pd.DataFrame) -> list[str]:
     return [c for c in df.columns if np.issubdtype(df[c].dtype, np.number)]
 

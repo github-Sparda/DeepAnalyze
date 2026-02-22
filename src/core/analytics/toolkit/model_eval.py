@@ -13,6 +13,7 @@ from .common import (
     write_json,
     normalize_output_dir,
     select_group_labels,
+    evaluate_label_health,
 )
 
 
@@ -93,7 +94,33 @@ def run(
     df = df.copy()
     df["_group_norm"] = group_series
     df = df[df["_group_norm"].notna()]
+    mapping = (
+        pd.DataFrame({"raw_label": df[label_col].astype(str), "analysis_label": df["_group_norm"].astype(str)})
+        .drop_duplicates()
+        .sort_values(["analysis_label", "raw_label"])
+    )
+    write_json(
+        out_dir / "analysis_label_mapping.json",
+        {
+            "source_label_col": label_col,
+            "analysis_label_col": "_group_norm",
+            "group_info": group_info,
+            "mappings": mapping.to_dict(orient="records"),
+        },
+    )
     labels = df["_group_norm"].astype(str).to_numpy()
+    health = evaluate_label_health(pd.Series(labels), cv_folds=cv_folds)
+    write_json(out_dir / "label_health_report.json", health)
+    if not health.get("valid", False):
+        payload = {
+            "metric": method,
+            "status": "skipped",
+            "reason": "label_invalid_for_modeling",
+            "metrics": {"group_info": group_info, "label_health": health},
+        }
+        write_json(out_dir / "model_eval.json", payload)
+        write_json(out_dir / "cv_results.json", {"status": "skipped", "reason": "label_invalid_for_modeling"})
+        return {"module": "model_eval", "status": "skipped", "output": str(out_dir / "model_eval.json")}
     majority_label = pd.Series(labels).mode().iloc[0] if len(labels) else ""
     majority_acc = float(np.mean(labels == majority_label)) if len(labels) else 0.0
     metrics: dict[str, Any] = {"majority_accuracy": majority_acc, "group_info": group_info}
@@ -125,7 +152,20 @@ def run(
         cv_payload = {"status": "failed", "error": str(exc)}
         write_json(out_dir / "cv_results.json", cv_payload)
     payload = {"metric": method, "metrics": metrics}
+    leakage_warning = {}
+    train_acc = metrics.get("centroid_accuracy")
+    test_acc = cv_payload.get("mean_accuracy") if isinstance(cv_payload, dict) else None
+    if isinstance(train_acc, (int, float)) and isinstance(test_acc, (int, float)):
+        if float(train_acc) >= 0.98 and float(test_acc) <= 0.1:
+            leakage_warning = {
+                "reason_code": "possible_leakage_or_label_issue",
+                "train_metric": float(train_acc),
+                "test_metric": float(test_acc),
+                "action": "recheck_label_mapping_and_split_strategy",
+            }
+    if leakage_warning:
+        payload["warning"] = leakage_warning
     write_json(out_dir / "model_eval.json", payload)
-    detail_payload = {"metrics": metrics, "cv": cv_payload, "validation_failure": failure_payload}
+    detail_payload = {"metrics": metrics, "cv": cv_payload, "validation_failure": failure_payload, "warning": leakage_warning}
     write_json(out_dir / "model_eval_detail.json", detail_payload)
     return {"module": "model_eval", "status": "ok", "output": str(out_dir / "model_eval.json")}

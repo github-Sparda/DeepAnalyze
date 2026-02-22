@@ -72,6 +72,9 @@ def test_build_hypothesis_evidence_pack_and_gate() -> None:
 
     gate = build_hypothesis_gate_report(pack)
     assert gate["hypotheses"][0]["gate_status"] == "pass"
+    assert gate["hypotheses"][0]["gate_rule_type"] == "significance_and_effect"
+    assert "has_significance_metric" in gate["hypotheses"][0]["required_checks"]
+    assert "has_effect_metric" in gate["hypotheses"][0]["required_checks"]
 
 
 def test_validate_hypothesis_evidence_pack_strict_schema() -> None:
@@ -156,3 +159,147 @@ def test_quality_baseline_matrix_module_acceptance(
     assert validation["valid"] is True, name
     gate = build_hypothesis_gate_report(pack)
     assert gate["hypotheses"][0]["gate_status"] == expected_gate
+
+
+def test_gate_rule_type_predictive_performance_requires_dual_metrics() -> None:
+    pack = {
+        "hypotheses": [
+            {
+                "hypothesis_id": "H2",
+                "claim": "x",
+                "status": "validated",
+                "quant_metrics": [
+                    {"name": "centroid_accuracy", "value": 0.78, "category": "performance"},
+                    {"name": "cv_mean_accuracy", "value": 0.66, "category": "performance"},
+                ],
+                "effect_metrics": [{"name": "centroid_accuracy", "value": 0.78}],
+                "method_trace": [{"method_family": "feature_modeling", "status": "validated"}],
+                "evidence_sources": ["result/model_eval.json"],
+                "consistency": {"flag": "consistent"},
+                "reason_code": "",
+                "recovery_action": "",
+            }
+        ]
+    }
+    gate = build_hypothesis_gate_report(pack)
+    row = gate["hypotheses"][0]
+    assert row["gate_rule_type"] == "predictive_performance"
+    assert row["gate_status"] == "pass"
+    assert "has_primary_performance" in row["checks"]
+    assert "has_secondary_performance" in row["checks"]
+
+
+def test_gate_rule_type_correlation_flags_missing_edges() -> None:
+    pack = {
+        "hypotheses": [
+            {
+                "hypothesis_id": "H3",
+                "claim": "x",
+                "status": "partial",
+                "quant_metrics": [
+                    {"name": "strongest_abs_corr", "value": 0.82, "category": "correlation"},
+                    {"name": "abs_corr_gt_0_7_edges", "value": 0, "category": "correlation"},
+                ],
+                "effect_metrics": [{"name": "strongest_abs_corr", "value": 0.82}],
+                "method_trace": [{"method_family": "pearson_network", "status": "validated"}],
+                "evidence_sources": ["result/correlation.json"],
+                "consistency": {"flag": "consistent"},
+                "reason_code": "",
+                "recovery_action": "",
+            }
+        ]
+    }
+    gate = build_hypothesis_gate_report(pack)
+    row = gate["hypotheses"][0]
+    assert row["gate_rule_type"] == "correlation_structure"
+    assert row["gate_status"] in {"partial", "fail"}
+    assert "corr_edge_ge_min" in row["failed_checks"]
+
+
+def test_gate_calibration_profile_changes_threshold_outcome() -> None:
+    pack = {
+        "hypotheses": [
+            {
+                "hypothesis_id": "H2",
+                "claim": "x",
+                "status": "validated",
+                "quant_metrics": [
+                    {"name": "centroid_accuracy", "value": 0.62, "category": "performance"},
+                    {"name": "cv_mean_accuracy", "value": 0.58, "category": "performance"},
+                ],
+                "effect_metrics": [{"name": "centroid_accuracy", "value": 0.62}],
+                "method_trace": [{"method_family": "feature_modeling", "status": "validated"}],
+                "evidence_sources": ["result/model_eval.json"],
+                "consistency": {"flag": "consistent"},
+                "reason_code": "",
+                "recovery_action": "",
+            }
+        ]
+    }
+    strict_gate = build_hypothesis_gate_report(pack, calibration_profile="strict")
+    exploratory_gate = build_hypothesis_gate_report(pack, calibration_profile="exploratory")
+    strict_row = strict_gate["hypotheses"][0]
+    exploratory_row = exploratory_gate["hypotheses"][0]
+    assert strict_row["calibration_profile"] == "strict"
+    assert exploratory_row["calibration_profile"] == "exploratory"
+    assert strict_row["gate_status"] in {"partial", "fail"}
+    assert exploratory_row["gate_status"] in {"pass", "partial"}
+    assert isinstance(exploratory_row.get("decision_evidence"), list)
+
+
+def test_gate_reason_code_and_recovery_plan_refined() -> None:
+    pack = {
+        "hypotheses": [
+            {
+                "hypothesis_id": "H3",
+                "claim": "x",
+                "status": "validated",
+                "quant_metrics": [
+                    {"name": "strongest_abs_corr", "value": 0.41, "category": "correlation"},
+                    {"name": "abs_corr_gt_0_7_edges", "value": 0, "category": "correlation"},
+                ],
+                "effect_metrics": [{"name": "strongest_abs_corr", "value": 0.41}],
+                "method_trace": [{"method_family": "pearson_network", "status": "validated"}],
+                "evidence_sources": ["result/correlation.json"],
+                "consistency": {"flag": "consistent"},
+                "reason_code": "",
+                "recovery_action": "",
+            }
+        ]
+    }
+    gate = build_hypothesis_gate_report(pack, calibration_profile="standard")
+    row = gate["hypotheses"][0]
+    assert row["gate_status"] in {"partial", "fail"}
+    assert row["reason_code"] in {"threshold_not_met", "assumption_violation"}
+    assert isinstance(row.get("recovery_plan"), list)
+    assert row["recovery_plan"]
+
+
+def test_gate_dynamic_overrides_adjust_thresholds() -> None:
+    pack = {
+        "hypotheses": [
+            {
+                "hypothesis_id": "H2",
+                "claim": "x",
+                "status": "validated",
+                "quant_metrics": [
+                    {"name": "centroid_accuracy", "value": 0.6, "category": "performance"},
+                    {"name": "cv_mean_accuracy", "value": 0.59, "category": "performance"},
+                ],
+                "effect_metrics": [{"name": "centroid_accuracy", "value": 0.6}],
+                "method_trace": [{"method_family": "feature_modeling", "status": "validated"}],
+                "evidence_sources": ["result/model_eval.json"],
+                "consistency": {"flag": "consistent"},
+                "reason_code": "",
+                "recovery_action": "",
+            }
+        ]
+    }
+    base_gate = build_hypothesis_gate_report(pack, calibration_profile="standard")
+    relaxed_gate = build_hypothesis_gate_report(
+        pack,
+        calibration_profile="standard",
+        calibration_overrides={"secondary_performance_min": 0.55},
+    )
+    assert base_gate["hypotheses"][0]["gate_status"] in {"partial", "fail"}
+    assert relaxed_gate["hypotheses"][0]["gate_status"] in {"pass", "partial"}
