@@ -7,6 +7,19 @@ from typing import Any, Dict, List, Tuple
 
 import pandas as pd
 from src.core.analytics.resources import load_feature_dictionary
+from src.core.reporting.narrative import (
+    detect_metric_conflicts_detailed,
+    detect_metric_conflicts,
+    failed_check_review_steps,
+    failed_check_sentence,
+    gate_rule_type_sentence,
+    gate_status_sentence,
+    has_failed_check_explanation,
+    has_reason_code_explanation,
+    metric_narrative,
+    recovery_action_sentence,
+    reason_code_sentence,
+)
 
 
 def _extract_json_candidates(raw: str) -> list[str]:
@@ -262,9 +275,29 @@ class ReportAssembler:
         lower = path.lower()
         if lower.startswith(("http://", "https://", "data:")):
             return path
+        # Normalize accidental absolute filesystem paths to relative-like display path.
+        if path.startswith("/"):
+            return f"..{path}"
         if path.startswith("../"):
             return path
         return f"../{path}"
+
+    def _normalize_relative_path(self, session_root: Path | None, raw_path: str) -> str:
+        if not raw_path:
+            return ""
+        text = str(raw_path).strip()
+        if not text:
+            return ""
+        lower = text.lower()
+        if lower.startswith(("http://", "https://", "data:")):
+            return text
+        p = Path(text)
+        if p.is_absolute() and session_root:
+            try:
+                return str(p.relative_to(session_root))
+            except Exception:
+                return text
+        return text
 
     def _resource_health(self, session_root: Path | None, relative_path: str) -> tuple[bool, str]:
         if not relative_path:
@@ -275,6 +308,12 @@ class ReportAssembler:
         if "://" in relative_path:
             return False, "illegal_scheme"
         if relative_path.startswith("/"):
+            if session_root:
+                try:
+                    _ = Path(relative_path).relative_to(session_root)
+                    return True, "ok_absolute_under_session"
+                except Exception:
+                    return False, "absolute_path_forbidden"
             return False, "absolute_path_forbidden"
         if ".." in Path(relative_path).parts:
             return False, "path_traversal_forbidden"
@@ -568,7 +607,7 @@ class ReportAssembler:
         feature_dict = self._load_feature_dict(session_root)
         for item in visuals:
             name = item.get("name", "visual")
-            note = item.get("relative_path", "")
+            note = self._normalize_relative_path(session_root, str(item.get("relative_path", "")))
             path = self._report_relative(note)
             ok, reason = self._resource_health(session_root, note)
             if render_manifest is not None:
@@ -638,13 +677,35 @@ class ReportAssembler:
             hypotheses = plan_text.strip()
         if not process:
             process = plan_text.strip()
+        process = self._sanitize_process_section(process)
         return hypotheses, process
+
+    def _sanitize_process_section(self, process: str) -> str:
+        if not process:
+            return process
+        lines = process.splitlines()
+        out: list[str] = []
+        in_hypothesis_subsection = False
+        for line in lines:
+            stripped = line.strip()
+            if re.match(r"^(#+\s*)?1\.\s*假设列表", stripped, flags=re.IGNORECASE):
+                in_hypothesis_subsection = True
+                continue
+            if in_hypothesis_subsection and re.match(r"^(#+\s*)?\d+\.\s*", stripped):
+                in_hypothesis_subsection = False
+            if in_hypothesis_subsection:
+                continue
+            if "下一步指令" in stripped or "请确认是否开始执行" in stripped:
+                continue
+            out.append(line)
+        return "\n".join(out).strip()
 
     def _render_appendix(
         self,
         document_manifest: Dict[str, Any],
         used_visuals: set[str],
         used_tables: set[str],
+        session_root: Path | None = None,
         binding_map: dict[str, str] | None = None,
     ) -> str:
         lines: list[str] = ["## 附件（正文未展示）", "<details><summary>点击展开附件预览</summary>"]
@@ -688,7 +749,7 @@ class ReportAssembler:
         if remaining_visuals:
             lines.append("- Visualization (remaining):")
             for item in remaining_visuals:
-                rel = item.get("relative_path", "")
+                rel = self._normalize_relative_path(session_root, str(item.get("relative_path", "")))
                 hyp = binding_map.get(rel, "ALL")
                 lines.append(f"  - <div class=\"appendix-item\" data-hypothesis=\"{hyp}\">{self._report_relative(rel)} (fallback path: {rel})</div>")
                 lower = rel.lower()
@@ -702,7 +763,7 @@ class ReportAssembler:
         if remaining_tables:
             lines.append("- Tables (remaining):")
             for item in remaining_tables:
-                rel = item.get("relative_path", "")
+                rel = self._normalize_relative_path(session_root, str(item.get("relative_path", "")))
                 lines.append(f"  - <div class=\"appendix-item\" data-hypothesis=\"ALL\">{self._report_relative(rel)} (fallback path: {rel})</div>")
                 lines.append(f"    <div class=\"table-preview\" data-src=\"{self._report_relative(rel)}\" data-title=\"{item.get('name','table')}\"></div>")
         for group, paths in extra_groups.items():
@@ -711,28 +772,29 @@ class ReportAssembler:
                 continue
             lines.append(f"- {group}:")
             for rel in uniq:
-                lines.append(f"  - <div class=\"appendix-item\" data-hypothesis=\"ALL\">{self._report_relative(rel)} (fallback path: {rel})</div>")
-                lower = rel.lower()
+                rel2 = self._normalize_relative_path(session_root, str(rel))
+                lines.append(f"  - <div class=\"appendix-item\" data-hypothesis=\"ALL\">{self._report_relative(rel2)} (fallback path: {rel2})</div>")
+                lower = rel2.lower()
                 if lower.endswith((".txt", ".md", ".log")):
-                    lines.append(f"    <pre class=\"attachment-preview\" data-src=\"{self._report_relative(rel)}\"></pre>")
+                    lines.append(f"    <pre class=\"attachment-preview\" data-src=\"{self._report_relative(rel2)}\"></pre>")
                 elif lower.endswith(".json"):
-                    lines.append(f"    <pre class=\"attachment-preview\" data-src=\"{self._report_relative(rel)}\"></pre>")
+                    lines.append(f"    <pre class=\"attachment-preview\" data-src=\"{self._report_relative(rel2)}\"></pre>")
                 elif lower.endswith(".csv"):
-                    lines.append(f"    <div class=\"table-preview\" data-src=\"{self._report_relative(rel)}\" data-title=\"{Path(rel).name}\"></div>")
+                    lines.append(f"    <div class=\"table-preview\" data-src=\"{self._report_relative(rel2)}\" data-title=\"{Path(rel2).name}\"></div>")
                 elif lower.endswith(".pdf"):
                     lines.append(
-                        f"    <object data=\"{self._report_relative(rel)}\" type=\"application/pdf\" "
+                        f"    <object data=\"{self._report_relative(rel2)}\" type=\"application/pdf\" "
                         "style=\"width:100%;height:420px;border:1px solid #ddd;\">"
-                        f"<a href=\"{self._report_relative(rel)}\" target=\"_blank\">PDF 预览失败，点击打开原文件</a>"
+                        f"<a href=\"{self._report_relative(rel2)}\" target=\"_blank\">PDF 预览失败，点击打开原文件</a>"
                         "</object>"
                     )
                 elif lower.endswith((".html", ".htm")):
                     lines.append(
-                        f"    <iframe src=\"{self._report_relative(rel)}\" loading=\"lazy\" "
+                        f"    <iframe src=\"{self._report_relative(rel2)}\" loading=\"lazy\" "
                         "style=\"width:100%;height:360px;border:1px solid #ddd;\"></iframe>"
                     )
                     lines.append(
-                        f"    <div>若 iframe 失败，请直接打开: <a href=\"{self._report_relative(rel)}\" target=\"_blank\">{Path(rel).name}</a></div>"
+                        f"    <div>若 iframe 失败，请直接打开: <a href=\"{self._report_relative(rel2)}\" target=\"_blank\">{Path(rel2).name}</a></div>"
                     )
         if len(lines) == 2:
             lines.append("- 无剩余附件。")
@@ -1098,7 +1160,6 @@ class ReportAssembler:
         lines: list[str] = []
         quant_list = evidence_entry.get("quant_metrics", [])
         if isinstance(quant_list, list) and quant_list:
-            fragments: list[str] = []
             for metric in quant_list[:8]:
                 if not isinstance(metric, dict):
                     continue
@@ -1106,21 +1167,16 @@ class ReportAssembler:
                 value = metric.get("value")
                 unit = metric.get("unit") or ""
                 threshold = metric.get("threshold") or ""
-                piece = f"{display}={value}{unit}"
+                piece = f"指标“{display}”当前值为 {value}{unit}"
                 if threshold:
-                    piece += f"（阈值 {threshold}）"
-                fragments.append(piece)
-            if fragments:
-                lines.append("定量指标：" + "；".join(fragments) + "。")
+                    piece += f"，对照阈值 {threshold}"
+                lines.append(piece + "。")
         effects = evidence_entry.get("effect_metrics", [])
         if isinstance(effects, list) and effects:
-            items = []
             for effect in effects[:5]:
                 if not isinstance(effect, dict):
                     continue
-                items.append(f"{effect.get('name')}={effect.get('value')}")
-            if items:
-                lines.append("效应量证据：" + "；".join(items) + "。")
+                lines.append(f"效应证据显示“{effect.get('name')}”取值为 {effect.get('value')}。")
         sources = evidence_entry.get("evidence_sources", [])
         if isinstance(sources, list):
             feature_refs: list[str] = []
@@ -1132,11 +1188,11 @@ class ReportAssembler:
                 if "top_features" in path:
                     feature_refs.append(path)
             if feature_refs:
-                lines.append("关键特征来源：" + "、".join(feature_refs) + "。")
+                lines.append("关键特征主要来自以下文件：" + "、".join(feature_refs) + "。")
         top_features = evidence_entry.get("top_features", [])
         if isinstance(top_features, list) and top_features:
             mapped = [self._feature_display(str(f), feature_dict) for f in top_features[:5]]
-            lines.append("重点特征语义：" + "；".join(mapped) + "。")
+            lines.append("重点特征语义包括：" + "；".join(mapped) + "。")
         return lines
 
     def _hypothesis_bound_visuals(
@@ -1161,57 +1217,47 @@ class ReportAssembler:
         except Exception:
             return None
 
-    def _eval_threshold(self, value: Any, threshold: str) -> tuple[str, str]:
-        v = self._to_float(value)
-        text = str(threshold or "").strip()
-        if v is None or not text:
-            return ("unknown", "无阈值或值不可比较")
-        m = re.match(r"^(>=|<=|>|<|==)\s*(-?\d+(?:\.\d+)?)$", text)
-        if not m:
-            return ("unknown", f"无法解析阈值 {text}")
-        op, raw = m.group(1), float(m.group(2))
-        if op == ">=":
-            passed = v >= raw
-        elif op == "<=":
-            passed = v <= raw
-        elif op == ">":
-            passed = v > raw
-        elif op == "<":
-            passed = v < raw
-        else:
-            passed = v == raw
-        return ("pass" if passed else "fail", f"{v:.4g} {op} {raw:.4g}")
-
-    def _quantitative_judgement_lines(self, evidence_entry: dict[str, Any]) -> list[str]:
+    def _quantitative_judgement_lines(self, evidence_entry: dict[str, Any], style_offset: int = 0) -> list[str]:
         lines: list[str] = []
         quant = evidence_entry.get("quant_metrics", [])
         if not isinstance(quant, list):
             return lines
-        for metric in quant[:12]:
+        for idx, metric in enumerate(quant[:12]):
             if not isinstance(metric, dict):
                 continue
-            name = str(metric.get("display_name") or metric.get("name") or "").strip()
-            if not name:
+            if not str(metric.get("name") or metric.get("display_name") or "").strip():
                 continue
-            value = metric.get("value")
-            unit = str(metric.get("unit") or "").strip()
-            threshold = str(metric.get("threshold") or "").strip()
-            direction = str(metric.get("direction") or "").strip()
-            judgement, relation = self._eval_threshold(value, threshold)
-            direction_text = ""
-            if direction == "higher_is_stronger":
-                direction_text = "，方向解释=数值越高支持越强"
-            elif direction == "lower_is_stronger":
-                direction_text = "，方向解释=数值越低支持越强"
-            elif direction:
-                direction_text = f"，方向解释={direction}"
-            if threshold:
-                lines.append(
-                    f"{name}={value}{unit}，阈值 {threshold}，判定={judgement}（{relation}）{direction_text}"
-                )
-            else:
-                lines.append(f"{name}={value}{unit}，阈值未定义，判定=unknown{direction_text}")
+            lines.append(metric_narrative(metric, idx + style_offset))
         return lines
+
+    def _gate_check_label(self, key: str) -> str:
+        mapping = {
+            "has_dual_path_status": "双路径执行状态有效",
+            "path_consistency": "路径一致性通过",
+            "has_significance_metric": "存在显著性指标",
+            "has_effect_metric": "存在效应证据",
+            "significance_count_ge_min": "显著特征数量达到阈值",
+            "has_primary_performance": "存在主性能指标",
+            "has_secondary_performance": "存在交叉验证性能指标",
+            "primary_performance_ge_min": "主性能达到阈值",
+            "secondary_performance_ge_min": "交叉验证性能达到阈值",
+            "has_corr_strength": "存在相关强度指标",
+            "has_corr_edge_support": "存在相关网络边支撑指标",
+            "corr_strength_ge_min": "相关强度达到阈值",
+            "corr_edge_ge_min": "相关边数量达到阈值",
+            "has_cluster_or_embedding_metric": "存在聚类/嵌入指标",
+            "cluster_count_ge_min": "聚类数量达到阈值",
+            "quant_metric_count_ge_min": "定量指标数量达到阈值",
+            "effect_or_consistency_support": "效应或一致性证据满足",
+        }
+        return mapping.get(key, key)
+
+    def _bool_zh(self, value: Any) -> str:
+        if value is True:
+            return "通过"
+        if value is False:
+            return "未通过"
+        return str(value)
 
     def _render_result_analysis_paragraph(
         self,
@@ -1230,15 +1276,13 @@ class ReportAssembler:
         quant_evaluations = quant_evaluations or []
         gate_entry = gate_entry or {}
         contrast_entry = contrast_entry or {}
-        quant_parts = []
-        for key, value in quant_metrics.items():
-            quant_parts.append(f"{key}={value}")
-        quant_text = f"定量指标包括：{'; '.join(quant_parts)}。" if quant_parts else ""
-        eval_text = (
-            "阈值判定结果：" + "；".join(quant_evaluations[:6]) + "。"
-            if quant_evaluations
-            else "阈值判定结果：未获取到可比较阈值。"
-        )
+        quant_text = ""
+        if quant_evaluations:
+            head = " ".join(quant_evaluations[:3])
+            tail = " 其余指标判定见上方“定量结果（指标与证据）”小节。" if len(quant_evaluations) > 3 else ""
+            quant_text = "关键数值与阈值判定如下：" + head + "。" + tail
+        elif quant_metrics:
+            quant_text = "已提取到定量指标，但缺少完整阈值判定信息。"
         gate_status = str(gate_entry.get("gate_status", "")).lower()
         gate_rule_type = str(gate_entry.get("gate_rule_type", "")).strip()
         failed_checks = gate_entry.get("failed_checks", []) if isinstance(gate_entry.get("failed_checks"), list) else []
@@ -1246,15 +1290,24 @@ class ReportAssembler:
         recovery_action = str(gate_entry.get("recovery_action", "")).strip()
         conflict_reason = str(contrast_entry.get("conflict_reason", "")).strip()
         gate_text = (
-            f"门槛类型={gate_rule_type or 'generic'}，门槛状态={gate_status or 'unknown'}"
-            + (f"，未通过检查={','.join([str(x) for x in failed_checks])}" if failed_checks else "")
-            + (f"，原因码={reason_code}" if reason_code else "")
-            + "。"
+            f"门槛规则说明：{gate_rule_type_sentence(gate_rule_type)} "
+            f"门槛状态说明：{gate_status_sentence(gate_status)}"
         )
+        if failed_checks:
+            gate_text += " 未通过项包括：" + "；".join([failed_check_sentence(str(x)) for x in failed_checks[:5]]) + "。"
+        reason_text = reason_code_sentence(reason_code)
+        if reason_text:
+            gate_text += f" 原因解释：{reason_text}。"
         rule_type = str(gate_entry.get("gate_rule_type", "")).strip()
+        conflict_input: list[dict[str, Any]] = []
+        if isinstance(quant_metrics, dict):
+            for k, v in quant_metrics.items():
+                conflict_input.append({"name": k, "value": v})
+        conflict_findings = detect_metric_conflicts(conflict_input)
+        conflict_details = detect_metric_conflicts_detailed(conflict_input)
         if details:
-            body = "；".join(details)
-            evidence_sentence = f"依据：围绕“{premise}”的关键观测为 {body}。{quant_text}{eval_text}{gate_text}"
+            body = " ".join([str(x).strip() for x in details[:8] if str(x).strip()])
+            evidence_sentence = f"依据：围绕“{premise}”的关键观测为 {body}。{quant_text}{gate_text}"
             if rule_type == "significance_and_effect":
                 rule_sentence = "规则解释：差异性路径要求“显著性证据 + 效应证据”同时成立，避免仅凭 p 值下结论。"
             elif rule_type == "predictive_performance":
@@ -1265,32 +1318,165 @@ class ReportAssembler:
                 rule_sentence = "规则解释：嵌入路径强调分离结构与聚类证据的协同支持。"
             else:
                 rule_sentence = "规则解释：当前为通用证据路径，结论依赖定量指标完整性与一致性。"
-            conflict_sentence = (
-                f"反证/冲突：{conflict_reason}。"
-                if conflict_reason
-                else "反证/冲突：未检测到显式路径冲突。"
-            )
+            if conflict_reason:
+                conflict_sentence = f"反证/冲突：{conflict_reason}。"
+            elif conflict_findings:
+                conflict_sentence = "反证/冲突：" + " ".join(conflict_findings[:2])
+            else:
+                conflict_sentence = "反证/冲突：未检测到显式路径冲突。"
             if conclusion_status in {"inconclusive", "failed"}:
                 boundary_sentence = "边界：多路径证据尚未形成一致支持，当前仅可输出不确定结论。"
             elif missing:
                 boundary_sentence = f"边界：仍存在未完成产物（{', '.join(missing)}），当前结论为阶段性结论。"
             else:
                 boundary_sentence = "边界：当前证据满足主要门槛，但仍需在独立数据或替代方法下复核稳健性。"
+            extra_conflict = ""
+            if conflict_details:
+                first = conflict_details[0] if isinstance(conflict_details[0], dict) else {}
+                steps = first.get("next_steps", []) if isinstance(first, dict) else []
+                if steps:
+                    extra_conflict = " 冲突复核建议：" + "；".join([str(x) for x in steps[:2]]) + "。"
             next_sentence = (
-                f"下一步：{recovery_action}。"
+                f"下一步：{recovery_action_sentence(recovery_action) or '补充外部验证并复核关键指标稳定性。'}"
                 if recovery_action
                 else "下一步：补充外部验证并复核关键指标稳定性。"
             )
-            return " ".join([evidence_sentence, rule_sentence, conflict_sentence, boundary_sentence, next_sentence])
-        if missing:
-            return (
-                f"针对“{premise}”的分析尚未形成足够证据，关键缺失产物为 {', '.join(missing)}。"
-                f"{gate_text}当前无法给出可靠判断，建议优先补齐执行链路后再评估。"
+            return "\n".join(
+                [
+                    f"<p>{evidence_sentence}</p>",
+                    f"<p>{rule_sentence}</p>",
+                    f"<p>{conflict_sentence}</p>",
+                    f"<p>{boundary_sentence}</p>",
+                    f"<p>{next_sentence + extra_conflict}</p>",
+                ]
             )
-        return (
-            f"针对“{premise}”未提取到可自动解释的定量结果，"
-            f"{gate_text}请结合 result 目录中的原始产物进行人工复核。"
+        if missing:
+            return "\n".join(
+                [
+                    f"<p>针对“{premise}”的分析尚未形成足够证据，关键缺失产物为 {', '.join(missing)}。</p>",
+                    f"<p>{gate_text}</p>",
+                    "<p>当前无法给出可靠判断，建议优先补齐执行链路后再评估。</p>",
+                ]
+            )
+        return "\n".join(
+            [
+                f"<p>针对“{premise}”未提取到可自动解释的定量结果。</p>",
+                f"<p>{gate_text}</p>",
+                "<p>请结合 result 目录中的原始产物进行人工复核。</p>",
+            ]
         )
+
+    def _gate_evidence_alignment_notes(self, gate_entry: dict[str, Any], evidence_entry: dict[str, Any]) -> list[str]:
+        notes: list[str] = []
+        if not gate_entry:
+            return notes
+        quant_metrics = evidence_entry.get("quant_metrics", []) if isinstance(evidence_entry.get("quant_metrics"), list) else []
+        quant_names = {str(item.get("name", "")).strip().lower() for item in quant_metrics if isinstance(item, dict)}
+        gate_rule_type = str(gate_entry.get("gate_rule_type", "")).strip().lower()
+        checks = gate_entry.get("checks", {}) if isinstance(gate_entry.get("checks"), dict) else {}
+        check_details = gate_entry.get("check_details", {}) if isinstance(gate_entry.get("check_details"), dict) else {}
+        missing_detail_keys = [k for k in checks.keys() if k not in check_details]
+        if missing_detail_keys:
+            notes.append("以下检查缺少 check_details 证据绑定：" + "、".join(missing_detail_keys))
+
+        reason_gate = str(gate_entry.get("reason_code", "")).strip()
+        reason_evidence = str(evidence_entry.get("reason_code", "")).strip()
+        if reason_gate and reason_evidence and reason_gate != reason_evidence:
+            notes.append(f"reason_code 不一致：gate={reason_gate}，evidence_pack={reason_evidence}。")
+
+        if gate_rule_type == "predictive_performance":
+            need_one = {"centroid_accuracy", "auc"}
+            if not (need_one & quant_names):
+                notes.append("预测性能路径缺少主性能指标（centroid_accuracy 或 auc）。")
+            if "cv_mean_accuracy" not in quant_names:
+                notes.append("预测性能路径缺少交叉验证性能指标（cv_mean_accuracy）。")
+        elif gate_rule_type == "significance_and_effect":
+            if not ({"significant_p_lt_0_05", "q_lt_0_05"} & quant_names):
+                notes.append("差异路径缺少显著性计数指标（significant_p_lt_0_05 或 q_lt_0_05）。")
+            effect_metrics = evidence_entry.get("effect_metrics", []) if isinstance(evidence_entry.get("effect_metrics"), list) else []
+            if not effect_metrics:
+                notes.append("差异路径缺少效应证据（effect_metrics 为空）。")
+        return notes
+
+    def _chart_table_conflict_notes(self, session_root: Path | None) -> list[str]:
+        notes: list[str] = []
+        if not session_root:
+            return notes
+        top_path = session_root / "result" / "top_features.json"
+        stats_path = session_root / "result" / "stats_results.json"
+        if not (top_path.exists() and stats_path.exists()):
+            return notes
+        top_payload = self._load_json(top_path)
+        stats_payload = self._load_json(stats_path)
+        top_names: list[str] = []
+        if isinstance(top_payload, list):
+            for row in top_payload[:20]:
+                if isinstance(row, dict) and row.get("feature"):
+                    top_names.append(str(row.get("feature")))
+        stats_names: set[str] = set()
+        if isinstance(stats_payload, list):
+            for row in stats_payload:
+                if isinstance(row, dict) and row.get("feature"):
+                    stats_names.add(str(row.get("feature")))
+        elif isinstance(stats_payload, dict):
+            rows = stats_payload.get("rows", [])
+            if isinstance(rows, list):
+                for row in rows:
+                    if isinstance(row, dict) and row.get("feature"):
+                        stats_names.add(str(row.get("feature")))
+        if top_names and stats_names:
+            missing = [x for x in top_names if x not in stats_names]
+            if missing:
+                notes.append("图表-表格一致性告警：top_features 中部分特征未在 stats_results 出现：" + "、".join(missing[:8]))
+        return notes
+
+    def _render_gate_readable_block(self, gate_entry: dict[str, Any]) -> list[str]:
+        lines: list[str] = []
+        if not gate_entry:
+            return lines
+        rule_type = str(gate_entry.get("gate_rule_type", "")).strip()
+        gate_status = str(gate_entry.get("gate_status", "")).strip().lower()
+        lines.append(f"- 门槛类型：{gate_rule_type_sentence(rule_type)}")
+        lines.append(f"- 当前状态：{gate_status_sentence(gate_status)}")
+
+        checks = gate_entry.get("checks", {}) if isinstance(gate_entry.get("checks"), dict) else {}
+        if checks:
+            lines.append("- 检查结果：")
+            lines.append("<ul>")
+            for key, value in checks.items():
+                status_text = "通过" if value is True else "未通过"
+                lines.append(f"<li>{failed_check_sentence(key)} 当前结果：{status_text}。</li>")
+            lines.append("</ul>")
+
+        failed_checks = gate_entry.get("failed_checks", []) if isinstance(gate_entry.get("failed_checks"), list) else []
+        unknown_checks: list[str] = []
+        if failed_checks:
+            lines.append("- 失败项重点说明：")
+            for item in failed_checks[:6]:
+                lines.append(f"  - {failed_check_sentence(str(item))}")
+                if not has_failed_check_explanation(str(item)):
+                    unknown_checks.append(str(item))
+                review_steps = failed_check_review_steps(str(item))
+                for step in review_steps[:2]:
+                    lines.append(f"    - 建议复核：{step}")
+
+        reason_code = str(gate_entry.get("reason_code", "")).strip()
+        reason_text = reason_code_sentence(reason_code)
+        if reason_text:
+            lines.append(f"- 原因码解释：{reason_text}")
+        if reason_code and not has_reason_code_explanation(reason_code):
+            lines.append(f"- 解释覆盖告警：当前原因码缺少预定义中文映射，请补充字典。（{reason_code}）")
+        if unknown_checks:
+            lines.append(
+                "- 解释覆盖告警：以下失败检查尚未配置标准中文释义，请补充映射："
+                + "、".join(unknown_checks)
+                + "。"
+            )
+
+        recovery_action = str(gate_entry.get("recovery_action", "")).strip()
+        if recovery_action:
+            lines.append(f"- 建议动作：{recovery_action_sentence(recovery_action)}")
+        return lines
 
     def _render_cross_hypothesis_discussion(self, outcomes: list[dict[str, Any]]) -> str:
         if not outcomes:
@@ -1298,10 +1484,18 @@ class ReportAssembler:
         total = len(outcomes)
         complete = sum(1 for x in outcomes if not x.get("missing"))
         partial = total - complete
+        gate_pass = sum(1 for x in outcomes if str(x.get("gate_status", "")).lower() == "pass")
+        gate_partial = sum(1 for x in outcomes if str(x.get("gate_status", "")).lower() == "partial")
+        gate_fail = sum(1 for x in outcomes if str(x.get("gate_status", "")).lower() == "fail")
+        conflict_count = sum(1 for x in outcomes if int(x.get("conflict_count", 0)) > 0)
         lines: list[str] = []
         lines.append(
             f"本次共评估 {total} 条核心假设，其中 {complete} 条在当前产物范围内形成了相对完整的证据链，"
             f"{partial} 条仍存在不同程度的证据缺口。"
+        )
+        lines.append(
+            f"从门槛状态看：通过 {gate_pass} 条、部分通过 {gate_partial} 条、未通过 {gate_fail} 条；"
+            f"检测到显式指标冲突的假设有 {conflict_count} 条。"
         )
         highlights = [x for x in outcomes if x.get("details")]
         if highlights:
@@ -1322,15 +1516,28 @@ class ReportAssembler:
     def _render_conclusion_recommendations(self, outcomes: list[dict[str, Any]]) -> str:
         if not outcomes:
             return "当前无可汇总结论。建议先补齐数据处理、统计分析和模型评估链路。"
-        supported = [x for x in outcomes if x.get("details") and not x.get("missing")]
-        uncertain = [x for x in outcomes if x.get("missing")]
+        supported = [
+            x
+            for x in outcomes
+            if x.get("details")
+            and not x.get("missing")
+            and str(x.get("gate_status", "")).lower() == "pass"
+            and int(x.get("conflict_count", 0)) == 0
+        ]
+        uncertain = [
+            x
+            for x in outcomes
+            if x.get("missing")
+            or str(x.get("gate_status", "")).lower() in {"partial", "fail"}
+            or int(x.get("conflict_count", 0)) > 0
+        ]
         lines: list[str] = []
         if supported:
             ids = "、".join([x["id"] for x in supported])
             lines.append(f"结论上，{ids} 在当前数据与流程下形成了较完整证据，可作为后续解释与验证工作的优先基础。")
         if uncertain:
             ids = "、".join([x["id"] for x in uncertain])
-            lines.append(f"同时，{ids} 仍处于证据不充分状态，暂不建议输出强结论。")
+            lines.append(f"同时，{ids} 仍处于证据不充分或存在冲突状态，暂不建议输出强结论。")
         lines.append("建议后续工作按“补齐缺失产物 → 交叉验证/对照验证 → 复现实验”顺序推进，并将失败路径与修复过程持续记录到报告附件。")
         return "\n\n".join(lines)
 
@@ -1419,6 +1626,12 @@ class ReportAssembler:
         next_step_density = round((next_step_sections / total), 4) if total else 0.0
         fluff_phrases = ["需要进一步分析", "建议后续研究", "可能存在", "仍需验证"]
         fluff_hits = sum(report_text.count(p) for p in fluff_phrases)
+        key_metrics_count = report_text.count("取值解读：")
+        unknown_raw_hits = report_text.count("阈值未定义，判定=unknown，方向解释=unknown")
+        raw_gate_tokens = ["gate_rule_type=", "gate_status=", "failed_checks=", "reason_code="]
+        raw_gate_hits = sum(report_text.count(token) for token in raw_gate_tokens)
+        gate_readable_hits = report_text.count("门槛类型：") + report_text.count("当前状态：")
+        gate_exposure_rate = round(raw_gate_hits / max(raw_gate_hits + gate_readable_hits, 1), 4)
         return {
             "hypothesis_count": total,
             "basis_coverage": basis_density,
@@ -1431,6 +1644,11 @@ class ReportAssembler:
             "missing_elements_by_hypothesis": missing_elements_by_hypothesis,
             "template_fluff_hits": fluff_hits,
             "fluff_phrases": fluff_phrases,
+            "key_metric_interpretation_hits": key_metrics_count,
+            "unknown_raw_string_hits": unknown_raw_hits,
+            "gate_raw_token_hits": raw_gate_hits,
+            "gate_readable_block_hits": gate_readable_hits,
+            "gate_raw_exposure_rate": gate_exposure_rate,
         }
 
     def assemble(
@@ -1558,38 +1776,66 @@ class ReportAssembler:
                     checks = gate_entry.get("checks", {}) if isinstance(gate_entry.get("checks"), dict) else {}
                     if checks:
                         lines.append("")
-                        lines.append("前置条件与门槛检查：")
+                        lines.append("前置条件检查（执行可用性）：")
+                        for key in ["has_dual_path_status", "path_consistency"]:
+                            if key in checks:
+                                lines.append(f"- {self._gate_check_label(key)}：{self._bool_zh(checks.get(key))}")
+                        lines.append("")
+                        lines.append("证据门槛检查（证据充分性）：")
                         for key, value in checks.items():
-                            lines.append(f"- {key}: {value}")
+                            if key in {"has_dual_path_status", "path_consistency"}:
+                                continue
+                            lines.append(f"- {self._gate_check_label(key)}：{self._bool_zh(value)}")
                 lines.append("")
                 lines.append("#### 执行事实（产物与状态）")
                 if step_map:
-                    step_desc: list[str] = []
+                    lines.append("<ul>")
                     for step_name, payload in step_map.items():
                         status = payload.get("status") if isinstance(payload, dict) else ""
                         output = payload.get("output") if isinstance(payload, dict) else ""
-                        step_desc.append(f"{step_name}(status={status}, output={output})")
-                    lines.append("；".join(step_desc) + "。")
+                        lines.append(f"<li><strong>{step_name}</strong>：状态={status}；输出={output}</li>")
+                    lines.append("</ul>")
                 else:
                     lines.append("未读取到执行步骤明细。")
                 if expected_artifacts:
-                    lines.append(f"计划产物：{', '.join([str(x) for x in expected_artifacts])}。")
+                    lines.append("计划产物：")
+                    lines.append("<ul>")
+                    for x in expected_artifacts:
+                        lines.append(f"<li>{x}</li>")
+                    lines.append("</ul>")
                 if missing:
-                    lines.append(f"缺失产物：{', '.join([str(x) for x in missing])}。")
+                    lines.append("缺失产物：")
+                    lines.append("<ul>")
+                    for x in missing:
+                        lines.append(f"<li>{x}</li>")
+                    lines.append("</ul>")
                 else:
                     lines.append("缺失产物：无。")
                 lines.append("")
                 lines.append("#### 定量结果（指标与证据）")
-                if quant_metrics:
+                quant_metric_rows = (
+                    evidence_entry.get("quant_metrics", [])
+                    if isinstance(evidence_entry, dict) and isinstance(evidence_entry.get("quant_metrics"), list)
+                    else []
+                )
+                if quant_metric_rows:
+                    for idx, metric in enumerate(quant_metric_rows[:12]):
+                        if not isinstance(metric, dict):
+                            continue
+                        lines.append(f"- {metric_narrative(metric, idx)}")
+                elif quant_metrics:
+                    lines.append("<ul>")
                     for key, value in quant_metrics.items():
-                        lines.append(f"- {key}: {value}")
+                        lines.append(f"<li>{key}：{value}</li>")
+                    lines.append("</ul>")
                 else:
                     lines.append("- 无可用定量指标。")
                 lines.append("")
                 lines.append("#### 结果解释（引用具体数值）")
                 details = self._evidence_detail_lines(evidence_entry if isinstance(evidence_entry, dict) else {}, feature_dict)
                 quant_evaluations = self._quantitative_judgement_lines(
-                    evidence_entry if isinstance(evidence_entry, dict) else {}
+                    evidence_entry if isinstance(evidence_entry, dict) else {},
+                    idx,
                 )
                 lines.append(
                     self._render_result_analysis_paragraph(
@@ -1613,41 +1859,46 @@ class ReportAssembler:
                 lines.append("")
                 lines.append("#### 一致性与冲突解释（A/B 路径）")
                 if gate_entry:
-                    lines.append(
-                        f"证据门槛：{gate_entry.get('gate_status','unknown')}（规则类型：{gate_entry.get('gate_rule_type','generic')}）。"
+                    lines.extend(self._render_gate_readable_block(gate_entry if isinstance(gate_entry, dict) else {}))
+                    alignment_notes = self._gate_evidence_alignment_notes(
+                        gate_entry if isinstance(gate_entry, dict) else {},
+                        evidence_entry if isinstance(evidence_entry, dict) else {},
                     )
+                    if alignment_notes:
+                        lines.append("- 证据绑定检查：")
+                        for note in alignment_notes:
+                            lines.append(f"  - {note}")
+                    else:
+                        lines.append("- 证据绑定检查：核心 gate 字段与 evidence pack 关键字段已对齐。")
+                    if hyp_id.upper() == "H1":
+                        chart_notes = self._chart_table_conflict_notes(session_root)
+                        if chart_notes:
+                            lines.append("- 图表/表格一致性检查：")
+                            for note in chart_notes:
+                                lines.append(f"  - {note}")
                     if gate_entry.get("calibration_profile"):
-                        lines.append(f"校准档位：{gate_entry.get('calibration_profile')}。")
-                    checks = gate_entry.get("checks", {}) if isinstance(gate_entry.get("checks"), dict) else {}
-                    if checks:
-                        lines.append(
-                            "门槛检查：" + "；".join([f"{k}={v}" for k, v in checks.items()]) + "。"
-                        )
-                    failed_checks = gate_entry.get("failed_checks", []) if isinstance(gate_entry.get("failed_checks"), list) else []
-                    if failed_checks:
-                        lines.append("未通过检查：" + "、".join([str(x) for x in failed_checks]) + "。")
-                    if gate_entry.get("reason_code"):
-                        lines.append(f"原因码：{gate_entry.get('reason_code')}。")
-                    if gate_entry.get("recovery_action"):
-                        lines.append(f"建议动作：{gate_entry.get('recovery_action')}。")
+                        lines.append(f"- 校准档位：{gate_entry.get('calibration_profile')}")
                     recovery_plan = gate_entry.get("recovery_plan", []) if isinstance(gate_entry.get("recovery_plan"), list) else []
                     if recovery_plan:
-                        lines.append("恢复计划：")
+                        lines.append("- 恢复计划：")
                         for step in recovery_plan[:4]:
                             if not isinstance(step, dict):
                                 continue
                             lines.append(
-                                f"- [{step.get('priority','P2')}] {step.get('action','')} | expected={','.join([str(x) for x in step.get('expected_artifacts', [])])}"
+                                f"  - [{step.get('priority','P2')}] {step.get('action','')} | 预期产物={','.join([str(x) for x in step.get('expected_artifacts', [])])}"
                             )
                     decision_evidence = gate_entry.get("decision_evidence", []) if isinstance(gate_entry.get("decision_evidence"), list) else []
                     if decision_evidence:
-                        lines.append("判定依据：")
+                        lines.append("- 判定依据：")
+                        lines.append("<ul>")
                         for item in decision_evidence[:6]:
                             if not isinstance(item, dict):
                                 continue
+                            check_name = failed_check_sentence(str(item.get("check", "")))
                             lines.append(
-                                f"- {item.get('check')}: passed={item.get('passed')} detail={json.dumps(item.get('detail', {}), ensure_ascii=False)}"
+                                f"<li>{check_name} 当前结果：{self._bool_zh(item.get('passed'))}；细节={json.dumps(item.get('detail', {}), ensure_ascii=False)}</li>"
                             )
+                        lines.append("</ul>")
                 lines.append(
                     f"分析来源：自动提取证据 + 规则化解释。"
                     f"{'（定量指标不足，已降级为不确定结论）' if not quant_metrics else ''}"
@@ -1658,7 +1909,7 @@ class ReportAssembler:
                     pb = contrast_entry.get("path_b", {}) if isinstance(contrast_entry, dict) else {}
                     lines.append("路径对照（A/B）：")
                     lines.append("<table border=1 cellpadding=4 cellspacing=0>")
-                    lines.append("<thead><tr><th>路径</th><th>状态</th><th>指标摘要</th></tr></thead><tbody>")
+                    lines.append("<thead><tr><th>验证路径</th><th>执行状态</th><th>指标摘要</th></tr></thead><tbody>")
                     lines.append(
                         f"<tr><td>A</td><td>{pa.get('status','')}</td><td>{json.dumps(pa.get('metrics', {}), ensure_ascii=False)[:220]}</td></tr>"
                     )
@@ -1694,16 +1945,23 @@ class ReportAssembler:
                 if isinstance(evidence_entry, dict):
                     sources = evidence_entry.get("evidence_sources", []) or []
                     if sources:
-                        lines.append("**证据摘录**：")
+                        lines.append("**证据摘录（默认折叠）**：")
                         for src in sources[:4]:
                             rel = str(src)
-                            lines.append(f"来源：`{rel}`")
+                            lines.append(f"<details><summary>来源：<code>{rel}</code></summary>")
                             snippet = self._extract_evidence_snippet(session_root, rel)
                             if snippet:
-                                lines.append("```text")
-                                lines.append(snippet[:1200])
-                                lines.append("```")
+                                lines.append("<pre>")
+                                lines.append(snippet[:1200].replace('<', '&lt;').replace('>', '&gt;'))
+                                lines.append("</pre>")
+                            else:
+                                lines.append("<div>暂无可提取内容。</div>")
+                            lines.append("</details>")
                         lines.append("")
+                outcome_conflict_input: list[dict[str, Any]] = []
+                if isinstance(quant_metrics, dict):
+                    for k, v in quant_metrics.items():
+                        outcome_conflict_input.append({"name": k, "value": v})
                 hypothesis_outcomes.append(
                     {
                         "id": hyp_id,
@@ -1711,6 +1969,8 @@ class ReportAssembler:
                         "missing": missing,
                         "details": details,
                         "quant_metrics": quant_metrics,
+                        "gate_status": str(gate_entry.get("gate_status", "")).lower() if isinstance(gate_entry, dict) else "",
+                        "conflict_count": len(detect_metric_conflicts_detailed(outcome_conflict_input)),
                         "evidence_sources": (
                             evidence_entry.get("evidence_sources", [])
                             if isinstance(evidence_entry, dict) and isinstance(evidence_entry.get("evidence_sources"), list)
@@ -1779,7 +2039,7 @@ class ReportAssembler:
                 lines.append("")
 
         # Section 8: appendix (non-duplicated)
-        lines.append(self._render_appendix(document_manifest, used_visuals, used_tables, binding_map))
+        lines.append(self._render_appendix(document_manifest, used_visuals, used_tables, session_root, binding_map))
         lines.append("")
         if session_root:
             meta_dir = session_root / "meta"

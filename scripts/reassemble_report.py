@@ -78,13 +78,16 @@ def main() -> int:
         report_payload=report_payload,
         execution_warning="",
     )
+    base_name = args.output_name
+    if args.report_format and base_name.lower().endswith(f".{args.report_format.lower()}"):
+        base_name = base_name[: -(len(args.report_format) + 1)]
     report_path = export_report(
         report,
         output_dir=session_dir / "report",
         report_format=args.report_format,
         export_mode=args.export_mode,
         template=template_from_config(args.language),
-        base_name=args.output_name,
+        base_name=base_name,
     )
     print(f"Reassembled report: {report_path}")
     return 0

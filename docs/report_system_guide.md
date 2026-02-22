@@ -422,6 +422,34 @@ def get_reports_paginated(session_id, page=1, page_size=20):
 - 结论需显式携带 `gate_status/gate_rule_type/failed_checks/reason_code/recovery_action`。
 - `inconclusive/failed` 场景禁止确定性措辞。
 
+## 指标解释规则
+- 指标展示采用“中文名（英文键）+ 当前值 + 阈值比较 + 取值解读”的固定结构。
+- 阈值未配置时，不输出原始 `unknown` 技术串，统一使用“描述性解释，不参与通过/失败判定”文案。
+- 关键性能与稳定性指标（如 `centroid_accuracy`、`cv_mean_accuracy`、`cv_std_accuracy`）必须附带取值含义说明。
+
+## 门槛术语中文说明
+- `gate_rule_type`、`gate_status`、`failed_checks`、`reason_code` 必须在报告中渲染中文解释。
+- 英文原始键仅作为括注保留，避免业务阅读障碍。
+- 若发现未映射字段，报告输出“解释覆盖告警”，提示补充字典映射，不得静默跳过。
+
+## 冲突解释与复核流程
+- 当关键指标出现冲突（例如 `centroid_accuracy` 与 `cv_mean_accuracy`方向不一致）时，报告必须给出：
+  - 冲突现象（含具体数值）
+  - 常见原因
+  - 最小复核步骤（可执行）
+- 冲突存在时，结论语气自动降级为“有限支持/待复核”。
+
+## 维护指南（字典与规则）
+- 新增指标解释：
+  - 在 `src/core/reporting/narrative.py` 的 `METRIC_EXPLANATION` 增加条目。
+  - 如需定量解读规则，在 `_metric_implication_sentence()` 增加对应逻辑。
+- 新增 failed_check/reason_code 中文映射：
+  - 分别维护 `FAILED_CHECK_EXPLANATION` 与 `REASON_CODE_EXPLANATION`。
+  - 如需复核步骤，新增 `FAILED_CHECK_REVIEW_STEPS` 配置。
+- 新增冲突模式：
+  - 在 `detect_metric_conflicts_detailed()` 中添加结构化规则（severity/evidence/causes/next_steps）。
+  - 同步增加对应单元测试，避免误报或漏报。
+
 ## 报告打开方式（渲染稳定性）
 - 推荐通过本地 HTTP 服务打开 HTML 报告，避免 `file://` 跨文件读取限制。
 - `file://` 模式下附件预览会显示限制提示与原始路径，非静默失败。

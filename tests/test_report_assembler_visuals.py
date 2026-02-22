@@ -468,10 +468,11 @@ def test_report_includes_threshold_judgement_and_gate_rule_type(tmp_path: Path) 
         report_payload={"title": "t", "summary": "", "sections": []},
         execution_warning="",
     )
-    assert "阈值判定结果：" in html
-    assert "规则类型：significance_and_effect" in html
+    assert "关键数值与阈值判定如下" in html
+    assert "门槛类型：" in html
+    assert "显著性+效应联合门槛" in html
     assert "校准档位：standard" in html
-    assert "判定依据" in html
+    assert "判定依据：" in html
     assert "依据：" in html
     assert "反证/冲突：" in html
     assert "边界：" in html
@@ -584,3 +585,435 @@ def test_report_disables_free_text_when_hypotheses_missing() -> None:
     )
     assert "未检测到可追溯假设结构，已禁用自由文本直出" in html
     assert "不应直接输出" not in html
+
+
+def test_report_replaces_raw_unknown_threshold_string(tmp_path: Path) -> None:
+    session_dir = tmp_path / "session_unknown_threshold"
+    (session_dir / "result").mkdir(parents=True, exist_ok=True)
+    (session_dir / "report").mkdir(parents=True, exist_ok=True)
+    (session_dir / "plan").mkdir(parents=True, exist_ok=True)
+    (session_dir / "plan" / "analysis_plan.json").write_text(
+        json.dumps(
+            {
+                "hypotheses": [
+                    {"id": "H1", "title": "性能假设", "hypothesis": "模型性能可用于区分分组", "validation_plan_steps": [], "expected_artifacts": []}
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (session_dir / "result" / "hypothesis_results.json").write_text(
+        json.dumps({"hypotheses": [{"hypothesis": "H1", "steps": {}, "missing": []}]}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    (session_dir / "result" / "hypothesis_evidence_pack.json").write_text(
+        json.dumps(
+            {
+                "hypotheses": [
+                    {
+                        "hypothesis_id": "H1",
+                        "quant_metrics": [{"name": "cv_std_accuracy", "display_name": "交叉验证准确率标准差", "value": 0.0138, "unit": "ratio"}],
+                        "effect_metrics": [],
+                        "method_trace": [],
+                        "evidence_sources": [],
+                        "claim": "",
+                        "status": "inconclusive",
+                        "consistency": {"flag": "unknown"},
+                        "reason_code": "",
+                        "recovery_action": "",
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (session_dir / "result" / "hypothesis_gate_report.json").write_text(
+        json.dumps({"hypotheses": [{"hypothesis_id": "H1", "gate_status": "partial", "gate_rule_type": "predictive_performance"}]}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    assembler = ReportAssembler(language="zh")
+    html = assembler.assemble(
+        outline="",
+        analysis_md="",
+        document_manifest={
+            "visualizations": [],
+            "tables": [{"name": "hypothesis_gate_report.json", "path": str(session_dir / "result" / "hypothesis_gate_report.json"), "relative_path": "result/hypothesis_gate_report.json"}],
+        },
+        report_payload={"title": "t", "summary": "", "sections": []},
+        execution_warning="",
+    )
+    assert "阈值未定义，判定=unknown，方向解释=unknown" not in html
+    assert "仅作描述性解释，不直接参与通过/失败判定" in html
+
+
+def test_report_includes_metric_conflict_explanation(tmp_path: Path) -> None:
+    session_dir = tmp_path / "session_metric_conflict"
+    (session_dir / "result").mkdir(parents=True, exist_ok=True)
+    (session_dir / "report").mkdir(parents=True, exist_ok=True)
+    (session_dir / "plan").mkdir(parents=True, exist_ok=True)
+    (session_dir / "plan" / "analysis_plan.json").write_text(
+        json.dumps(
+            {"hypotheses": [{"id": "H1", "title": "分类假设", "hypothesis": "特征组合能区分分组", "validation_plan_steps": [], "expected_artifacts": []}]},
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (session_dir / "result" / "hypothesis_results.json").write_text(
+        json.dumps({"hypotheses": [{"hypothesis": "H1", "steps": {}, "missing": []}]}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    (session_dir / "result" / "hypothesis_evidence_pack.json").write_text(
+        json.dumps(
+            {
+                "hypotheses": [
+                    {
+                        "hypothesis_id": "H1",
+                        "quant_metrics": [
+                            {"name": "centroid_accuracy", "display_name": "质心分类准确率", "value": 0.0, "unit": "ratio", "threshold": ">=0.6"},
+                            {"name": "cv_mean_accuracy", "display_name": "交叉验证平均准确率", "value": 0.71, "unit": "ratio", "threshold": ">=0.6"},
+                        ],
+                        "effect_metrics": [],
+                        "method_trace": [],
+                        "evidence_sources": [],
+                        "claim": "",
+                        "status": "inconclusive",
+                        "consistency": {"flag": "unknown"},
+                        "reason_code": "",
+                        "recovery_action": "",
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (session_dir / "result" / "hypothesis_gate_report.json").write_text(
+        json.dumps({"hypotheses": [{"hypothesis_id": "H1", "gate_status": "partial", "gate_rule_type": "predictive_performance"}]}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    assembler = ReportAssembler(language="zh")
+    html = assembler.assemble(
+        outline="",
+        analysis_md="",
+        document_manifest={
+            "visualizations": [],
+            "tables": [{"name": "hypothesis_gate_report.json", "path": str(session_dir / "result" / "hypothesis_gate_report.json"), "relative_path": "result/hypothesis_gate_report.json"}],
+        },
+        report_payload={"title": "t", "summary": "", "sections": []},
+        execution_warning="",
+    )
+    assert "分类性能指标冲突" in html
+    assert "centroid_accuracy=0" in html
+
+
+def test_report_gate_failed_check_includes_review_suggestion(tmp_path: Path) -> None:
+    session_dir = tmp_path / "session_gate_review"
+    (session_dir / "result").mkdir(parents=True, exist_ok=True)
+    (session_dir / "report").mkdir(parents=True, exist_ok=True)
+    (session_dir / "plan").mkdir(parents=True, exist_ok=True)
+    (session_dir / "plan" / "analysis_plan.json").write_text(
+        json.dumps(
+            {"hypotheses": [{"id": "H1", "title": "一致性假设", "hypothesis": "A/B 路径应一致", "validation_plan_steps": [], "expected_artifacts": []}]},
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (session_dir / "result" / "hypothesis_results.json").write_text(
+        json.dumps({"hypotheses": [{"hypothesis": "H1", "steps": {}, "missing": []}]}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    (session_dir / "result" / "hypothesis_evidence_pack.json").write_text(
+        json.dumps(
+            {
+                "hypotheses": [
+                    {
+                        "hypothesis_id": "H1",
+                        "quant_metrics": [{"name": "cv_mean_accuracy", "display_name": "交叉验证平均准确率", "value": 0.62, "unit": "ratio", "threshold": ">=0.6"}],
+                        "effect_metrics": [],
+                        "method_trace": [],
+                        "evidence_sources": [],
+                        "claim": "",
+                        "status": "inconclusive",
+                        "consistency": {"flag": "conflict"},
+                        "reason_code": "path_conflict",
+                        "recovery_action": "",
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (session_dir / "result" / "hypothesis_gate_report.json").write_text(
+        json.dumps(
+            {
+                "hypotheses": [
+                    {
+                        "hypothesis_id": "H1",
+                        "gate_status": "partial",
+                        "gate_rule_type": "predictive_performance",
+                        "checks": {"path_consistency": False, "has_dual_path_status": True},
+                        "failed_checks": ["path_consistency"],
+                        "reason_code": "path_conflict",
+                        "recovery_action": "run_third_path_and_compare_stability",
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    assembler = ReportAssembler(language="zh")
+    html = assembler.assemble(
+        outline="",
+        analysis_md="",
+        document_manifest={
+            "visualizations": [],
+            "tables": [{"name": "hypothesis_gate_report.json", "path": str(session_dir / "result" / "hypothesis_gate_report.json"), "relative_path": "result/hypothesis_gate_report.json"}],
+        },
+        report_payload={"title": "t", "summary": "", "sections": []},
+        execution_warning="",
+    )
+    assert "建议复核" in html
+    assert "核对路径 A/B 的特征清洗与标准化参数是否一致" in html
+
+
+def test_report_gate_shows_mapping_coverage_warning_for_unknown_check(tmp_path: Path) -> None:
+    session_dir = tmp_path / "session_gate_unknown_mapping"
+    (session_dir / "result").mkdir(parents=True, exist_ok=True)
+    (session_dir / "report").mkdir(parents=True, exist_ok=True)
+    (session_dir / "plan").mkdir(parents=True, exist_ok=True)
+    (session_dir / "plan" / "analysis_plan.json").write_text(
+        json.dumps({"hypotheses": [{"id": "H1", "title": "未知检查项", "hypothesis": "测试", "validation_plan_steps": [], "expected_artifacts": []}]}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    (session_dir / "result" / "hypothesis_results.json").write_text(
+        json.dumps({"hypotheses": [{"hypothesis": "H1", "steps": {}, "missing": []}]}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    (session_dir / "result" / "hypothesis_evidence_pack.json").write_text(
+        json.dumps(
+            {
+                "hypotheses": [
+                    {
+                        "hypothesis_id": "H1",
+                        "quant_metrics": [{"name": "cv_mean_accuracy", "display_name": "交叉验证平均准确率", "value": 0.62, "unit": "ratio", "threshold": ">=0.6"}],
+                        "effect_metrics": [],
+                        "method_trace": [],
+                        "evidence_sources": [],
+                        "claim": "",
+                        "status": "inconclusive",
+                        "consistency": {"flag": "unknown"},
+                        "reason_code": "unknown_reason_code",
+                        "recovery_action": "unknown_recovery_action",
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (session_dir / "result" / "hypothesis_gate_report.json").write_text(
+        json.dumps(
+            {
+                "hypotheses": [
+                    {
+                        "hypothesis_id": "H1",
+                        "gate_status": "partial",
+                        "gate_rule_type": "predictive_performance",
+                        "checks": {"unknown_check_key": False},
+                        "failed_checks": ["unknown_check_key"],
+                        "reason_code": "unknown_reason_code",
+                        "recovery_action": "unknown_recovery_action",
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    assembler = ReportAssembler(language="zh")
+    html = assembler.assemble(
+        outline="",
+        analysis_md="",
+        document_manifest={
+            "visualizations": [],
+            "tables": [{"name": "hypothesis_gate_report.json", "path": str(session_dir / "result" / "hypothesis_gate_report.json"), "relative_path": "result/hypothesis_gate_report.json"}],
+        },
+        report_payload={"title": "t", "summary": "", "sections": []},
+        execution_warning="",
+    )
+    assert "解释覆盖告警" in html
+    assert "unknown_check_key" in html
+    assert "unknown_reason_code" in html
+
+
+def test_report_shows_gate_evidence_alignment_notes(tmp_path: Path) -> None:
+    session_dir = tmp_path / "session_gate_alignment"
+    (session_dir / "result").mkdir(parents=True, exist_ok=True)
+    (session_dir / "report").mkdir(parents=True, exist_ok=True)
+    (session_dir / "plan").mkdir(parents=True, exist_ok=True)
+    (session_dir / "plan" / "analysis_plan.json").write_text(
+        json.dumps(
+            {"hypotheses": [{"id": "H1", "title": "预测假设", "hypothesis": "特征可区分分组", "validation_plan_steps": [], "expected_artifacts": []}]},
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (session_dir / "result" / "hypothesis_results.json").write_text(
+        json.dumps({"hypotheses": [{"hypothesis": "H1", "steps": {}, "missing": []}]}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    (session_dir / "result" / "hypothesis_evidence_pack.json").write_text(
+        json.dumps(
+            {
+                "hypotheses": [
+                    {
+                        "hypothesis_id": "H1",
+                        "quant_metrics": [{"name": "cv_std_accuracy", "display_name": "交叉验证标准差", "value": 0.02}],
+                        "effect_metrics": [],
+                        "method_trace": [],
+                        "evidence_sources": [],
+                        "claim": "",
+                        "status": "inconclusive",
+                        "consistency": {"flag": "unknown"},
+                        "reason_code": "metric_missing",
+                        "recovery_action": "",
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (session_dir / "result" / "hypothesis_gate_report.json").write_text(
+        json.dumps(
+            {
+                "hypotheses": [
+                    {
+                        "hypothesis_id": "H1",
+                        "gate_status": "partial",
+                        "gate_rule_type": "predictive_performance",
+                        "checks": {"has_primary_performance": False},
+                        "check_details": {},
+                        "failed_checks": ["has_primary_performance"],
+                        "reason_code": "method_conflict",
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    assembler = ReportAssembler(language="zh")
+    html = assembler.assemble(
+        outline="",
+        analysis_md="",
+        document_manifest={
+            "visualizations": [],
+            "tables": [{"name": "hypothesis_gate_report.json", "path": str(session_dir / "result" / "hypothesis_gate_report.json"), "relative_path": "result/hypothesis_gate_report.json"}],
+        },
+        report_payload={"title": "t", "summary": "", "sections": []},
+        execution_warning="",
+    )
+    assert "证据绑定检查" in html
+    assert "缺少主性能指标" in html
+    assert "reason_code 不一致" in html
+
+
+def test_report_result_next_step_uses_human_readable_recovery_action(tmp_path: Path) -> None:
+    session_dir = tmp_path / "session_recovery_humanized"
+    (session_dir / "result").mkdir(parents=True, exist_ok=True)
+    (session_dir / "report").mkdir(parents=True, exist_ok=True)
+    (session_dir / "plan").mkdir(parents=True, exist_ok=True)
+    (session_dir / "plan" / "analysis_plan.json").write_text(
+        json.dumps({"hypotheses": [{"id": "H1", "title": "恢复动作", "hypothesis": "测试", "validation_plan_steps": [], "expected_artifacts": []}]}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    (session_dir / "result" / "hypothesis_results.json").write_text(
+        json.dumps({"hypotheses": [{"hypothesis": "H1", "steps": {}, "missing": []}]}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    (session_dir / "result" / "hypothesis_evidence_pack.json").write_text(
+        json.dumps(
+            {
+                "hypotheses": [
+                    {
+                        "hypothesis_id": "H1",
+                        "quant_metrics": [{"name": "centroid_accuracy", "display_name": "质心分类准确率", "value": 0.4, "threshold": ">=0.6", "unit": "ratio"}],
+                        "effect_metrics": [],
+                        "method_trace": [],
+                        "evidence_sources": [],
+                        "claim": "",
+                        "status": "inconclusive",
+                        "consistency": {"flag": "conflict"},
+                        "reason_code": "path_conflict",
+                        "recovery_action": "run_third_path_and_compare_stability",
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (session_dir / "result" / "hypothesis_gate_report.json").write_text(
+        json.dumps(
+            {
+                "hypotheses": [
+                    {
+                        "hypothesis_id": "H1",
+                        "gate_status": "partial",
+                        "gate_rule_type": "predictive_performance",
+                        "checks": {"path_consistency": False},
+                        "failed_checks": ["path_consistency"],
+                        "reason_code": "path_conflict",
+                        "recovery_action": "run_third_path_and_compare_stability",
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    assembler = ReportAssembler(language="zh")
+    html = assembler.assemble(
+        outline="",
+        analysis_md="",
+        document_manifest={
+            "visualizations": [],
+            "tables": [{"name": "hypothesis_gate_report.json", "path": str(session_dir / "result" / "hypothesis_gate_report.json"), "relative_path": "result/hypothesis_gate_report.json"}],
+        },
+        report_payload={"title": "t", "summary": "", "sections": []},
+        execution_warning="",
+    )
+    assert "增加第三验证路径并对比稳定性" in html
+
+
+def test_report_substance_audit_contains_gate_exposure_metrics() -> None:
+    assembler = ReportAssembler(language="zh")
+    audit = assembler._build_report_substance_audit(
+        outcomes=[],
+        report_text="门槛类型：xxx 当前状态：yyy gate_rule_type=abc",
+    )
+    assert "gate_raw_exposure_rate" in audit
+    assert "gate_raw_token_hits" in audit
+
+
+def test_chart_table_conflict_note_detected(tmp_path: Path) -> None:
+    session_dir = tmp_path / "session_chart_table_conflict"
+    (session_dir / "result").mkdir(parents=True, exist_ok=True)
+    (session_dir / "report").mkdir(parents=True, exist_ok=True)
+    (session_dir / "result" / "top_features.json").write_text(
+        json.dumps([{"feature": "peak999"}, {"feature": "peak1"}], ensure_ascii=False),
+        encoding="utf-8",
+    )
+    (session_dir / "result" / "stats_results.json").write_text(
+        json.dumps([{"feature": "peak1"}, {"feature": "peak2"}], ensure_ascii=False),
+        encoding="utf-8",
+    )
+    assembler = ReportAssembler(language="zh")
+    notes = assembler._chart_table_conflict_notes(session_dir)
+    assert notes
+    assert "peak999" in notes[0]

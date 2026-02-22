@@ -106,8 +106,8 @@ def test_light_integration_evidence_gate_and_assemble(tmp_path: Path) -> None:
         execution_warning="",
     )
     assert "假设验证与结果分析" in html
-    assert "规则类型" in html
-    assert "阈值判定结果" in html
+    assert "门槛类型" in html
+    assert "关键数值与阈值判定如下" in html
     assert "../plots/volcano_plot.png" in html
     audit_path = session_dir / "meta" / "report_substance_audit.json"
     assert audit_path.exists()
