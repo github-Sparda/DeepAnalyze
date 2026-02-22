@@ -11,6 +11,7 @@ ROLE_MAP: dict[str, str] = {
     "execution_guard": "RunGuard",
     "code_repair": "CodeRepair",
     "analyze_results": "Insights",
+    "evidence_curation": "EvidenceCurator",
     "pipeline_guard": "RunGuard",
     "artifact_validator": "RunGuard",
     "generate_visualizations": "Visualization",

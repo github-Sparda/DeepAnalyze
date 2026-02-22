@@ -230,3 +230,84 @@ def test_multipath_status_partial_when_primary_failed(tmp_path: Path) -> None:
     assert any(p["status"] == "failed" for p in multipath["hypotheses"][0]["paths"])
     assert any(p["status"] in {"validated", "partial"} for p in multipath["hypotheses"][0]["paths"])
     assert multipath["hypotheses"][0]["recovery_action"] == "retry_secondary_or_code_repair"
+
+
+def test_analysis_quality_score_and_traces(tmp_path: Path) -> None:
+    session_dir = tmp_path
+    result_dir = session_dir / "result"
+    result_dir.mkdir(parents=True, exist_ok=True)
+    _write_json(
+        result_dir / "hypothesis_evidence.json",
+        {
+            "hypotheses": [
+                {
+                    "hypothesis_id": "H1",
+                    "quant_metrics": {"m1": 1, "m2": 2},
+                    "evidence_sources": ["result/stats_results.json"],
+                }
+            ]
+        },
+    )
+    _write_json(
+        result_dir / "hypothesis_validation_contract.json",
+        {"hypotheses": [{"hypothesis_id": "H1", "executed_status": "validated"}]},
+    )
+    _write_json(
+        result_dir / "hypothesis_contrast.json",
+        {"hypotheses": [{"hypothesis_id": "H1", "consistency": "consistent", "conflict_reason": ""}]},
+    )
+    _write_json(
+        result_dir / "hypothesis_multipath.json",
+        {"hypotheses": [{"hypothesis_id": "H1", "status": "partial"}]},
+    )
+    (result_dir / "analysis_results.md").write_text("包含数值 m1=1。另一句没有数值", encoding="utf-8")
+    quality = orchestration_graph._build_analysis_quality_score(session_dir)
+    trace = orchestration_graph._build_evidence_trace(session_dir)
+    reasons = orchestration_graph._build_reason_code_summary(session_dir)
+    assert quality["quant_metric_ge_2_rate"] == 1.0
+    assert quality["hypothesis_closure_rate"] == 1.0
+    assert trace["hypotheses"][0]["hypothesis_id"] == "H1"
+    assert reasons["hypotheses"][0]["reason_code"] == "execution_error"
+
+
+def test_plan_and_codegen_contract_validators() -> None:
+    valid_plan = {
+        "hypotheses": [
+            {
+                "id": "H1",
+                "validation_paths": [
+                    {"path_id": "path_a"},
+                    {"path_id": "path_b"},
+                ],
+            }
+        ]
+    }
+    ok, errors = orchestration_graph._validate_plan_json_contract(valid_plan)
+    assert ok is True
+    assert errors == []
+
+    bad_plan = {"hypotheses": [{"id": "bad", "validation_paths": []}]}
+    ok2, errors2 = orchestration_graph._validate_plan_json_contract(bad_plan)
+    assert ok2 is False
+    assert errors2
+
+    ok3, errors3 = orchestration_graph._validate_codegen_steps(
+        [{"filename": "a.py", "code": "print(1)"}]
+    )
+    assert ok3 is True
+    assert errors3 == []
+
+    ok4, errors4 = orchestration_graph._validate_codegen_steps([{"filename": "", "code": ""}])
+    assert ok4 is False
+    assert errors4
+
+
+def test_normalized_plan_contains_evidence_requirements() -> None:
+    normalized = orchestration_graph._normalize_plan_json(
+        {"hypotheses": [{"id": "H1", "title": "H1", "hypothesis": "x", "validation_plan_steps": ["s1"], "expected_artifacts": ["a.json"]}]},
+        "### 1. 假设列表\n- H1\n",
+    )
+    hyp = normalized["hypotheses"][0]
+    assert "minimum_evidence_requirements" in hyp
+    assert hyp["minimum_evidence_requirements"]["quant_metrics_min"] == 2
+    assert "assumption_checks" in hyp

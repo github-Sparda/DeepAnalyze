@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 import pandas as pd
+from src.core.analytics.resources import load_feature_dictionary
 
 
 def _extract_json_candidates(raw: str) -> list[str]:
@@ -178,6 +179,24 @@ class ReportAssembler:
             return json.loads(path.read_text(encoding="utf-8"))
         except Exception:
             return {}
+
+    def _load_feature_dict(self, session_root: Path | None) -> dict[str, dict[str, Any]]:
+        if not session_root:
+            return {}
+        try:
+            payload = load_feature_dictionary(session_root)
+            return payload if isinstance(payload, dict) else {}
+        except Exception:
+            return {}
+
+    def _feature_display(self, feature: str, feature_dict: dict[str, dict[str, Any]]) -> str:
+        key = str(feature)
+        info = feature_dict.get(key, {}) if isinstance(feature_dict, dict) else {}
+        display = str(info.get("display_name") or info.get("name") or key).strip() or key
+        meaning = str(info.get("meaning") or info.get("description") or "").strip()
+        if meaning:
+            return f"{display}（{meaning}）"
+        return f"{display}（未知语义）"
 
     def _preview_script(self) -> str:
         return (
@@ -359,6 +378,7 @@ class ReportAssembler:
         item: Dict[str, Any],
         session_root: Path | None,
         binding_map: dict[str, str],
+        feature_dict: dict[str, dict[str, Any]],
     ) -> str:
         relative = item.get("relative_path", "") or ""
         filename = Path(relative).name.lower()
@@ -387,7 +407,8 @@ class ReportAssembler:
                 diff = row.get("mean_diff")
                 pval = row.get("p_value")
                 if feat is not None:
-                    top_items.append(f"{feat} (mean_diff={diff:.3g}, p={pval:.3g})")
+                    feat_label = self._feature_display(str(feat), feature_dict)
+                    top_items.append(f"{feat_label} (mean_diff={diff:.3g}, p={pval:.3g})")
             top_text = "、".join(top_items) if top_items else "无"
             return (
                 "<div class=\"chart-explain\">"
@@ -413,6 +434,10 @@ class ReportAssembler:
             np.fill_diagonal(arr, 0)
             max_idx = divmod(np.abs(arr).argmax(), arr.shape[1])
             pair = (corr.index[max_idx[0]], corr.columns[max_idx[1]])
+            pair_display = (
+                self._feature_display(str(pair[0]), feature_dict),
+                self._feature_display(str(pair[1]), feature_dict),
+            )
             max_corr = arr[max_idx]
             return (
                 "<div class=\"chart-explain\">"
@@ -420,7 +445,7 @@ class ReportAssembler:
                 "<p><strong>验证</strong>：计算相关矩阵并绘制热力图。</p>"
                 "<p><strong>坐标/颜色</strong>：X/Y 为峰值变量，颜色表示相关系数（-1~1）。</p>"
                 f"<p><strong>结论</strong>：最大绝对相关约 {max_corr:.3g}，"
-                f"对应 {pair[0]} 与 {pair[1]}。</p>"
+                f"对应 {pair_display[0]} 与 {pair_display[1]}。</p>"
                 "<p><strong>后续</strong>：可对高相关变量做模块划分或共变验证。</p>"
                 "</div>"
             )
@@ -436,6 +461,10 @@ class ReportAssembler:
             np.fill_diagonal(arr, 0)
             max_idx = divmod(np.abs(arr).argmax(), arr.shape[1])
             pair = (corr.index[max_idx[0]], corr.columns[max_idx[1]])
+            pair_display = (
+                self._feature_display(str(pair[0]), feature_dict),
+                self._feature_display(str(pair[1]), feature_dict),
+            )
             max_corr = arr[max_idx]
             edge_count = int((np.abs(arr) > 0.5).sum() / 2)
             return (
@@ -444,7 +473,7 @@ class ReportAssembler:
                 "<p><strong>验证</strong>：对相关矩阵阈值筛边（|corr|>0.5）构建网络。</p>"
                 "<p><strong>颜色/图例</strong>：蓝线为正相关，红线为负相关，"
                 "仅显示 |corr|>0.5 的边。</p>"
-                f"<p><strong>结论</strong>：最强相关对为 {pair[0]} 与 {pair[1]}（|corr|≈{abs(max_corr):.3g}），"
+                f"<p><strong>结论</strong>：最强相关对为 {pair_display[0]} 与 {pair_display[1]}（|corr|≈{abs(max_corr):.3g}），"
                 f"网络边数约 {edge_count} 条。</p>"
                 "<p><strong>后续</strong>：可对网络中高度连接的变量进行共同变化分析。</p>"
                 "</div>"
@@ -482,12 +511,14 @@ class ReportAssembler:
                     corr_val = float(abs(arr[max_idx]))
             x_col = x_col or "变量1"
             y_col = y_col or "变量2"
+            x_label = self._feature_display(str(x_col), feature_dict)
+            y_label = self._feature_display(str(y_col), feature_dict)
             corr_text = f"{corr_val:.3g}" if isinstance(corr_val, (int, float)) else "未知"
             return (
                 "<div class=\"chart-explain\">"
-                f"<p><strong>假设</strong>：{bound_hypothesis or (x_col + ' 与 ' + y_col + ' 之间存在相关关系')}。</p>"
+                f"<p><strong>假设</strong>：{bound_hypothesis or (x_label + ' 与 ' + y_label + ' 之间存在相关关系')}。</p>"
                 "<p><strong>验证</strong>：选取绝对相关最高的两个变量绘制散点图。</p>"
-                f"<p><strong>坐标</strong>：X={x_col}, Y={y_col}。</p>"
+                f"<p><strong>坐标</strong>：X={x_label}, Y={y_label}。</p>"
                 f"<p><strong>结论</strong>：|corr|≈{corr_text}，可用于判断线性关系与异常点。</p>"
                 "<p><strong>后续</strong>：建议对其他高相关变量对做补充验证。</p>"
                 "</div>"
@@ -502,7 +533,7 @@ class ReportAssembler:
             if isinstance(top, list):
                 for item in top[:5]:
                     if isinstance(item, dict) and item.get("feature"):
-                        names.append(item["feature"])
+                        names.append(self._feature_display(str(item["feature"]), feature_dict))
             names_text = "、".join(names) if names else "无"
             return (
                 "<div class=\"chart-explain\">"
@@ -522,9 +553,11 @@ class ReportAssembler:
         visuals: list[Dict[str, Any]],
         session_root: Path | None,
         binding_map: dict[str, str],
+        feature_dict: dict[str, dict[str, Any]],
         render_manifest: list[dict[str, Any]] | None = None,
     ) -> str:
         lines: list[str] = []
+        feature_dict = self._load_feature_dict(session_root)
         for item in visuals:
             name = item.get("name", "visual")
             note = item.get("relative_path", "")
@@ -556,7 +589,7 @@ class ReportAssembler:
                 lines.append(f"<figcaption>交互图表来源: {note}</figcaption></figure>")
             else:
                 lines.append(f"- 图表链接: {name} ({path})")
-            explanation = self._visual_explanation(item, session_root, binding_map)
+            explanation = self._visual_explanation(item, session_root, binding_map, feature_dict)
             if explanation:
                 lines.append(explanation)
         return "\n".join(lines)
@@ -718,7 +751,12 @@ class ReportAssembler:
             sections.append({"title": title, "body": body})
         return sections
 
-    def _table_preview_blocks(self, tables: list[Dict[str, Any]], session_root: Path | None) -> list[str]:
+    def _table_preview_blocks(
+        self,
+        tables: list[Dict[str, Any]],
+        session_root: Path | None,
+        feature_dict: dict[str, dict[str, Any]],
+    ) -> list[str]:
         targets = {"top_features.json", "stats_summary.json", "model_eval.json"}
         blocks: list[str] = []
         for item in tables:
@@ -729,11 +767,27 @@ class ReportAssembler:
             title = name.replace("_", " ").replace(".json", "").title()
             blocks.append(f"<div class=\"table-preview\" data-src=\"{path}\" data-title=\"{title}\"></div>")
             if name == "top_features.json":
+                top_features_note = ""
+                if session_root:
+                    top_path = session_root / "result" / "top_features.json"
+                    if top_path.exists():
+                        try:
+                            payload = self._load_json(top_path)
+                            if isinstance(payload, list):
+                                mapped = []
+                                for row in payload[:5]:
+                                    if isinstance(row, dict) and row.get("feature"):
+                                        mapped.append(self._feature_display(str(row.get("feature")), feature_dict))
+                                if mapped:
+                                    top_features_note = "<p><strong>特征语义</strong>：" + "；".join(mapped) + "。</p>"
+                        except Exception:
+                            top_features_note = ""
                 blocks.append(
                     "<div class=\"table-explain\">"
                     "<p><strong>输入</strong>：统计检验结果。</p>"
                     "<p><strong>输出</strong>：按 p/q 值排序的 Top 特征列表。</p>"
                     "<p><strong>结论</strong>：用于定位差异最显著的峰值。</p>"
+                    f"{top_features_note}"
                     "</div>"
                 )
             elif name == "stats_summary.json":
@@ -867,7 +921,7 @@ class ReportAssembler:
     def _load_hypothesis_evidence(self, session_root: Path | None) -> dict[str, Any]:
         if not session_root:
             return {}
-        path = session_root / "result" / "hypothesis_evidence.json"
+        path = session_root / "result" / "hypothesis_evidence_pack.json"
         if not path.exists():
             return {}
         payload = self._load_json(path)
@@ -877,6 +931,15 @@ class ReportAssembler:
         if not session_root:
             return {}
         path = session_root / "result" / "hypothesis_contrast.json"
+        if not path.exists():
+            return {}
+        payload = self._load_json(path)
+        return payload if isinstance(payload, dict) else {}
+
+    def _load_hypothesis_gate(self, session_root: Path | None) -> dict[str, Any]:
+        if not session_root:
+            return {}
+        path = session_root / "result" / "hypothesis_gate_report.json"
         if not path.exists():
             return {}
         payload = self._load_json(path)
@@ -892,10 +955,26 @@ class ReportAssembler:
     def _hypothesis_evidence_entry(self, hyp_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         for item in payload.get("hypotheses", []) if isinstance(payload, dict) else []:
             if str(item.get("hypothesis_id", "")).upper() == hyp_id.upper():
+                if isinstance(item.get("quant_metrics"), list):
+                    # normalize evidence-pack metric list into legacy dict for renderer
+                    metric_map: dict[str, Any] = {}
+                    for metric in item.get("quant_metrics", []):
+                        if not isinstance(metric, dict):
+                            continue
+                        key = str(metric.get("name", "")).strip()
+                        if key:
+                            metric_map[key] = metric.get("value")
+                    return {**item, "quant_metrics_map": metric_map}
                 return item
         return {}
 
     def _hypothesis_contrast_entry(self, hyp_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        for item in payload.get("hypotheses", []) if isinstance(payload, dict) else []:
+            if str(item.get("hypothesis_id", "")).upper() == hyp_id.upper():
+                return item
+        return {}
+
+    def _hypothesis_gate_entry(self, hyp_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         for item in payload.get("hypotheses", []) if isinstance(payload, dict) else []:
             if str(item.get("hypothesis_id", "")).upper() == hyp_id.upper():
                 return item
@@ -993,6 +1072,55 @@ class ReportAssembler:
                     labels = cluster.get("labels")
                     if isinstance(labels, list):
                         lines.append(f"聚类标签已生成，样本标签数={len(labels)}。")
+        return lines
+
+    def _evidence_detail_lines(
+        self,
+        evidence_entry: dict[str, Any],
+        feature_dict: dict[str, dict[str, Any]],
+    ) -> list[str]:
+        lines: list[str] = []
+        quant_list = evidence_entry.get("quant_metrics", [])
+        if isinstance(quant_list, list) and quant_list:
+            fragments: list[str] = []
+            for metric in quant_list[:8]:
+                if not isinstance(metric, dict):
+                    continue
+                display = metric.get("display_name") or metric.get("name")
+                value = metric.get("value")
+                unit = metric.get("unit") or ""
+                threshold = metric.get("threshold") or ""
+                piece = f"{display}={value}{unit}"
+                if threshold:
+                    piece += f"（阈值 {threshold}）"
+                fragments.append(piece)
+            if fragments:
+                lines.append("定量指标：" + "；".join(fragments) + "。")
+        effects = evidence_entry.get("effect_metrics", [])
+        if isinstance(effects, list) and effects:
+            items = []
+            for effect in effects[:5]:
+                if not isinstance(effect, dict):
+                    continue
+                items.append(f"{effect.get('name')}={effect.get('value')}")
+            if items:
+                lines.append("效应量证据：" + "；".join(items) + "。")
+        sources = evidence_entry.get("evidence_sources", [])
+        if isinstance(sources, list):
+            feature_refs: list[str] = []
+            for src in sources:
+                if isinstance(src, dict):
+                    path = str(src.get("path", ""))
+                else:
+                    path = str(src)
+                if "top_features" in path:
+                    feature_refs.append(path)
+            if feature_refs:
+                lines.append("关键特征来源：" + "、".join(feature_refs) + "。")
+        top_features = evidence_entry.get("top_features", [])
+        if isinstance(top_features, list) and top_features:
+            mapped = [self._feature_display(str(f), feature_dict) for f in top_features[:5]]
+            lines.append("重点特征语义：" + "；".join(mapped) + "。")
         return lines
 
     def _hypothesis_bound_visuals(
@@ -1118,6 +1246,7 @@ class ReportAssembler:
                     if artifact and hypothesis:
                         binding_map[artifact] = hypothesis
         lines: list[str] = []
+        feature_dict = self._load_feature_dict(session_root)
         title = report_payload.get("title") or "DeepAnalyze 报告"
         lines.append(f"# {title}")
         lines.append("")
@@ -1162,6 +1291,7 @@ class ReportAssembler:
         hypothesis_results = self._load_hypothesis_results(session_root)
         hypothesis_evidence = self._load_hypothesis_evidence(session_root)
         hypothesis_contrast = self._load_hypothesis_contrast(session_root)
+        hypothesis_gate = self._load_hypothesis_gate(session_root)
         used_visuals: set[str] = set()
         used_tables: set[str] = set()
         hypothesis_outcomes: list[dict[str, Any]] = []
@@ -1178,24 +1308,41 @@ class ReportAssembler:
                 run_entry = self._hypothesis_result_entry(hyp_id, hypothesis_results)
                 evidence_entry = self._hypothesis_evidence_entry(hyp_id, hypothesis_evidence)
                 contrast_entry = self._hypothesis_contrast_entry(hyp_id, hypothesis_contrast)
+                gate_entry = self._hypothesis_gate_entry(hyp_id, hypothesis_gate)
                 missing = run_entry.get("missing", []) if isinstance(run_entry, dict) else []
                 step_map = run_entry.get("steps", {}) if isinstance(run_entry, dict) else {}
-                quant_metrics = evidence_entry.get("quant_metrics", {}) if isinstance(evidence_entry, dict) else {}
-                if not quant_metrics:
+                quant_metrics = (
+                    evidence_entry.get("quant_metrics_map")
+                    if isinstance(evidence_entry.get("quant_metrics_map"), dict)
+                    else evidence_entry.get("quant_metrics", {}) if isinstance(evidence_entry, dict) else {}
+                )
+                if not quant_metrics or len(quant_metrics) < 2:
                     if "quant_metrics_missing" not in missing:
                         missing = list(missing) + ["quant_metrics_missing"]
+                    if len(quant_metrics) < 2 and "insufficient_quant_metric_count" not in missing:
+                        missing = list(missing) + ["insufficient_quant_metric_count"]
                 lines.append(f"### {hyp_id} {hyp_title}")
+                lines.append("#### 研究问题与假设")
                 if hyp_text:
-                    lines.append(f"**假设内容**：{hyp_text}")
-                    lines.append("")
-                lines.append("**验证方案**：")
+                    lines.append(hyp_text)
+                else:
+                    lines.append("未提供结构化假设文本。")
+                lines.append("")
+                lines.append("#### 方法与前置条件检查")
                 if plan_steps:
                     for i, step in enumerate(plan_steps, 1):
                         lines.append(f"{i}. {step}")
                 else:
                     lines.append("- 未提供结构化验证步骤。")
+                if gate_entry:
+                    checks = gate_entry.get("checks", {}) if isinstance(gate_entry.get("checks"), dict) else {}
+                    if checks:
+                        lines.append("")
+                        lines.append("前置条件与门槛检查：")
+                        for key, value in checks.items():
+                            lines.append(f"- {key}: {value}")
                 lines.append("")
-                lines.append("**执行结果**：")
+                lines.append("#### 执行事实（产物与状态）")
                 if step_map:
                     step_desc: list[str] = []
                     for step_name, payload in step_map.items():
@@ -1212,8 +1359,15 @@ class ReportAssembler:
                 else:
                     lines.append("缺失产物：无。")
                 lines.append("")
-                lines.append("**结果分析**：")
-                details = self._hypothesis_data_analysis(hyp_id, session_root)
+                lines.append("#### 定量结果（指标与证据）")
+                if quant_metrics:
+                    for key, value in quant_metrics.items():
+                        lines.append(f"- {key}: {value}")
+                else:
+                    lines.append("- 无可用定量指标。")
+                lines.append("")
+                lines.append("#### 结果解释（引用具体数值）")
+                details = self._evidence_detail_lines(evidence_entry if isinstance(evidence_entry, dict) else {}, feature_dict)
                 lines.append(
                     self._render_result_analysis_paragraph(
                         hyp_id,
@@ -1221,19 +1375,37 @@ class ReportAssembler:
                         details,
                         missing,
                         quant_metrics,
-                        str(contrast_entry.get("status", "inconclusive")) if isinstance(contrast_entry, dict) else "inconclusive",
+                        (
+                            "validated"
+                            if str(gate_entry.get("gate_status", "")).lower() == "pass"
+                            else "inconclusive"
+                        )
+                        if isinstance(gate_entry, dict) and gate_entry
+                        else str(contrast_entry.get("status", "inconclusive")) if isinstance(contrast_entry, dict) else "inconclusive",
                     )
                 )
                 lines.append("")
+                lines.append("#### 一致性与冲突解释（A/B 路径）")
+                if gate_entry:
+                    lines.append(f"证据门槛：{gate_entry.get('gate_status','unknown')}。")
+                    checks = gate_entry.get("checks", {}) if isinstance(gate_entry.get("checks"), dict) else {}
+                    if checks:
+                        lines.append(
+                            "门槛检查：" + "；".join([f"{k}={v}" for k, v in checks.items()]) + "。"
+                        )
+                    if gate_entry.get("reason_code"):
+                        lines.append(f"原因码：{gate_entry.get('reason_code')}。")
+                    if gate_entry.get("recovery_action"):
+                        lines.append(f"建议动作：{gate_entry.get('recovery_action')}。")
                 lines.append(
-                    f"**分析来源**：自动提取证据 + 规则化解释。"
+                    f"分析来源：自动提取证据 + 规则化解释。"
                     f"{'（定量指标不足，已降级为不确定结论）' if not quant_metrics else ''}"
                 )
                 lines.append("")
                 if contrast_entry:
                     pa = contrast_entry.get("path_a", {}) if isinstance(contrast_entry, dict) else {}
                     pb = contrast_entry.get("path_b", {}) if isinstance(contrast_entry, dict) else {}
-                    lines.append("**路径对照（A/B）**：")
+                    lines.append("路径对照（A/B）：")
                     lines.append("<table border=1 cellpadding=4 cellspacing=0>")
                     lines.append("<thead><tr><th>路径</th><th>状态</th><th>指标摘要</th></tr></thead><tbody>")
                     lines.append(
@@ -1254,7 +1426,20 @@ class ReportAssembler:
                             "一致性解释：A/B 路径出现冲突或证据不足，当前仅能给出不确定结论，"
                             "需要补充数据、改进特征工程或增加独立验证路径后再作判断。"
                         )
-                    lines.append("")
+                else:
+                    lines.append("未读取到 A/B 路径对照信息。")
+                lines.append("")
+                lines.append("#### 局限性与下一步")
+                if missing:
+                    lines.append(
+                        f"当前假设存在缺口（{', '.join([str(x) for x in missing])}），"
+                        "应优先补齐缺失产物后再进行复核。"
+                    )
+                elif gate_entry and str(gate_entry.get("gate_status", "")).lower() != "pass":
+                    lines.append("当前证据门槛未通过，建议按恢复动作补充实验或替代路径后重试。")
+                else:
+                    lines.append("当前证据链相对完整，建议进入跨假设综合与外部复核阶段。")
+                lines.append("")
                 if isinstance(evidence_entry, dict):
                     sources = evidence_entry.get("evidence_sources", []) or []
                     if sources:
@@ -1280,34 +1465,21 @@ class ReportAssembler:
                 bound_visuals = self._hypothesis_bound_visuals(hyp_id, visuals, binding_map)
                 if bound_visuals:
                     lines.append("**图表与解释**：")
-                    lines.append(self._build_visual_block(bound_visuals, session_root, binding_map, render_manifest))
+                    lines.append(
+                        self._build_visual_block(
+                            bound_visuals,
+                            session_root,
+                            binding_map,
+                            feature_dict,
+                            render_manifest,
+                        )
+                    )
                     lines.append("")
                     used_visuals.update(v.get("relative_path", "") for v in bound_visuals)
         else:
-            visuals_by_category: Dict[str, List[Dict[str, Any]]] = {}
-            for item in visuals:
-                category = self._classify_visual(item)
-                visuals_by_category.setdefault(category, []).append(item)
-            sections = report_payload.get("sections") or self._auto_sections(visuals_by_category)
-            for section in sections:
-                section_title = section.get("title", "Section")
-                section_body = section.get("body", "")
-                lines.append(f"### {section_title}")
-                lines.append(section_body)
-                if "差异" in section_title or "Differential" in section_title:
-                    scoped = visuals_by_category.get("diff", [])
-                elif "相关" in section_title or "Correlation" in section_title:
-                    scoped = visuals_by_category.get("correlation", [])
-                elif "分布" in section_title or "统计" in section_title or "Distribution" in section_title:
-                    scoped = visuals_by_category.get("distribution", [])
-                elif "聚类" in section_title or "降维" in section_title or "Embedding" in section_title:
-                    scoped = visuals_by_category.get("embedding", [])
-                else:
-                    scoped = visuals_by_category.get("other", [])
-                if scoped:
-                    lines.append(self._build_visual_block(scoped, session_root, binding_map, render_manifest))
-                    used_visuals.update(v.get("relative_path", "") for v in scoped)
-                lines.append("")
+            lines.append("未检测到可追溯假设结构，已禁用自由文本直出。")
+            lines.append("请补充 `plan/analysis_plan.json` 的 hypotheses 与 validation_paths，再重新装配报告。")
+            lines.append("")
         lines.append("")
 
         # Section 4: cross-hypothesis synthesis
@@ -1341,7 +1513,7 @@ class ReportAssembler:
 
         # Section 7: table previews
         if tables:
-            table_blocks = self._table_preview_blocks(tables, session_root)
+            table_blocks = self._table_preview_blocks(tables, session_root, feature_dict)
             if table_blocks:
                 lines.append("## 关键数据表")
                 lines.extend(table_blocks)

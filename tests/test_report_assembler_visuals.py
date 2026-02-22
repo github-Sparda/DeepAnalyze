@@ -106,7 +106,7 @@ def test_report_assembler_injects_plan_and_avoids_duplicate_visuals(tmp_path: Pa
     assert "分析方法与实施过程" in html
     assert "差异假设" in html
     assert "清洗数据" in html
-    assert html.count("../plots/volcano_plot.png") == 1
+    assert html.count('<img src="../plots/volcano_plot.png"') == 1
     assert "附件（正文未展示）" in html
     assert "../plots/extra_plot.png" in html
     render_manifest_path = session_dir / "meta" / "render_manifest.json"
@@ -227,3 +227,172 @@ def test_appendix_pdf_preview_fallback(tmp_path: Path) -> None:
     )
     assert "application/pdf" in html
     assert "PDF 预览失败，点击打开原文件" in html
+
+
+def test_report_uses_feature_dictionary_in_table_explain(tmp_path: Path) -> None:
+    session_dir = tmp_path / "session_5"
+    (session_dir / "result").mkdir(parents=True, exist_ok=True)
+    (session_dir / "report").mkdir(parents=True, exist_ok=True)
+    (session_dir / "meta").mkdir(parents=True, exist_ok=True)
+    (session_dir / "result" / "top_features.json").write_text(
+        json.dumps([{"feature": "peak1"}, {"feature": "peak2"}], ensure_ascii=False),
+        encoding="utf-8",
+    )
+    (session_dir / "meta" / "feature_dictionary.json").write_text(
+        json.dumps({"peak1": {"display_name": "峰值1", "meaning": "代谢物A"}}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    assembler = ReportAssembler(language="zh")
+    html = assembler.assemble(
+        outline="",
+        analysis_md="",
+        document_manifest={
+            "visualizations": [],
+            "tables": [{"name": "top_features.json", "path": str(session_dir / "result" / "top_features.json"), "relative_path": "result/top_features.json"}],
+        },
+        report_payload={"title": "t", "summary": "", "sections": []},
+        execution_warning="",
+    )
+    assert "峰值1（代谢物A）" in html
+    assert "peak2（未知语义）" in html
+
+
+def test_inconclusive_hypothesis_avoids_deterministic_language(tmp_path: Path) -> None:
+    session_dir = tmp_path / "session_6"
+    (session_dir / "result").mkdir(parents=True, exist_ok=True)
+    (session_dir / "report").mkdir(parents=True, exist_ok=True)
+    (session_dir / "plan").mkdir(parents=True, exist_ok=True)
+    (session_dir / "plan" / "analysis_plan.json").write_text(
+        json.dumps(
+            {
+                "hypotheses": [
+                    {"id": "H1", "title": "H1", "hypothesis": "h1", "validation_plan_steps": ["s1"], "expected_artifacts": []}
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (session_dir / "result" / "hypothesis_results.json").write_text(
+        json.dumps({"hypotheses": [{"hypothesis": "H1", "steps": {}, "missing": []}]}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    (session_dir / "result" / "hypothesis_evidence_pack.json").write_text(
+        json.dumps({"hypotheses": [{"hypothesis_id": "H1", "quant_metrics": [], "effect_metrics": [], "method_trace": [], "evidence_sources": [], "claim": "", "status": "inconclusive", "consistency": {}, "reason_code": "method_conflict", "recovery_action": "x"}]}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    (session_dir / "result" / "hypothesis_contrast.json").write_text(
+        json.dumps({"hypotheses": [{"hypothesis_id": "H1", "status": "inconclusive", "consistency": "conflict", "path_a": {}, "path_b": {}, "conflict_reason": "x"}]}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    (session_dir / "result" / "hypothesis_gate_report.json").write_text(
+        json.dumps({"hypotheses": [{"hypothesis_id": "H1", "gate_status": "fail", "checks": {}, "reason_code": "method_conflict", "recovery_action": "x"}]}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    assembler = ReportAssembler(language="zh")
+    html = assembler.assemble(
+        outline="",
+        analysis_md="",
+        document_manifest={
+            "visualizations": [],
+            "tables": [
+                {
+                    "name": "hypothesis_results.json",
+                    "path": str(session_dir / "result" / "hypothesis_results.json"),
+                    "relative_path": "result/hypothesis_results.json",
+                }
+            ],
+        },
+        report_payload={"title": "t", "summary": "", "sections": []},
+        execution_warning="",
+    )
+    assert "待定" in html or "不确定" in html
+
+
+def test_report_enforces_hypothesis_section_schema(tmp_path: Path) -> None:
+    session_dir = tmp_path / "session_7"
+    (session_dir / "result").mkdir(parents=True, exist_ok=True)
+    (session_dir / "report").mkdir(parents=True, exist_ok=True)
+    (session_dir / "plan").mkdir(parents=True, exist_ok=True)
+    (session_dir / "plan" / "analysis_plan.json").write_text(
+        json.dumps(
+            {
+                "hypotheses": [
+                    {"id": "H1", "title": "差异假设", "hypothesis": "Normal 与 EP 存在差异", "validation_plan_steps": ["差异检验"], "expected_artifacts": ["result/stats_results.json"]}
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (session_dir / "result" / "hypothesis_results.json").write_text(
+        json.dumps({"hypotheses": [{"hypothesis": "H1", "steps": {"差异检验": {"status": "ok", "output": "done"}}, "missing": []}]}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    (session_dir / "result" / "hypothesis_evidence_pack.json").write_text(
+        json.dumps(
+            {
+                "hypotheses": [
+                    {
+                        "hypothesis_id": "H1",
+                        "quant_metrics": [{"name": "p_value", "value": 0.01}, {"name": "effect_size", "value": 0.8}],
+                        "effect_metrics": [{"effect_size": 0.8}],
+                        "method_trace": [{"method_family": "parametric"}],
+                        "evidence_sources": ["result/stats_results.json"],
+                        "claim": "supported",
+                        "status": "supported",
+                        "consistency": {"status": "consistent"},
+                        "reason_code": "",
+                        "recovery_action": "",
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (session_dir / "result" / "hypothesis_contrast.json").write_text(
+        json.dumps({"hypotheses": [{"hypothesis_id": "H1", "status": "validated", "consistency": "consistent", "path_a": {}, "path_b": {}}]}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    (session_dir / "result" / "hypothesis_gate_report.json").write_text(
+        json.dumps({"hypotheses": [{"hypothesis_id": "H1", "gate_status": "pass", "checks": {"quant_metric_count_ge_2": True}, "reason_code": "", "recovery_action": ""}]}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    assembler = ReportAssembler(language="zh")
+    html = assembler.assemble(
+        outline="",
+        analysis_md="",
+        document_manifest={
+            "visualizations": [],
+            "tables": [
+                {
+                    "name": "hypothesis_gate_report.json",
+                    "path": str(session_dir / "result" / "hypothesis_gate_report.json"),
+                    "relative_path": "result/hypothesis_gate_report.json",
+                }
+            ],
+        },
+        report_payload={"title": "t", "summary": "", "sections": []},
+        execution_warning="",
+    )
+    assert "#### 研究问题与假设" in html
+    assert "#### 方法与前置条件检查" in html
+    assert "#### 执行事实（产物与状态）" in html
+    assert "#### 定量结果（指标与证据）" in html
+    assert "#### 结果解释（引用具体数值）" in html
+    assert "#### 一致性与冲突解释（A/B 路径）" in html
+    assert "#### 局限性与下一步" in html
+
+
+def test_report_disables_free_text_when_hypotheses_missing() -> None:
+    assembler = ReportAssembler(language="zh")
+    html = assembler.assemble(
+        outline="",
+        analysis_md="自由文本分析",
+        document_manifest={"visualizations": [], "tables": []},
+        report_payload={"title": "t", "summary": "", "sections": [{"title": "差异分析", "body": "不应直接输出"}]},
+        execution_warning="",
+    )
+    assert "未检测到可追溯假设结构，已禁用自由文本直出" in html
+    assert "不应直接输出" not in html

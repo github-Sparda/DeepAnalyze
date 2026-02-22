@@ -88,12 +88,15 @@ PROMPTS = {
         "en": (
             "Analyze execution outputs and return strict JSON with keys: "
             "summary, key_findings, evidence, limitations, next_steps. "
-            "Ensure every hypothesis has a validation status and conclusion."
+            "Ensure every hypothesis has a validation status and conclusion. "
+            "Do not make deterministic claims without quantitative evidence. "
+            "If evidence is insufficient, return inconclusive wording and include reason_code and recovery_action in limitations/next_steps."
         ),
         "zh": (
             "分析执行输出并返回严格 JSON，字段包含：summary、key_findings、"
             "evidence、limitations、next_steps。"
             "确保每条假设都有验证状态与结论。"
+            "无定量证据时禁止输出确定性结论，必须给出不确定结论并在 limitations/next_steps 中包含 reason_code 与 recovery_action。"
         ),
     },
     "hypothesis_refine": {
