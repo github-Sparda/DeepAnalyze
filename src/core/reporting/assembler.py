@@ -680,6 +680,259 @@ class ReportAssembler:
         process = self._sanitize_process_section(process)
         return hypotheses, process
 
+    def _load_plan_markdown(self, session_root: Path | None) -> str:
+        if not session_root:
+            return ""
+        candidates = [session_root / "plan" / "analysis_plan.md"]
+        artifact_root = session_root / "artifacts"
+        if artifact_root.exists():
+            candidates.extend(list(artifact_root.glob("*/plan/analysis_plan.md")))
+        for path in candidates:
+            if path.exists():
+                try:
+                    return path.read_text(encoding="utf-8")
+                except Exception:
+                    continue
+        return ""
+
+    def _extract_hypothesis_steps_from_plan_markdown(self, plan_md: str, hyp_id: str) -> list[str]:
+        if not plan_md:
+            return []
+        hid = str(hyp_id).strip().upper()
+        if not hid.startswith("H"):
+            return []
+        try:
+            num = int(hid[1:])
+        except Exception:
+            return []
+        header = re.compile(rf"^####\s*假设\s*{num}\b[：: ]?.*$", re.MULTILINE)
+        m = header.search(plan_md)
+        if not m:
+            return []
+        start = m.end()
+        next_m = re.compile(r"^####\s*假设\s*\d+\b.*$", re.MULTILINE).search(plan_md, start)
+        end = next_m.start() if next_m else len(plan_md)
+        block = plan_md[start:end]
+        steps: list[str] = []
+        for raw in block.splitlines():
+            line = raw.strip()
+            if not line:
+                continue
+            line = re.sub(r"^\*\s*", "", line)
+            line = re.sub(r"^-\s*", "", line)
+            line = re.sub(r"^\d+\.\s*", "", line)
+            if not line:
+                continue
+            if any(k in line for k in ("验证路径", "预期产物", "成功判据", "后续行动")):
+                steps.append(line)
+                continue
+            if any(k in line for k in ("检验", "分析", "模型", "聚类", "降维", "校正")):
+                steps.append(line)
+        dedup: list[str] = []
+        seen: set[str] = set()
+        for step in steps:
+            if step in seen:
+                continue
+            seen.add(step)
+            dedup.append(step)
+            if len(dedup) >= 8:
+                break
+        return dedup
+
+    def _extract_hypothesis_title_from_plan_markdown(self, plan_md: str, hyp_id: str) -> str:
+        if not plan_md:
+            return ""
+        hid = str(hyp_id).strip().upper()
+        if not hid.startswith("H"):
+            return ""
+        try:
+            num = int(hid[1:])
+        except Exception:
+            return ""
+        m = re.search(rf"^####\s*假设\s*{num}\s*[：:]\s*(.+)$", plan_md, flags=re.MULTILINE)
+        return m.group(1).strip() if m else ""
+
+    def _extract_title_from_run_hypothesis(self, run_hypothesis: str, hyp_id: str) -> str:
+        text = str(run_hypothesis or "").strip()
+        if not text:
+            return ""
+        hid = str(hyp_id).strip().upper()
+        prefix = f"{hid}:"
+        if text.upper().startswith(prefix):
+            return text[len(prefix) :].strip()
+        return ""
+
+    def _focus_from_gate_rule(self, gate_rule_type: str) -> str:
+        rule = str(gate_rule_type or "").strip().lower()
+        mapping = {
+            "significance_and_effect": "difference",
+            "predictive_performance": "predictive",
+            "correlation_structure": "correlation",
+            "embedding_structure": "embedding",
+        }
+        return mapping.get(rule, "generic")
+
+    def _text_matches_focus(self, text: str, focus: str) -> bool:
+        t = str(text or "")
+        if not t:
+            return True
+        rules = {
+            "difference": ["差异", "显著", "检验", "fdr", "p 值", "q 值"],
+            "predictive": ["预测", "分类", "auc", "roc", "模型", "训练", "测试", "交叉验证"],
+            "correlation": ["相关", "网络", "热图", "corr", "相关性"],
+            "embedding": ["降维", "聚类", "pca", "tsne", "umap", "轮廓系数"],
+        }
+        keys = rules.get(focus, [])
+        if not keys:
+            return True
+        return any(k.lower() in t.lower() for k in keys)
+
+    def _render_method_steps(self, plan_steps: list[str]) -> list[str]:
+        if not plan_steps:
+            return ["- 未找到可用验证步骤（结构化字段和计划文本均未命中）。"]
+        path_a: list[str] = []
+        path_b: list[str] = []
+        common: list[str] = []
+        current = "common"
+        for raw in plan_steps:
+            step = str(raw).strip()
+            if not step:
+                continue
+            low = step.lower()
+            if re.search(r"验证路径\s*[aAＡ]", step) or "path a" in low:
+                current = "a"
+                continue
+            if re.search(r"验证路径\s*[bBＢ]", step) or "path b" in low:
+                current = "b"
+                continue
+            if current == "a":
+                path_a.append(step)
+            elif current == "b":
+                path_b.append(step)
+            else:
+                common.append(step)
+
+        lines: list[str] = []
+        if common:
+            lines.append("通用步骤：")
+            lines.append("<ol>")
+            for item in common[:8]:
+                lines.append(f"<li>{item}</li>")
+            lines.append("</ol>")
+        if path_a:
+            lines.append("验证路径 A：")
+            lines.append("<ol>")
+            for item in path_a[:8]:
+                lines.append(f"<li>{item}</li>")
+            lines.append("</ol>")
+        if path_b:
+            lines.append("验证路径 B：")
+            lines.append("<ol>")
+            for item in path_b[:8]:
+                lines.append(f"<li>{item}</li>")
+            lines.append("</ol>")
+        if not lines:
+            lines.append("<ol>")
+            for item in plan_steps[:8]:
+                lines.append(f"<li>{item}</li>")
+            lines.append("</ol>")
+        return lines
+
+    def _render_hypothesis_problem_block(
+        self,
+        hyp_title: str,
+        effective_hypothesis: str,
+        mismatch_note: str,
+        planned_title: str,
+        planned_hypothesis: str,
+        executed_hypothesis: str,
+    ) -> list[str]:
+        lines: list[str] = []
+        lines.append(f"<p>研究问题：{hyp_title}。</p>")
+        if effective_hypothesis:
+            lines.append(f"<p>当前执行口径假设：{effective_hypothesis}</p>")
+        else:
+            lines.append("<p>当前执行口径假设：未提供。</p>")
+        if mismatch_note:
+            lines.append(f"<p>一致性注记：{mismatch_note}</p>")
+            lines.append("<ul>")
+            if planned_title:
+                lines.append(f"<li>计划标题：{planned_title}</li>")
+            if planned_hypothesis:
+                lines.append(f"<li>计划假设：{planned_hypothesis}</li>")
+            if executed_hypothesis:
+                lines.append(f"<li>执行标题：{executed_hypothesis}</li>")
+            lines.append("</ul>")
+        return lines
+
+    def _execution_steps_from_step_map(self, step_map: dict[str, Any], gate_rule_type: str) -> list[str]:
+        steps: list[str] = []
+        if isinstance(step_map, dict):
+            for key, payload in step_map.items():
+                status = ""
+                if isinstance(payload, dict):
+                    status = str(payload.get("status", "")).strip()
+                if status:
+                    steps.append(f"{key}（执行状态：{status}）")
+                else:
+                    steps.append(str(key))
+        rule = str(gate_rule_type or "").strip().lower()
+        if rule == "predictive_performance":
+            steps.extend(
+                [
+                    "基于已产出的模型评估结果汇总预测性能（如 accuracy / AUC / CV 指标）。",
+                    "核对训练/验证划分策略与标签映射，避免口径不一致。",
+                ]
+            )
+        elif rule == "correlation_structure":
+            steps.extend(
+                [
+                    "基于相关矩阵与网络图产物验证变量相关结构。",
+                    "核对强相关边阈值与网络拓扑指标的一致性。",
+                ]
+            )
+        elif rule == "embedding_structure":
+            steps.extend(
+                [
+                    "基于降维与聚类产物验证样本分离结构。",
+                    "核对聚类数量与分离度指标（如 silhouette）是否一致。",
+                ]
+            )
+        elif rule == "significance_and_effect":
+            steps.extend(
+                [
+                    "基于显著性检验与多重校正结果验证差异性。",
+                    "核对效应证据是否充足，避免仅凭 p 值下结论。",
+                ]
+            )
+        dedup: list[str] = []
+        seen: set[str] = set()
+        for s in steps:
+            if s in seen:
+                continue
+            seen.add(s)
+            dedup.append(s)
+        return dedup[:8]
+
+    def _render_plan_hypothesis_overview(self, plan_json: dict[str, Any]) -> str:
+        hypotheses = plan_json.get("hypotheses", []) if isinstance(plan_json, dict) else []
+        if not hypotheses:
+            return ""
+        lines: list[str] = []
+        for item in hypotheses:
+            if not isinstance(item, dict):
+                continue
+            hid = str(item.get("id", "")).strip()
+            title = str(item.get("title", "")).strip()
+            hyp = str(item.get("hypothesis", "")).strip()
+            if not hid:
+                continue
+            if hyp:
+                lines.append(f"- {hid} {title}：{hyp}")
+            else:
+                lines.append(f"- {hid} {title}")
+        return "\n".join(lines)
+
     def _sanitize_process_section(self, process: str) -> str:
         if not process:
             return process
@@ -1692,8 +1945,13 @@ class ReportAssembler:
         # Section 1: hypotheses and objectives
         plan_json = self._load_plan_json(session_root)
         hypotheses_md, process_md = self._extract_plan_sections(session_root)
+        plan_markdown = self._load_plan_markdown(session_root)
         lines.append("## 研究目标与原始假设")
-        if hypotheses_md:
+        overview = self._render_plan_hypothesis_overview(plan_json)
+        if overview:
+            lines.append("以下为结构化假设总览：")
+            lines.append(overview)
+        elif hypotheses_md:
             lines.append(hypotheses_md)
         elif outline:
             if outline_mode == "full_quote":
@@ -1733,14 +1991,38 @@ class ReportAssembler:
                 hyp_id = str(hyp.get("id") or f"H{idx+1}")
                 hyp_title = str(hyp.get("title") or hyp_id)
                 hyp_text = str(hyp.get("hypothesis") or "")
+                planned_hyp_text = hyp_text
                 plan_steps = hyp.get("validation_plan_steps") or hyp.get("steps") or []
+                if not plan_steps:
+                    plan_steps = self._extract_hypothesis_steps_from_plan_markdown(plan_markdown, hyp_id)
                 expected_artifacts = hyp.get("expected_artifacts") or hyp.get("artifacts") or []
                 run_entry = self._hypothesis_result_entry(hyp_id, hypothesis_results)
                 evidence_entry = self._hypothesis_evidence_entry(hyp_id, hypothesis_evidence)
                 contrast_entry = self._hypothesis_contrast_entry(hyp_id, hypothesis_contrast)
                 gate_entry = self._hypothesis_gate_entry(hyp_id, hypothesis_gate)
-                missing = run_entry.get("missing", []) if isinstance(run_entry, dict) else []
                 step_map = run_entry.get("steps", {}) if isinstance(run_entry, dict) else {}
+                run_hypothesis = str(run_entry.get("hypothesis", "")) if isinstance(run_entry, dict) else ""
+                executed_title = self._extract_title_from_run_hypothesis(run_hypothesis, hyp_id)
+                if executed_title:
+                    hyp_title = executed_title
+                evidence_claim = str(evidence_entry.get("claim", "")).strip() if isinstance(evidence_entry, dict) else ""
+                gate_rule = str(gate_entry.get("gate_rule_type", "")).strip() if isinstance(gate_entry, dict) else ""
+                executed_focus = self._focus_from_gate_rule(gate_rule)
+                plan_md_title = self._extract_hypothesis_title_from_plan_markdown(plan_markdown, hyp_id)
+                mismatch_note = ""
+                if evidence_claim:
+                    if hyp_text and not self._text_matches_focus(hyp_text, executed_focus):
+                        mismatch_note = (
+                            "计划假设文本与执行证据类型存在偏差，当前小节已按执行证据口径解释。"
+                        )
+                        hyp_text = evidence_claim
+                        plan_steps = self._execution_steps_from_step_map(
+                            step_map if isinstance(step_map, dict) else {},
+                            gate_rule,
+                        )
+                    elif not hyp_text:
+                        hyp_text = evidence_claim
+                missing = run_entry.get("missing", []) if isinstance(run_entry, dict) else []
                 quant_metrics = (
                     evidence_entry.get("quant_metrics_map")
                     if isinstance(evidence_entry.get("quant_metrics_map"), dict)
@@ -1761,17 +2043,19 @@ class ReportAssembler:
                         missing = list(missing) + ["evidence_binding_missing"]
                 lines.append(f"### {hyp_id} {hyp_title}")
                 lines.append("#### 研究问题与假设")
-                if hyp_text:
-                    lines.append(hyp_text)
-                else:
-                    lines.append("未提供结构化假设文本。")
+                lines.extend(
+                    self._render_hypothesis_problem_block(
+                        hyp_title=hyp_title,
+                        effective_hypothesis=hyp_text,
+                        mismatch_note=mismatch_note,
+                        planned_title=plan_md_title,
+                        planned_hypothesis=planned_hyp_text,
+                        executed_hypothesis=run_hypothesis,
+                    )
+                )
                 lines.append("")
                 lines.append("#### 方法与前置条件检查")
-                if plan_steps:
-                    for i, step in enumerate(plan_steps, 1):
-                        lines.append(f"{i}. {step}")
-                else:
-                    lines.append("- 未提供结构化验证步骤。")
+                lines.extend(self._render_method_steps(plan_steps if isinstance(plan_steps, list) else []))
                 if gate_entry:
                     checks = gate_entry.get("checks", {}) if isinstance(gate_entry.get("checks"), dict) else {}
                     if checks:

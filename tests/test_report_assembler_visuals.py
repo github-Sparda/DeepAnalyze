@@ -1017,3 +1017,104 @@ def test_chart_table_conflict_note_detected(tmp_path: Path) -> None:
     notes = assembler._chart_table_conflict_notes(session_dir)
     assert notes
     assert "peak999" in notes[0]
+
+
+def test_render_method_steps_supports_path_grouping() -> None:
+    assembler = ReportAssembler(language="zh")
+    lines = assembler._render_method_steps(
+        [
+            "验证路径 A（参数化统计）",
+            "t-test",
+            "FDR 校正",
+            "验证路径 B（非参数重采样）",
+            "置换检验",
+        ]
+    )
+    joined = "\n".join(lines)
+    assert "验证路径 A：" in joined
+    assert "验证路径 B：" in joined
+    assert "t-test" in joined
+    assert "置换检验" in joined
+
+
+def test_report_prefers_executed_hypothesis_semantics_on_mismatch(tmp_path: Path) -> None:
+    session_dir = tmp_path / "session_mismatch_semantics"
+    (session_dir / "result").mkdir(parents=True, exist_ok=True)
+    (session_dir / "report").mkdir(parents=True, exist_ok=True)
+    (session_dir / "plan").mkdir(parents=True, exist_ok=True)
+    (session_dir / "plan" / "analysis_plan.json").write_text(
+        json.dumps(
+            {
+                "hypotheses": [
+                    {
+                        "id": "H3",
+                        "title": "H3: hypothesis",
+                        "hypothesis": "临床诊断预测模型效能假设",
+                        "validation_plan_steps": [],
+                        "expected_artifacts": [],
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (session_dir / "plan" / "analysis_plan.md").write_text(
+        "#### 假设 3：临床诊断预测模型效能假设\n",
+        encoding="utf-8",
+    )
+    (session_dir / "result" / "hypothesis_results.json").write_text(
+        json.dumps({"hypotheses": [{"hypothesis": "H3: 相关性结构", "steps": {}, "missing": []}]}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    (session_dir / "result" / "hypothesis_evidence_pack.json").write_text(
+        json.dumps(
+            {
+                "hypotheses": [
+                    {
+                        "hypothesis_id": "H3",
+                        "claim": "变量间存在结构化相关网络",
+                        "quant_metrics": [{"name": "strongest_abs_corr", "value": 0.8}],
+                        "effect_metrics": [],
+                        "method_trace": [],
+                        "evidence_sources": [],
+                        "status": "validated",
+                        "consistency": {"flag": "consistent"},
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (session_dir / "result" / "hypothesis_gate_report.json").write_text(
+        json.dumps(
+            {
+                "hypotheses": [
+                    {"hypothesis_id": "H3", "gate_status": "pass", "gate_rule_type": "correlation_structure", "checks": {}}
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    assembler = ReportAssembler(language="zh")
+    html = assembler.assemble(
+        outline="",
+        analysis_md="",
+        document_manifest={
+            "visualizations": [],
+            "tables": [
+                {
+                    "name": "hypothesis_gate_report.json",
+                    "path": str(session_dir / "result" / "hypothesis_gate_report.json"),
+                    "relative_path": "result/hypothesis_gate_report.json",
+                }
+            ],
+        },
+        report_payload={"title": "t", "summary": "", "sections": []},
+        execution_warning="",
+    )
+    assert "### H3 相关性结构" in html
+    assert "一致性注记" in html
+    assert "变量间存在结构化相关网络" in html
