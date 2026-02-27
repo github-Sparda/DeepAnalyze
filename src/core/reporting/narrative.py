@@ -96,11 +96,11 @@ METRIC_EXPLANATION: dict[str, dict[str, str]] = {
 }
 
 GATE_RULE_TYPE_EXPLANATION: dict[str, str] = {
-    "significance_and_effect": "显著性+效应联合门槛：要求显著性证据与效应证据共同成立。",
-    "predictive_performance": "预测性能门槛：要求主性能与交叉验证稳定性同时满足最低要求。",
-    "correlation_structure": "相关结构门槛：要求相关强度与网络支撑证据同时满足。",
-    "embedding_structure": "嵌入结构门槛：要求存在分离/聚类类证据，避免仅凭可视化印象下结论。",
-    "generic_evidence": "通用证据门槛：用于无法归入特定方法族时的基础约束。",
+    "significance_and_effect": "显著性与效应量联合判定：要求显著性证据与效应量证据同时成立。",
+    "predictive_performance": "预测性能判定：要求主性能与交叉验证稳定性同时达到最低要求。",
+    "correlation_structure": "相关结构判定：要求相关强度与网络支撑证据同时满足。",
+    "embedding_structure": "嵌入结构判定：要求存在分离/聚类类证据，避免仅凭可视化印象下结论。",
+    "generic_evidence": "通用证据判定：用于无法归入特定方法族时的基础约束。",
 }
 
 GATE_STATUS_EXPLANATION: dict[str, str] = {
@@ -114,24 +114,24 @@ FAILED_CHECK_EXPLANATION: dict[str, str] = {
     "path_consistency": "路径一致性检查：确认路径 A 与路径 B 的结论方向一致。",
     "has_significance_metric": "显著性指标存在性检查：确认至少有显著性统计量可用。",
     "has_effect_metric": "效应量证据检查：确认不仅“显著”，还具备效应强度证据。",
-    "significance_count_ge_min": "显著特征数量门槛检查：确认显著特征数量达到最小阈值。",
+    "significance_count_ge_min": "显著特征数量检查：确认显著特征数量达到最小阈值。",
     "has_primary_performance": "主性能指标存在性检查：确认存在主模型性能指标（如 centroid/AUC）。",
     "has_secondary_performance": "次性能指标存在性检查：确认存在交叉验证性能指标。",
-    "primary_performance_ge_min": "主性能门槛检查：确认主性能达到最低阈值。",
-    "secondary_performance_ge_min": "交叉验证性能门槛检查：确认交叉验证平均性能达到最低阈值。",
+    "primary_performance_ge_min": "主性能检查：确认主性能达到最低阈值。",
+    "secondary_performance_ge_min": "交叉验证性能检查：确认交叉验证平均性能达到最低阈值。",
     "has_corr_strength": "相关强度指标检查：确认存在相关强度量化结果。",
     "has_corr_edge_support": "相关网络边支撑检查：确认强相关边数量支持网络结构判断。",
-    "corr_strength_ge_min": "相关强度门槛检查：确认最强相关达到最低阈值。",
-    "corr_edge_ge_min": "相关边数量门槛检查：确认强相关边数量达到最低阈值。",
+    "corr_strength_ge_min": "相关强度检查：确认最强相关达到最低阈值。",
+    "corr_edge_ge_min": "相关边数量检查：确认强相关边数量达到最低阈值。",
     "has_cluster_or_embedding_metric": "聚类/嵌入证据检查：确认存在可用于结构分离判断的指标。",
-    "cluster_count_ge_min": "聚类数量门槛检查：确认簇数达到最低要求。",
-    "quant_metric_count_ge_min": "定量指标数量门槛检查：确认指标数量足够支持结论。",
-    "effect_or_consistency_support": "效应或一致性补充检查：确认至少具备效应证据或路径一致性。",
+    "cluster_count_ge_min": "聚类数量检查：确认簇数达到最低要求。",
+    "quant_metric_count_ge_min": "定量指标数量检查：确认指标数量足够支持结论。",
+    "effect_or_consistency_support": "效应量或一致性补充检查：确认至少具备效应量证据或路径一致性。",
 }
 
 REASON_CODE_EXPLANATION: dict[str, str] = {
     "metric_missing": "缺少关键指标，当前证据链不完整。",
-    "threshold_not_met": "指标已产出，但未达到预设门槛。",
+    "threshold_not_met": "指标已产出，但未达到预设判定阈值。",
     "performance_gap": "预测性能存在缺口，需要改进特征或标签质量。",
     "path_conflict": "多路径结论冲突，需要进行路径对齐和复核。",
     "method_conflict": "方法间结论冲突，建议补充第三路径验证。",
@@ -210,20 +210,20 @@ def metric_narrative(metric: dict[str, Any], style_seed: int = 0) -> str:
 
     if threshold:
         if judgement == "pass":
-            threshold_sentence = f"与阈值（{threshold}）比较后，本项满足门槛（{relation}）。"
+            threshold_sentence = f"与阈值（{threshold}）比较后，本项通过判定（{relation}）。"
         elif judgement == "fail":
-            threshold_sentence = f"与阈值（{threshold}）比较后，本项未达门槛（{relation}）。"
+            threshold_sentence = f"与阈值（{threshold}）比较后，本项未通过判定（{relation}）。"
         else:
             threshold_sentence = f"阈值为 {threshold}，但当前值无法完成可靠比较。"
     else:
-        threshold_sentence = "该指标当前未配置统一阈值口径，因此仅作描述性解释，不直接参与通过/失败判定。"
+        threshold_sentence = "该指标当前未设置统一判定阈值，因此仅作描述性解释，不直接参与通过/失败判定。"
 
     if direction == "higher_is_stronger":
         direction_sentence = "该指标通常数值越高，支持力度越强。"
     elif direction == "lower_is_stronger":
         direction_sentence = "该指标通常数值越低，稳定性或支持力度越强。"
     else:
-        direction_sentence = "该指标方向性依赖具体方法与任务场景。"
+        direction_sentence = "该指标的解读方向需结合具体方法与任务场景。"
 
     implication = _metric_implication_sentence(key, value)
     implication_sentence = f"取值解读：{implication}" if implication else ""
@@ -287,12 +287,12 @@ def _metric_implication_sentence(metric_key: str, value: Any) -> str:
 
 def gate_rule_type_sentence(rule_type: str) -> str:
     key = str(rule_type or "").strip().lower()
-    return GATE_RULE_TYPE_EXPLANATION.get(key, f"门槛类型为 {key or 'generic_evidence'}，当前未配置详细中文解释。")
+    return GATE_RULE_TYPE_EXPLANATION.get(key, f"判定规则类型为 {key or 'generic_evidence'}，当前未配置详细中文解释。")
 
 
 def gate_status_sentence(status: str) -> str:
     key = str(status or "").strip().lower()
-    return GATE_STATUS_EXPLANATION.get(key, f"当前门槛状态为 {key or 'unknown'}。")
+    return GATE_STATUS_EXPLANATION.get(key, f"当前判定状态为 {key or 'unknown'}。")
 
 
 def failed_check_sentence(check: str) -> str:
@@ -328,7 +328,7 @@ def recovery_action_sentence(action: str) -> str:
     mapping = {
         "rerun_missing_step_and_verify_outputs": "补跑缺失步骤并核对预期产物是否生成。",
         "run_third_path_and_compare_stability": "增加第三验证路径并对比稳定性，定位冲突来源。",
-        "adjust_method_or_data_processing_and_rerun": "调整方法或数据处理策略后重跑，并比较门槛变化。",
+        "adjust_method_or_data_processing_and_rerun": "调整方法或数据处理策略后重跑，并比较判定结果变化。",
         "improve_label_quality_and_feature_strategy_then_rerun": "提升标签质量与特征策略后重跑评估。",
         "switch_nonparametric_or_transform_data": "切换到更稳健方法或先做数据变换再验证。",
         "invoke_code_repair_then_rerun": "先修复执行错误，再重跑验证流程。",
@@ -365,12 +365,12 @@ def detect_metric_conflicts_detailed(quant_metrics: list[dict[str, Any]] | None)
                 "title": "分类性能指标冲突",
                 "evidence": f"centroid_accuracy={centroid:.4g}，cv_mean_accuracy={cv_mean:.4g}",
                 "causes": [
-                    "评估口径不一致（单次评估 vs 交叉验证）",
+                    "评估设置不一致（单次评估 vs 交叉验证）",
                     "标签映射或正负类定义不一致",
                     "模型路径的数据预处理配置不一致",
                 ],
                 "next_steps": [
-                    "统一评估口径并重算 centroid 与 CV 指标",
+                    "统一评估设置并重算 centroid 与 CV 指标",
                     "复核标签编码、类别顺序与训练/验证划分",
                     "导出并比对路径 A/B 的预处理参数快照",
                 ],

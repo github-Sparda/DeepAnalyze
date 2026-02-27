@@ -721,9 +721,12 @@ class ReportAssembler:
             line = re.sub(r"^\*\s*", "", line)
             line = re.sub(r"^-\s*", "", line)
             line = re.sub(r"^\d+\.\s*", "", line)
+            line = re.sub(r"\*\*(.+?)\*\*", r"\1", line)
             if not line:
                 continue
-            if any(k in line for k in ("验证路径", "预期产物", "成功判据", "后续行动")):
+            if any(k in line for k in ("预期产物", "成功判据", "后续行动", "核心假设")):
+                continue
+            if any(k in line for k in ("验证路径",)):
                 steps.append(line)
                 continue
             if any(k in line for k in ("检验", "分析", "模型", "聚类", "降维", "校正")):
@@ -787,9 +790,27 @@ class ReportAssembler:
             return True
         return any(k.lower() in t.lower() for k in keys)
 
-    def _render_method_steps(self, plan_steps: list[str]) -> list[str]:
+    def _step_io_hint(self, step_text: str, step_map: dict[str, Any]) -> str:
+        if not isinstance(step_map, dict) or not step_map:
+            return ""
+        st = str(step_text).lower()
+        for step_name, payload in step_map.items():
+            name = str(step_name).strip()
+            if not name:
+                continue
+            if name.lower() in st or st in name.lower():
+                if isinstance(payload, dict):
+                    status = str(payload.get("status", "")).strip()
+                    output = str(payload.get("output", "")).strip()
+                    output_name = Path(output).name if output else "未标注"
+                    if status or output:
+                        return f"（输入：上一步产物；输出：{output_name}；状态：{status or 'unknown'}）"
+                return "（输入：上一步产物；输出：见执行事实）"
+        return ""
+
+    def _render_method_steps(self, plan_steps: list[str], step_map: dict[str, Any] | None = None) -> list[str]:
         if not plan_steps:
-            return ["- 未找到可用验证步骤（结构化字段和计划文本均未命中）。"]
+            return ["- 未找到可用验证步骤（结构化字段和计划文本均未命中，步骤证据不足）。"]
         path_a: list[str] = []
         path_b: list[str] = []
         common: list[str] = []
@@ -797,6 +818,9 @@ class ReportAssembler:
         for raw in plan_steps:
             step = str(raw).strip()
             if not step:
+                continue
+            step = re.sub(r"\*\*(.+?)\*\*", r"\1", step)
+            if any(k in step for k in ("预期产物", "成功判据", "后续行动", "核心假设")):
                 continue
             low = step.lower()
             if re.search(r"验证路径\s*[aAＡ]", step) or "path a" in low:
@@ -817,25 +841,68 @@ class ReportAssembler:
             lines.append("通用步骤：")
             lines.append("<ol>")
             for item in common[:8]:
-                lines.append(f"<li>{item}</li>")
+                lines.append(f"<li>{item}{self._step_io_hint(item, step_map or {})}</li>")
             lines.append("</ol>")
         if path_a:
             lines.append("验证路径 A：")
             lines.append("<ol>")
             for item in path_a[:8]:
-                lines.append(f"<li>{item}</li>")
+                lines.append(f"<li>{item}{self._step_io_hint(item, step_map or {})}</li>")
             lines.append("</ol>")
         if path_b:
             lines.append("验证路径 B：")
             lines.append("<ol>")
             for item in path_b[:8]:
-                lines.append(f"<li>{item}</li>")
+                lines.append(f"<li>{item}{self._step_io_hint(item, step_map or {})}</li>")
             lines.append("</ol>")
         if not lines:
             lines.append("<ol>")
             for item in plan_steps[:8]:
                 lines.append(f"<li>{item}</li>")
             lines.append("</ol>")
+        return lines
+
+    def _render_global_process_summary(self, process_md: str) -> list[str]:
+        if not process_md:
+            return ["未解析到详细过程，建议检查 plan/analysis_plan.md。"]
+        points: list[str] = []
+        for raw in process_md.splitlines():
+            line = str(raw).strip()
+            if not line:
+                continue
+            line = re.sub(r"^\d+\.\s*", "", line)
+            line = re.sub(r"^[-*]\s*", "", line)
+            line = re.sub(r"\*\*(.+?)\*\*", r"\1", line)
+            line = line.replace("*", "").strip()
+            low = line.lower()
+            if (
+                "假设" in line
+                or "验证路径" in line
+                or "预期产物" in line
+                or "成功判据" in line
+                or "后续行动" in line
+                or "下一步指令" in line
+                or "请确认是否开始执行" in line
+                or low.startswith("###")
+            ):
+                continue
+            if any(k in line for k in ("清洗", "标准化", "检验", "校正", "建模", "交叉验证", "可视化", "装配")):
+                points.append(line)
+        dedup: list[str] = []
+        seen: set[str] = set()
+        for p in points:
+            if p in seen:
+                continue
+            seen.add(p)
+            dedup.append(p)
+            if len(dedup) >= 8:
+                break
+        if not dedup:
+            return ["未提取到全局流程要点（已过滤假设级重复内容）。"]
+        lines = ["本节仅保留全局流程摘要，假设级细节请见后续“假设验证与结果分析”。", "<ol>"]
+        for item in dedup:
+            lines.append(f"<li>{item}</li>")
+        lines.append("</ol>")
         return lines
 
     def _render_hypothesis_problem_block(
@@ -848,22 +915,85 @@ class ReportAssembler:
         executed_hypothesis: str,
     ) -> list[str]:
         lines: list[str] = []
-        lines.append(f"<p>研究问题：{hyp_title}。</p>")
-        if effective_hypothesis:
-            lines.append(f"<p>当前执行口径假设：{effective_hypothesis}</p>")
+        lines.append(f"<p><strong>研究问题</strong>：{hyp_title}。</p>")
+        if planned_hypothesis:
+            lines.append(f"<p><strong>计划假设（来自分析计划）</strong>：{planned_hypothesis}</p>")
         else:
-            lines.append("<p>当前执行口径假设：未提供。</p>")
+            lines.append("<p><strong>计划假设（来自分析计划）</strong>：未提供。</p>")
+        if effective_hypothesis:
+            lines.append(f"<p><strong>实际执行假设（来自执行结果）</strong>：{effective_hypothesis}</p>")
+        else:
+            lines.append("<p><strong>实际执行假设（来自执行结果）</strong>：未提供。</p>")
         if mismatch_note:
-            lines.append(f"<p>一致性注记：{mismatch_note}</p>")
+            lines.append(f"<p><strong>一致性注记（偏差说明）</strong>：{mismatch_note}</p>")
             lines.append("<ul>")
             if planned_title:
                 lines.append(f"<li>计划标题：{planned_title}</li>")
-            if planned_hypothesis:
-                lines.append(f"<li>计划假设：{planned_hypothesis}</li>")
             if executed_hypothesis:
                 lines.append(f"<li>执行标题：{executed_hypothesis}</li>")
             lines.append("</ul>")
+            lines.append("<p>本节后续结论以实际执行结果为主，计划内容仅用于对照。</p>")
         return lines
+
+    def _predictive_completeness_missing(
+        self,
+        gate_entry: dict[str, Any],
+        evidence_entry: dict[str, Any],
+        step_map: dict[str, Any],
+        contrast_entry: dict[str, Any],
+    ) -> list[str]:
+        gate_rule = str(gate_entry.get("gate_rule_type", "")).strip().lower()
+        if gate_rule != "predictive_performance":
+            return []
+        missing: list[str] = []
+        quant_rows = evidence_entry.get("quant_metrics", []) if isinstance(evidence_entry.get("quant_metrics"), list) else []
+        quant_names = {
+            str(item.get("name", "")).strip().lower()
+            for item in quant_rows
+            if isinstance(item, dict)
+        }
+        method_trace = evidence_entry.get("method_trace", []) if isinstance(evidence_entry.get("method_trace"), list) else []
+        model_found = False
+        for item in method_trace:
+            if not isinstance(item, dict):
+                continue
+            model_name = str(item.get("model_name") or item.get("model") or item.get("estimator") or "").strip()
+            if model_name:
+                model_found = True
+                break
+        if not model_found:
+            for step_name in step_map.keys():
+                low = str(step_name).lower()
+                if any(k in low for k in ("logistic", "randomforest", "xgboost", "svm", "classifier", "model")):
+                    model_found = True
+                    break
+        if not model_found:
+            missing.append("predictive_model_name_missing")
+
+        has_split = bool({"cv_mean_accuracy", "cv_std_accuracy", "test_accuracy", "train_accuracy"} & quant_names)
+        if not has_split:
+            missing.append("predictive_data_split_strategy_missing")
+        has_primary_perf = bool({"auc", "accuracy", "f1", "precision", "recall", "centroid_accuracy", "majority_accuracy"} & quant_names)
+        if not has_primary_perf:
+            missing.append("predictive_primary_metric_missing")
+        conflict_reason = str(contrast_entry.get("conflict_reason", "")).strip()
+        reason_code = str(gate_entry.get("reason_code", "")).strip()
+        has_conflict_explain = bool(conflict_reason or reason_code)
+        if not has_conflict_explain:
+            missing.append("predictive_conflict_explain_missing")
+        return missing
+
+    def _missing_item_label(self, item: str) -> str:
+        mapping = {
+            "quant_metrics_missing": "缺少可解释的定量指标",
+            "insufficient_quant_metric_count": "定量指标数量不足（<2）",
+            "evidence_binding_missing": "缺少证据来源绑定",
+            "predictive_model_name_missing": "预测假设缺少模型名称",
+            "predictive_data_split_strategy_missing": "预测假设缺少训练/验证设置说明",
+            "predictive_primary_metric_missing": "预测假设缺少主性能指标（如 Accuracy/AUC/F1）",
+            "predictive_conflict_explain_missing": "预测假设缺少冲突/风险说明",
+        }
+        return mapping.get(item, item)
 
     def _execution_steps_from_step_map(self, step_map: dict[str, Any], gate_rule_type: str) -> list[str]:
         steps: list[str] = []
@@ -881,7 +1011,7 @@ class ReportAssembler:
             steps.extend(
                 [
                     "基于已产出的模型评估结果汇总预测性能（如 accuracy / AUC / CV 指标）。",
-                    "核对训练/验证划分策略与标签映射，避免口径不一致。",
+                    "核对训练/验证划分策略与标签映射，避免评估设置不一致。",
                 ]
             )
         elif rule == "correlation_structure":
@@ -902,7 +1032,7 @@ class ReportAssembler:
             steps.extend(
                 [
                     "基于显著性检验与多重校正结果验证差异性。",
-                    "核对效应证据是否充足，避免仅凭 p 值下结论。",
+                    "核对效应量证据是否充足，避免仅凭 p 值下结论。",
                 ]
             )
         dedup: list[str] = []
@@ -919,6 +1049,7 @@ class ReportAssembler:
         if not hypotheses:
             return ""
         lines: list[str] = []
+        lines.append("<ul>")
         for item in hypotheses:
             if not isinstance(item, dict):
                 continue
@@ -928,9 +1059,10 @@ class ReportAssembler:
             if not hid:
                 continue
             if hyp:
-                lines.append(f"- {hid} {title}：{hyp}")
+                lines.append(f"<li>{hid} {title}：{hyp}</li>")
             else:
-                lines.append(f"- {hid} {title}")
+                lines.append(f"<li>{hid} {title}</li>")
+        lines.append("</ul>")
         return "\n".join(lines)
 
     def _sanitize_process_section(self, process: str) -> str:
@@ -1200,11 +1332,11 @@ class ReportAssembler:
         gate_missing = audit.get("quality_gate_missing", []) or []
         if not missing_required and not gate_missing:
             return ""
-        lines = ["## 质量门槛未达标"]
+        lines = ["## 质量规则未达标"]
         if missing_required:
             lines.append(f"- 缺失核心产物: {', '.join(missing_required)}")
         if gate_missing:
-            lines.append(f"- 缺失质量门槛: {', '.join(gate_missing)}")
+            lines.append(f"- 缺失质量规则: {', '.join(gate_missing)}")
         return "\n".join(lines)
 
     def _render_validation_failures(self, session_root: Path | None) -> str:
@@ -1429,7 +1561,7 @@ class ReportAssembler:
             for effect in effects[:5]:
                 if not isinstance(effect, dict):
                     continue
-                lines.append(f"效应证据显示“{effect.get('name')}”取值为 {effect.get('value')}。")
+                lines.append(f"效应量结果显示“{effect.get('name')}”取值为 {effect.get('value')}。")
         sources = evidence_entry.get("evidence_sources", [])
         if isinstance(sources, list):
             feature_refs: list[str] = []
@@ -1470,6 +1602,30 @@ class ReportAssembler:
         except Exception:
             return None
 
+    def _split_readable_paragraph(self, text: str, max_len: int = 180) -> list[str]:
+        raw = str(text or "").strip()
+        if not raw:
+            return []
+        if len(raw) <= max_len:
+            return [raw]
+        chunks = re.split(r"[；。]\s*", raw)
+        chunks = [c.strip() for c in chunks if c.strip()]
+        out: list[str] = []
+        buf = ""
+        for c in chunks:
+            piece = c if c.endswith("。") else c + "。"
+            if not buf:
+                buf = piece
+                continue
+            if len(buf) + len(piece) <= max_len:
+                buf += piece
+            else:
+                out.append(buf)
+                buf = piece
+        if buf:
+            out.append(buf)
+        return out if out else [raw]
+
     def _quantitative_judgement_lines(self, evidence_entry: dict[str, Any], style_offset: int = 0) -> list[str]:
         lines: list[str] = []
         quant = evidence_entry.get("quant_metrics", [])
@@ -1488,7 +1644,7 @@ class ReportAssembler:
             "has_dual_path_status": "双路径执行状态有效",
             "path_consistency": "路径一致性通过",
             "has_significance_metric": "存在显著性指标",
-            "has_effect_metric": "存在效应证据",
+            "has_effect_metric": "存在效应量证据",
             "significance_count_ge_min": "显著特征数量达到阈值",
             "has_primary_performance": "存在主性能指标",
             "has_secondary_performance": "存在交叉验证性能指标",
@@ -1523,19 +1679,19 @@ class ReportAssembler:
         quant_evaluations: list[str] | None = None,
         gate_entry: dict[str, Any] | None = None,
         contrast_entry: dict[str, Any] | None = None,
+        evidence_sources: list[str] | None = None,
     ) -> str:
         premise = hyp_text.strip() or f"{hyp_id} 假设"
         quant_metrics = quant_metrics or {}
         quant_evaluations = quant_evaluations or []
         gate_entry = gate_entry or {}
         contrast_entry = contrast_entry or {}
+        evidence_sources = evidence_sources or []
         quant_text = ""
         if quant_evaluations:
-            head = " ".join(quant_evaluations[:3])
-            tail = " 其余指标判定见上方“定量结果（指标与证据）”小节。" if len(quant_evaluations) > 3 else ""
-            quant_text = "关键数值与阈值判定如下：" + head + "。" + tail
+            quant_text = "关键数值见本节“定量结果（指标与证据）”。"
         elif quant_metrics:
-            quant_text = "已提取到定量指标，但缺少完整阈值判定信息。"
+            quant_text = "已提取到定量指标，但阈值判定信息不完整。"
         gate_status = str(gate_entry.get("gate_status", "")).lower()
         gate_rule_type = str(gate_entry.get("gate_rule_type", "")).strip()
         failed_checks = gate_entry.get("failed_checks", []) if isinstance(gate_entry.get("failed_checks"), list) else []
@@ -1543,8 +1699,8 @@ class ReportAssembler:
         recovery_action = str(gate_entry.get("recovery_action", "")).strip()
         conflict_reason = str(contrast_entry.get("conflict_reason", "")).strip()
         gate_text = (
-            f"门槛规则说明：{gate_rule_type_sentence(gate_rule_type)} "
-            f"门槛状态说明：{gate_status_sentence(gate_status)}"
+            f"判定规则说明：{gate_rule_type_sentence(gate_rule_type)} "
+            f"判定状态说明：{gate_status_sentence(gate_status)}"
         )
         if failed_checks:
             gate_text += " 未通过项包括：" + "；".join([failed_check_sentence(str(x)) for x in failed_checks[:5]]) + "。"
@@ -1559,10 +1715,17 @@ class ReportAssembler:
         conflict_findings = detect_metric_conflicts(conflict_input)
         conflict_details = detect_metric_conflicts_detailed(conflict_input)
         if details:
-            body = " ".join([str(x).strip() for x in details[:8] if str(x).strip()])
-            evidence_sentence = f"依据：围绕“{premise}”的关键观测为 {body}。{quant_text}{gate_text}"
+            normalized_detail: list[str] = []
+            for item in details[:4]:
+                text = str(item).strip()
+                if not text:
+                    continue
+                text = re.sub(r"[。；;]+$", "", text)
+                normalized_detail.append(text)
+            body = "；".join(normalized_detail)
+            evidence_sentence = f"围绕“{premise}”，当前关键观测为：{body}。{quant_text}"
             if rule_type == "significance_and_effect":
-                rule_sentence = "规则解释：差异性路径要求“显著性证据 + 效应证据”同时成立，避免仅凭 p 值下结论。"
+                rule_sentence = "规则解释：差异性路径要求“显著性证据 + 效应量证据”同时成立，避免仅凭 p 值下结论。"
             elif rule_type == "predictive_performance":
                 rule_sentence = "规则解释：预测路径要求主性能与交叉验证同时达标，用于约束泛化风险。"
             elif rule_type == "correlation_structure":
@@ -1582,7 +1745,7 @@ class ReportAssembler:
             elif missing:
                 boundary_sentence = f"边界：仍存在未完成产物（{', '.join(missing)}），当前结论为阶段性结论。"
             else:
-                boundary_sentence = "边界：当前证据满足主要门槛，但仍需在独立数据或替代方法下复核稳健性。"
+                boundary_sentence = "边界：当前证据满足主要判定条件，但仍需在独立数据或替代方法下复核稳健性。"
             extra_conflict = ""
             if conflict_details:
                 first = conflict_details[0] if isinstance(conflict_details[0], dict) else {}
@@ -1594,20 +1757,36 @@ class ReportAssembler:
                 if recovery_action
                 else "下一步：补充外部验证并复核关键指标稳定性。"
             )
-            return "\n".join(
-                [
-                    f"<p>{evidence_sentence}</p>",
-                    f"<p>{rule_sentence}</p>",
-                    f"<p>{conflict_sentence}</p>",
-                    f"<p>{boundary_sentence}</p>",
-                    f"<p>{next_sentence + extra_conflict}</p>",
-                ]
+            evidence_binding_sentence = (
+                "证据来源：" + "、".join([str(x) for x in evidence_sources[:4]])
+                if evidence_sources
+                else "证据来源：未提供结构化来源，本节结论降级为“待验证”。"
             )
+            metric_block = ""
+            if quant_evaluations:
+                metric_lines = "".join([f"<li>{x}</li>" for x in quant_evaluations[:4]])
+                metric_block = f"<p>关键数值与阈值判定如下：</p><ul>{metric_lines}</ul>"
+            paragraphs: list[str] = []
+            paragraphs.extend([f"<p>依据：{x}</p>" for x in self._split_readable_paragraph(evidence_sentence)])
+            if metric_block:
+                paragraphs.append(metric_block)
+            paragraphs.extend([f"<p>{x}</p>" for x in self._split_readable_paragraph(gate_text)])
+            paragraphs.extend([f"<p>{x}</p>" for x in self._split_readable_paragraph(rule_sentence)])
+            paragraphs.extend([f"<p>{x}</p>" for x in self._split_readable_paragraph(conflict_sentence)])
+            paragraphs.extend([f"<p>{x}</p>" for x in self._split_readable_paragraph(boundary_sentence)])
+            paragraphs.extend([f"<p>{x}</p>" for x in self._split_readable_paragraph(evidence_binding_sentence)])
+            paragraphs.extend([f"<p>{x}</p>" for x in self._split_readable_paragraph(next_sentence + extra_conflict)])
+            return "\n".join(paragraphs)
         if missing:
             return "\n".join(
                 [
                     f"<p>针对“{premise}”的分析尚未形成足够证据，关键缺失产物为 {', '.join(missing)}。</p>",
                     f"<p>{gate_text}</p>",
+                    (
+                        f"<p>证据来源：{'、'.join([str(x) for x in evidence_sources[:4]])}</p>"
+                        if evidence_sources
+                        else "<p>证据来源：未提供结构化来源，当前结论仅供排查参考。</p>"
+                    ),
                     "<p>当前无法给出可靠判断，建议优先补齐执行链路后再评估。</p>",
                 ]
             )
@@ -1615,6 +1794,11 @@ class ReportAssembler:
             [
                 f"<p>针对“{premise}”未提取到可自动解释的定量结果。</p>",
                 f"<p>{gate_text}</p>",
+                (
+                    f"<p>证据来源：{'、'.join([str(x) for x in evidence_sources[:4]])}</p>"
+                    if evidence_sources
+                    else "<p>证据来源：未提供结构化来源。</p>"
+                ),
                 "<p>请结合 result 目录中的原始产物进行人工复核。</p>",
             ]
         )
@@ -1648,7 +1832,7 @@ class ReportAssembler:
                 notes.append("差异路径缺少显著性计数指标（significant_p_lt_0_05 或 q_lt_0_05）。")
             effect_metrics = evidence_entry.get("effect_metrics", []) if isinstance(evidence_entry.get("effect_metrics"), list) else []
             if not effect_metrics:
-                notes.append("差异路径缺少效应证据（effect_metrics 为空）。")
+                notes.append("差异路径缺少效应量证据（effect_metrics 为空）。")
         return notes
 
     def _chart_table_conflict_notes(self, session_root: Path | None) -> list[str]:
@@ -1689,8 +1873,8 @@ class ReportAssembler:
             return lines
         rule_type = str(gate_entry.get("gate_rule_type", "")).strip()
         gate_status = str(gate_entry.get("gate_status", "")).strip().lower()
-        lines.append(f"- 门槛类型：{gate_rule_type_sentence(rule_type)}")
-        lines.append(f"- 当前状态：{gate_status_sentence(gate_status)}")
+        lines.append(f"- 判定规则（原规则类型）：{gate_rule_type_sentence(rule_type)}")
+        lines.append(f"- 当前判定状态：{gate_status_sentence(gate_status)}")
 
         checks = gate_entry.get("checks", {}) if isinstance(gate_entry.get("checks"), dict) else {}
         if checks:
@@ -1747,7 +1931,7 @@ class ReportAssembler:
             f"{partial} 条仍存在不同程度的证据缺口。"
         )
         lines.append(
-            f"从门槛状态看：通过 {gate_pass} 条、部分通过 {gate_partial} 条、未通过 {gate_fail} 条；"
+            f"从判定状态看：通过 {gate_pass} 条、部分通过 {gate_partial} 条、未通过 {gate_fail} 条；"
             f"检测到显式指标冲突的假设有 {conflict_count} 条。"
         )
         highlights = [x for x in outcomes if x.get("details")]
@@ -1883,7 +2067,12 @@ class ReportAssembler:
         unknown_raw_hits = report_text.count("阈值未定义，判定=unknown，方向解释=unknown")
         raw_gate_tokens = ["gate_rule_type=", "gate_status=", "failed_checks=", "reason_code="]
         raw_gate_hits = sum(report_text.count(token) for token in raw_gate_tokens)
-        gate_readable_hits = report_text.count("门槛类型：") + report_text.count("当前状态：")
+        gate_readable_hits = (
+            report_text.count("门槛类型：")
+            + report_text.count("当前状态：")
+            + report_text.count("判定规则（原规则类型）：")
+            + report_text.count("当前判定状态：")
+        )
         gate_exposure_rate = round(raw_gate_hits / max(raw_gate_hits + gate_readable_hits, 1), 4)
         return {
             "hypothesis_count": total,
@@ -1968,10 +2157,7 @@ class ReportAssembler:
 
         # Section 2: implementation process
         lines.append("## 分析方法与实施过程")
-        if process_md:
-            lines.append(process_md)
-        else:
-            lines.append("未解析到详细过程，建议检查 plan/analysis_plan.md。")
+        lines.extend(self._render_global_process_summary(process_md))
         lines.append("")
 
         # Section 3: per-hypothesis validation sections
@@ -2013,7 +2199,7 @@ class ReportAssembler:
                 if evidence_claim:
                     if hyp_text and not self._text_matches_focus(hyp_text, executed_focus):
                         mismatch_note = (
-                            "计划假设文本与执行证据类型存在偏差，当前小节已按执行证据口径解释。"
+                            "计划假设文本与执行证据类型存在偏差，当前小节已按实际执行结果解释。"
                         )
                         hyp_text = evidence_claim
                         plan_steps = self._execution_steps_from_step_map(
@@ -2041,6 +2227,15 @@ class ReportAssembler:
                 if not evidence_sources:
                     if "evidence_binding_missing" not in missing:
                         missing = list(missing) + ["evidence_binding_missing"]
+                predictive_missing = self._predictive_completeness_missing(
+                    gate_entry if isinstance(gate_entry, dict) else {},
+                    evidence_entry if isinstance(evidence_entry, dict) else {},
+                    step_map if isinstance(step_map, dict) else {},
+                    contrast_entry if isinstance(contrast_entry, dict) else {},
+                )
+                for item in predictive_missing:
+                    if item not in missing:
+                        missing = list(missing) + [item]
                 lines.append(f"### {hyp_id} {hyp_title}")
                 lines.append("#### 研究问题与假设")
                 lines.extend(
@@ -2054,22 +2249,28 @@ class ReportAssembler:
                     )
                 )
                 lines.append("")
+                if (not isinstance(plan_steps, list) or not plan_steps) and isinstance(step_map, dict) and step_map:
+                    plan_steps = self._execution_steps_from_step_map(step_map, gate_rule)
                 lines.append("#### 方法与前置条件检查")
-                lines.extend(self._render_method_steps(plan_steps if isinstance(plan_steps, list) else []))
+                lines.extend(self._render_method_steps(plan_steps if isinstance(plan_steps, list) else [], step_map if isinstance(step_map, dict) else {}))
                 if gate_entry:
                     checks = gate_entry.get("checks", {}) if isinstance(gate_entry.get("checks"), dict) else {}
                     if checks:
                         lines.append("")
                         lines.append("前置条件检查（执行可用性）：")
+                        lines.append("<ul>")
                         for key in ["has_dual_path_status", "path_consistency"]:
                             if key in checks:
-                                lines.append(f"- {self._gate_check_label(key)}：{self._bool_zh(checks.get(key))}")
+                                lines.append(f"<li>{self._gate_check_label(key)}：{self._bool_zh(checks.get(key))}</li>")
+                        lines.append("</ul>")
                         lines.append("")
-                        lines.append("证据门槛检查（证据充分性）：")
+                        lines.append("证据判定检查（证据充分性）：")
+                        lines.append("<ul>")
                         for key, value in checks.items():
                             if key in {"has_dual_path_status", "path_consistency"}:
                                 continue
-                            lines.append(f"- {self._gate_check_label(key)}：{self._bool_zh(value)}")
+                            lines.append(f"<li>{self._gate_check_label(key)}：{self._bool_zh(value)}</li>")
+                        lines.append("</ul>")
                 lines.append("")
                 lines.append("#### 执行事实（产物与状态）")
                 if step_map:
@@ -2091,7 +2292,7 @@ class ReportAssembler:
                     lines.append("缺失产物：")
                     lines.append("<ul>")
                     for x in missing:
-                        lines.append(f"<li>{x}</li>")
+                        lines.append(f"<li>{self._missing_item_label(str(x))}</li>")
                     lines.append("</ul>")
                 else:
                     lines.append("缺失产物：无。")
@@ -2138,6 +2339,7 @@ class ReportAssembler:
                         quant_evaluations,
                         gate_entry if isinstance(gate_entry, dict) else {},
                         contrast_entry if isinstance(contrast_entry, dict) else {},
+                        evidence_sources,
                     )
                 )
                 lines.append("")
@@ -2222,9 +2424,11 @@ class ReportAssembler:
                         "应优先补齐缺失产物后再进行复核。"
                     )
                 elif gate_entry and str(gate_entry.get("gate_status", "")).lower() != "pass":
-                    lines.append("当前证据门槛未通过，建议按恢复动作补充实验或替代路径后重试。")
+                    lines.append("当前证据判定未通过，建议按恢复动作补充实验或替代路径后重试。")
                 else:
                     lines.append("当前证据链相对完整，建议进入跨假设综合与外部复核阶段。")
+                if str(gate_entry.get("gate_rule_type", "")).lower() == "predictive_performance" and not missing:
+                    lines.append("可复现实验摘要：已满足预测类假设的最小信息要求（模型、评估设置、主性能指标与冲突说明齐备）。")
                 lines.append("")
                 if isinstance(evidence_entry, dict):
                     sources = evidence_entry.get("evidence_sources", []) or []
@@ -2302,7 +2506,7 @@ class ReportAssembler:
             lines.append(failure_block.replace("## 验证失败记录\n", ""))
             lines.append("")
         if quality_block:
-            lines.append(quality_block.replace("## 质量门槛未达标\n", ""))
+            lines.append(quality_block.replace("## 质量规则未达标\n", ""))
             lines.append("")
         if matrix_block:
             lines.append(matrix_block)

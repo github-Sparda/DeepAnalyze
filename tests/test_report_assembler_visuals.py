@@ -469,8 +469,8 @@ def test_report_includes_threshold_judgement_and_gate_rule_type(tmp_path: Path) 
         execution_warning="",
     )
     assert "关键数值与阈值判定如下" in html
-    assert "门槛类型：" in html
-    assert "显著性+效应联合门槛" in html
+    assert "判定规则（原规则类型）：" in html
+    assert "显著性与效应量联合判定" in html
     assert "校准档位：standard" in html
     assert "判定依据：" in html
     assert "依据：" in html
@@ -645,6 +645,139 @@ def test_report_replaces_raw_unknown_threshold_string(tmp_path: Path) -> None:
         execution_warning="",
     )
     assert "阈值未定义，判定=unknown，方向解释=unknown" not in html
+
+
+def test_front_matter_uses_overview_and_global_process_summary(tmp_path: Path) -> None:
+    session_dir = tmp_path / "session_front_matter"
+    (session_dir / "plan").mkdir(parents=True, exist_ok=True)
+    (session_dir / "result").mkdir(parents=True, exist_ok=True)
+    (session_dir / "report").mkdir(parents=True, exist_ok=True)
+    (session_dir / "plan" / "analysis_plan.json").write_text(
+        json.dumps(
+            {
+                "hypotheses": [
+                    {"id": "H1", "title": "差异假设", "hypothesis": "存在显著差异", "validation_plan_steps": [], "expected_artifacts": []}
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (session_dir / "plan" / "analysis_plan.md").write_text(
+        "### 2. 详细分析步骤\n\n1. 数据清洗\n2. 差异检验\n3. 可视化\n",
+        encoding="utf-8",
+    )
+    (session_dir / "result" / "hypothesis_results.json").write_text(
+        json.dumps({"hypotheses": [{"hypothesis": "H1", "steps": {}, "missing": []}]}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    assembler = ReportAssembler(language="zh")
+    html = assembler.assemble(
+        outline="",
+        analysis_md="",
+        document_manifest={
+            "visualizations": [],
+            "tables": [
+                {
+                    "name": "hypothesis_results.json",
+                    "path": str(session_dir / "result" / "hypothesis_results.json"),
+                    "relative_path": "result/hypothesis_results.json",
+                }
+            ],
+        },
+        report_payload={"title": "t", "summary": "", "sections": []},
+        execution_warning="",
+    )
+    assert "<ul>" in html and "H1 差异假设" in html
+    assert "本节仅保留全局流程摘要" in html
+    assert "实验假设与分析验证计划" not in html
+
+
+def test_method_steps_filter_plan_metadata_noise() -> None:
+    assembler = ReportAssembler(language="zh")
+    rendered = assembler._render_method_steps(
+        [
+            "验证路径 A",
+            "**预期产物**：火山图",
+            "数据标准化",
+            "成功判据：AUC>0.8",
+            "后续行动：复核",
+        ]
+    )
+    content = "\n".join(rendered)
+    assert "预期产物" not in content
+    assert "成功判据" not in content
+    assert "后续行动" not in content
+    assert "数据标准化" in content
+
+
+def test_predictive_hypothesis_missing_fields_are_explicit(tmp_path: Path) -> None:
+    session_dir = tmp_path / "session_predictive_missing"
+    (session_dir / "plan").mkdir(parents=True, exist_ok=True)
+    (session_dir / "result").mkdir(parents=True, exist_ok=True)
+    (session_dir / "report").mkdir(parents=True, exist_ok=True)
+    (session_dir / "plan" / "analysis_plan.json").write_text(
+        json.dumps(
+            {
+                "hypotheses": [
+                    {"id": "H2", "title": "预测假设", "hypothesis": "多特征可用于分类", "validation_plan_steps": [], "expected_artifacts": []}
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (session_dir / "result" / "hypothesis_results.json").write_text(
+        json.dumps({"hypotheses": [{"hypothesis": "H2", "steps": {}, "missing": []}]}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    (session_dir / "result" / "hypothesis_evidence_pack.json").write_text(
+        json.dumps(
+            {
+                "hypotheses": [
+                    {
+                        "hypothesis_id": "H2",
+                        "quant_metrics": [{"name": "cv_mean_accuracy", "value": 0.71}],
+                        "method_trace": [],
+                        "evidence_sources": ["result/model_eval.json"],
+                        "status": "inconclusive",
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (session_dir / "result" / "hypothesis_gate_report.json").write_text(
+        json.dumps(
+            {
+                "hypotheses": [
+                    {"hypothesis_id": "H2", "gate_status": "partial", "gate_rule_type": "predictive_performance", "checks": {}}
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    assembler = ReportAssembler(language="zh")
+    html = assembler.assemble(
+        outline="",
+        analysis_md="",
+        document_manifest={
+            "visualizations": [],
+            "tables": [
+                {
+                    "name": "hypothesis_gate_report.json",
+                    "path": str(session_dir / "result" / "hypothesis_gate_report.json"),
+                    "relative_path": "result/hypothesis_gate_report.json",
+                }
+            ],
+        },
+        report_payload={"title": "t", "summary": "", "sections": []},
+        execution_warning="",
+    )
+    assert "预测假设缺少模型名称" in html
+    assert "预测假设缺少主性能指标" in html
     assert "仅作描述性解释，不直接参与通过/失败判定" in html
 
 
