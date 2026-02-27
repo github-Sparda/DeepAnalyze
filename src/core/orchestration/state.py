@@ -27,6 +27,7 @@ class OrchestrationState(TypedDict, total=False):
      hypothesis_evidence_pack: dict[str, Any]
      hypothesis_gate_report: dict[str, Any]
      hypothesis_evidence_pack_validation: dict[str, Any]
+     completion_validation: dict[str, Any]
      custom_line_records: list[dict[str, Any]]
      custom_line_summary: dict[str, Any]
      artifact_validation: dict[str, Any]
@@ -50,6 +51,8 @@ class OrchestrationState(TypedDict, total=False):
      depth_decision: str
      should_recurse: bool
      continuation_required: bool
+     recursion_context: dict[str, Any]
+     iteration_lineage: list[dict[str, Any]]
      artifacts: list[dict[str, Any]]
      visualizations: list[dict[str, Any]]
      run_summary: dict[str, Any]

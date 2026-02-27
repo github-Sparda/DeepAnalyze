@@ -1339,6 +1339,34 @@ class ReportAssembler:
             lines.append(f"- 缺失质量规则: {', '.join(gate_missing)}")
         return "\n".join(lines)
 
+    def _render_completion_validation(self, session_root: Path | None) -> str:
+        if not session_root:
+            return ""
+        path = session_root / "meta" / "completion_validation.json"
+        if not path.exists():
+            return ""
+        payload = self._load_json(path)
+        if not isinstance(payload, dict):
+            return ""
+        checks = payload.get("checks", {}) if isinstance(payload.get("checks"), dict) else {}
+        reasons = payload.get("blocking_reasons", []) if isinstance(payload.get("blocking_reasons"), list) else []
+        actions = payload.get("recovery_actions", []) if isinstance(payload.get("recovery_actions"), list) else []
+        lines = ["## 完成态校验"]
+        lines.append(f"- 结论: {'通过' if payload.get('complete', False) else '未通过'}")
+        if reasons:
+            lines.append(f"- 阻塞原因: {', '.join([str(r) for r in reasons])}")
+        missing_files = checks.get("missing_essential_files", []) if isinstance(checks, dict) else []
+        if missing_files:
+            lines.append(f"- 缺失核心产物: {', '.join([str(x) for x in missing_files])}")
+        unresolved = checks.get("unresolved_gate_hypotheses", []) if isinstance(checks, dict) else []
+        if unresolved:
+            lines.append(f"- 未闭环假设: {', '.join([str(x) for x in unresolved])}")
+        if actions:
+            lines.append("- 建议恢复动作:")
+            for action in actions:
+                lines.append(f"  - {action}")
+        return "\n".join(lines)
+
     def _render_validation_failures(self, session_root: Path | None) -> str:
         if not session_root:
             return ""
@@ -2500,10 +2528,14 @@ class ReportAssembler:
         lines.append("## 质量校验与未完成项")
         failure_block = self._render_validation_failures(session_root)
         quality_block = self._render_quality_warnings(session_root)
+        completion_block = self._render_completion_validation(session_root)
         matrix_block = self._render_hypothesis_matrix(session_root)
         coverage_block = self._render_coverage_report(session_root)
         if failure_block:
             lines.append(failure_block.replace("## 验证失败记录\n", ""))
+            lines.append("")
+        if completion_block:
+            lines.append(completion_block.replace("## 完成态校验\n", ""))
             lines.append("")
         if quality_block:
             lines.append(quality_block.replace("## 质量规则未达标\n", ""))

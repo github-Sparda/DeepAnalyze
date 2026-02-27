@@ -58,3 +58,18 @@ def test_depth_recursion_requests_continuation_for_pending_followups():
     assert decision["continuation_required"] is True
     assert decision["should_recurse"] is False
     assert decision["depth_prompt"]
+
+
+def test_depth_recursion_triggers_on_unresolved_pending_before_depth_limit():
+    controller = DepthRecursionController(max_depth=3)
+    decision = controller.evaluate(
+        depth=1,
+        followups=[],
+        execution_retry_requested=False,
+        execution_retry_exhausted=False,
+        user_decision="",
+        execution_retry_count=0,
+        unresolved_pending=True,
+    )
+    assert decision["should_recurse"] is True
+    assert decision["continuation_required"] is False

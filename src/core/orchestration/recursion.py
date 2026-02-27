@@ -16,6 +16,7 @@ class DepthRecursionController:
         execution_retry_exhausted: bool,
         user_decision: str,
         execution_retry_count: int = 0,
+        unresolved_pending: bool = False,
     ) -> dict[str, Any]:
         followups = followups or []
         decision = {"should_recurse": False, "continuation_required": False, "depth_prompt": ""}
@@ -29,6 +30,15 @@ class DepthRecursionController:
             )
             return decision
 
+        if depth < self.max_depth:
+            if unresolved_pending:
+                return {"should_recurse": True, "continuation_required": False, "depth_prompt": ""}
+            if followups:
+                return {"should_recurse": True, "continuation_required": False, "depth_prompt": ""}
+            if execution_retry_exhausted and execution_retry_count < self.retry_limit:
+                return {"should_recurse": True, "continuation_required": False, "depth_prompt": ""}
+            return decision
+
         if self.max_depth == 0:
             if user_decision == "continue":
                 return {"should_recurse": True, "continuation_required": False, "depth_prompt": ""}
@@ -40,14 +50,11 @@ class DepthRecursionController:
                 "depth_prompt": "初次分析已完成。\n回复 'continue' 以开始更深一层的分析，否则输入 'stop' 结束。",
             }
 
-        if depth < self.max_depth:
-            if followups:
-                return {"should_recurse": True, "continuation_required": False, "depth_prompt": ""}
-            if execution_retry_exhausted:
-                return {"should_recurse": True, "continuation_required": False, "depth_prompt": ""}
-            return decision
-        if followups:
-            preview = "; ".join(followups[:3])
+        if followups or unresolved_pending:
+            preview_items = followups[:3]
+            if not preview_items and unresolved_pending:
+                preview_items = ["存在未完成验证项或冲突证据，建议继续迭代收敛。"]
+            preview = "; ".join(preview_items)
             prompt = (
                 f"Reached depth limit ({self.max_depth}) with pending follow-ups"
                 f"{f' (retries: {execution_retry_count})' if execution_retry_count else ''}: "

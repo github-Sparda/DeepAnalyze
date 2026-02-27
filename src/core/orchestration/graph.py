@@ -776,14 +776,75 @@ def _has_advanced_artifacts(session_dir: Path) -> bool:
 
 
 def _extract_hypotheses(plan_text: str) -> list[str]:
-    hypotheses = []
-    for line in plan_text.splitlines():
-        stripped = line.strip().lstrip("- ")
+    hypotheses: list[str] = []
+    raw = str(plan_text or "").strip()
+    if not raw:
+        return hypotheses
+
+    # Prefer structured extraction when LLM returns JSON/fenced JSON.
+    parsed = _safe_json_any(raw)
+    candidates: list[str] = []
+    if isinstance(parsed, dict):
+        for key in ("followup_hypotheses", "next_hypotheses", "hypotheses"):
+            payload = parsed.get(key, [])
+            if not isinstance(payload, list):
+                continue
+            for item in payload:
+                if isinstance(item, str):
+                    candidates.append(item.strip())
+                elif isinstance(item, dict):
+                    text = (
+                        str(item.get("hypothesis", "")).strip()
+                        or str(item.get("title", "")).strip()
+                        or str(item.get("text", "")).strip()
+                    )
+                    if text:
+                        candidates.append(text)
+    elif isinstance(parsed, list):
+        for item in parsed:
+            if isinstance(item, str):
+                candidates.append(item.strip())
+            elif isinstance(item, dict):
+                text = (
+                    str(item.get("hypothesis", "")).strip()
+                    or str(item.get("title", "")).strip()
+                    or str(item.get("text", "")).strip()
+                )
+                if text:
+                    candidates.append(text)
+
+    # Text fallback: support English/Chinese hypothesis headings.
+    for line in raw.splitlines():
+        stripped = re.sub(r"^\s*[-*]\s*", "", line.strip())
+        stripped = re.sub(r"^\s*\d+[\.)、]\s*", "", stripped)
         if not stripped:
             continue
-        if stripped.lower().startswith("hypothesis"):
-            hypotheses.append(stripped)
-    return hypotheses[:10]
+        low = stripped.lower()
+        if low.startswith("hypothesis"):
+            candidates.append(stripped)
+            continue
+        if re.match(r"^h\d+\b", stripped, flags=re.IGNORECASE):
+            candidates.append(stripped)
+            continue
+        if re.match(r"^假设\s*\d+", stripped):
+            candidates.append(stripped)
+            continue
+        if "新增假设" in stripped or "follow-up hypothesis" in low:
+            candidates.append(stripped)
+
+    seen: set[str] = set()
+    for item in candidates:
+        text = str(item).strip()
+        if not text:
+            continue
+        norm = re.sub(r"\s+", " ", text)
+        if norm in seen:
+            continue
+        seen.add(norm)
+        hypotheses.append(norm)
+        if len(hypotheses) >= 10:
+            break
+    return hypotheses
 
 
 def _artifact_context(registry: ArtifactRegistry, plan_id: str) -> str:
@@ -1089,7 +1150,11 @@ def _build_analysis_quality_score(session_dir: Path) -> dict[str, Any]:
             contract = json.loads(contract_path.read_text(encoding="utf-8"))
             rows = contract.get("hypotheses", []) if isinstance(contract, dict) else []
             if rows:
-                closed = sum(1 for row in rows if str(row.get("executed_status", "")) in {"validated", "partial", "inconclusive", "failed"})
+                closed = sum(
+                    1
+                    for row in rows
+                    if str(row.get("executed_status", "")) in {"validated", "inconclusive"}
+                )
                 closure_rate = round(closed / len(rows), 4)
         except Exception:
             closure_rate = 0.0
@@ -1147,6 +1212,84 @@ def _quality_consistency_errors(session_dir: Path, quality_score: dict[str, Any]
     if abs(expected - actual) > 1e-6:
         errors.append(f"quant_metric_ge_2_rate_mismatch: expected={expected}, actual={actual}")
     return {"valid": not errors, "errors": errors, "expected_quant_metric_ge_2_rate": expected, "actual_quant_metric_ge_2_rate": actual}
+
+
+def _build_completion_validation(
+    session_dir: Path,
+    gate_payload: dict[str, Any] | None = None,
+    pack_validation: dict[str, Any] | None = None,
+    artifact_validation: dict[str, Any] | None = None,
+    pipeline_gate_failures: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    gate_payload = gate_payload if isinstance(gate_payload, dict) else {}
+    pack_validation = pack_validation if isinstance(pack_validation, dict) else {}
+    artifact_validation = artifact_validation if isinstance(artifact_validation, dict) else {}
+    pipeline_gate_failures = (
+        pipeline_gate_failures if isinstance(pipeline_gate_failures, list) else []
+    )
+
+    checks: dict[str, Any] = {}
+    blocking_reasons: list[str] = []
+    actions: list[str] = []
+
+    essential_files = [
+        "result/analysis_results.md",
+        "result/expected_artifact_validation.json",
+        "result/hypothesis_gate_report.json",
+        "result/hypothesis_evidence_pack_validation.json",
+    ]
+    missing_files = [rel for rel in essential_files if not (session_dir / rel).exists()]
+    checks["essential_files_present"] = not missing_files
+    checks["missing_essential_files"] = missing_files
+    if missing_files:
+        blocking_reasons.append("missing_essential_artifacts")
+        actions.append("补齐缺失核心产物后重新执行对应步骤。")
+
+    checks["evidence_pack_valid"] = bool(pack_validation.get("valid", False))
+    if not checks["evidence_pack_valid"]:
+        blocking_reasons.append("invalid_evidence_pack")
+        actions.append("修复 evidence pack 结构后重新执行证据装配步骤。")
+
+    gate_rows = gate_payload.get("hypotheses", []) if isinstance(gate_payload, dict) else []
+    unresolved: list[str] = []
+    if isinstance(gate_rows, list):
+        for row in gate_rows:
+            if not isinstance(row, dict):
+                continue
+            status = str(row.get("gate_status", "")).strip().lower()
+            if status in {"partial", "fail"}:
+                unresolved.append(str(row.get("hypothesis_id", "UNKNOWN")))
+    checks["unresolved_gate_hypotheses"] = unresolved
+    checks["gate_resolved"] = len(unresolved) == 0
+    if unresolved:
+        blocking_reasons.append("unresolved_hypothesis_gate")
+        actions.append("对未闭环假设补证据、冲突裁决或最小重跑后再给出最终结论。")
+
+    missing_roles = artifact_validation.get("missing_roles", [])
+    validation_errors = artifact_validation.get("errors", [])
+    checks["artifact_validation_clean"] = not (missing_roles or validation_errors)
+    if not checks["artifact_validation_clean"]:
+        blocking_reasons.append("artifact_validation_failed")
+        actions.append("修复角色产物缺失/错误，确保 artifact validator 通过。")
+
+    checks["pipeline_gate_clean"] = len(pipeline_gate_failures) == 0
+    if pipeline_gate_failures:
+        blocking_reasons.append("pipeline_gate_failures")
+        actions.append("按 pipeline gate 失败原因切换 fallback 变体并重跑失败路径。")
+
+    validation_failures_path = session_dir / "result" / "validation_failures.json"
+    checks["has_validation_failures"] = validation_failures_path.exists()
+    if validation_failures_path.exists():
+        blocking_reasons.append("validation_failure_recorded")
+        actions.append("处理 validation_failures.json 指定失败阶段并执行最小重跑。")
+
+    return {
+        "complete": len(blocking_reasons) == 0,
+        "status": "complete" if len(blocking_reasons) == 0 else "incomplete",
+        "checks": checks,
+        "blocking_reasons": list(dict.fromkeys(blocking_reasons)),
+        "recovery_actions": list(dict.fromkeys(actions)),
+    }
 
 
 def _check_quality_gates(session_dir: Path, gates: list[str]) -> list[str]:
@@ -2495,23 +2638,82 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
                 "continuation_required": False,
                 "depth_prompt": "已达到最大迭代次数，停止递归以避免死循环。",
             }
+        gate_payload = state.get("hypothesis_gate_report", {})
+        gate_rows = gate_payload.get("hypotheses", []) if isinstance(gate_payload, dict) else []
+        has_incomplete_hypothesis = any(
+            str(row.get("gate_status", "")).strip().lower() in {"partial", "fail"}
+            for row in gate_rows
+            if isinstance(row, dict)
+        )
+        multipath_payload = state.get("hypothesis_multipath", {})
+        multipath_stats = multipath_payload.get("stats", {}) if isinstance(multipath_payload, dict) else {}
+        has_conflict = float(multipath_stats.get("conflict_rate", 0.0) or 0.0) > 0.0
+        has_pipeline_failures = bool(state.get("pipeline_gate_failures", []) or [])
+        has_artifact_validation_errors = bool(
+            (
+                (state.get("artifact_validation", {}) or {}).get("missing_roles", [])
+                if isinstance(state.get("artifact_validation", {}), dict)
+                else []
+            )
+            or (
+                (state.get("artifact_validation", {}) or {}).get("errors", [])
+                if isinstance(state.get("artifact_validation", {}), dict)
+                else []
+            )
+        )
+        unresolved_pending = (
+            has_incomplete_hypothesis
+            or has_conflict
+            or has_pipeline_failures
+            or has_artifact_validation_errors
+        )
+
         controller = DepthRecursionController(
             max_depth,
-            retry_limit=int(config.get("execution_failure_max_retries", 1)),
+            retry_limit=int(config.get("execution_failure_max_retries", EXECUTION_MAX_RETRIES)),
         )
-        return controller.evaluate(
+        decision = controller.evaluate(
             depth,
             state.get("followup_hypotheses", []),
             state.get("execution_retry_requested", False),
             state.get("execution_retry_exhausted", False),
             depth_decision,
             int(state.get("execution_retry_count", 0)),
+            unresolved_pending=unresolved_pending,
         )
+        decision["recursion_context"] = {
+            "depth": depth,
+            "iteration_count": iteration_count,
+            "has_incomplete_hypothesis": has_incomplete_hypothesis,
+            "has_conflict": has_conflict,
+            "has_pipeline_failures": has_pipeline_failures,
+            "has_artifact_validation_errors": has_artifact_validation_errors,
+            "unresolved_pending": unresolved_pending,
+            "followups": state.get("followup_hypotheses", []),
+        }
+        return decision
 
     def advance_depth(state: OrchestrationState) -> OrchestrationState:
         depth = int(state.get("depth", 1))
         iteration_count = int(state.get("iteration_count", 1))
-        return {"depth": depth + 1, "iteration_count": iteration_count + 1}
+        lineage = list(state.get("iteration_lineage", []))
+        ctx = state.get("recursion_context", {})
+        lineage.append(
+            {
+                "depth": depth,
+                "iteration": iteration_count,
+                "followups": (ctx.get("followups", []) if isinstance(ctx, dict) else []),
+                "unresolved_pending": bool((ctx or {}).get("unresolved_pending", False)) if isinstance(ctx, dict) else False,
+                "signals": {
+                    "incomplete_hypothesis": bool((ctx or {}).get("has_incomplete_hypothesis", False)) if isinstance(ctx, dict) else False,
+                    "conflict": bool((ctx or {}).get("has_conflict", False)) if isinstance(ctx, dict) else False,
+                    "pipeline_failures": bool((ctx or {}).get("has_pipeline_failures", False)) if isinstance(ctx, dict) else False,
+                    "artifact_errors": bool((ctx or {}).get("has_artifact_validation_errors", False)) if isinstance(ctx, dict) else False,
+                },
+                "decision": "recurse",
+            }
+        )
+        return {"depth": depth + 1, "iteration_count": iteration_count + 1, "iteration_lineage": lineage}
 
     def report_outline(state: OrchestrationState) -> OrchestrationState:
         analysis_text = state.get("docs_analysis_results", "")
@@ -2617,6 +2819,21 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
             else:
                 execution_warning = f"执行门槛告警：{fail_reason}。{detail}"
             warning_block = f"{execution_warning}\n\n"
+        completion_validation = _build_completion_validation(
+            session_dir,
+            gate_payload=gate_payload,
+            pack_validation=pack_validation,
+            artifact_validation=state.get("artifact_validation", {}),
+            pipeline_gate_failures=state.get("pipeline_gate_failures", []),
+        )
+        write_json(session_dir / "meta" / "completion_validation.json", completion_validation)
+        if not completion_validation.get("complete", False):
+            reason_text = ",".join(completion_validation.get("blocking_reasons", [])[:4])
+            if execution_warning:
+                execution_warning = execution_warning + f"\n完成态校验未通过：{reason_text}。"
+            else:
+                execution_warning = f"完成态校验未通过：{reason_text}。"
+            warning_block = f"{execution_warning}\n\n"
         messages = render_role_prompt(
             "report",
             language,
@@ -2646,6 +2863,8 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
         use_report_llm = bool(state.get("config", {}).get("report_use_llm", REPORT_USE_LLM))
         if (not gate_payload or not pack_validation.get("valid", False)) or not set_consistency.get("satisfied", False):
             use_report_llm = False
+        if not completion_validation.get("complete", False):
+            use_report_llm = False
         if use_report_llm:
             report_raw = llm.chat(messages, max_tokens=4096)
             report_payload = normalize_report_payload(parse_structured_payload(report_raw))
@@ -2653,7 +2872,10 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
             report_payload = normalize_report_payload(
                 {
                     "outline_mode": "structure_only",
-                    "summary": "假设集合或证据门槛未通过校验，已中止最终结论生成，仅保留可追溯结构化装配结果。",
+                    "summary": (
+                        "假设集合、证据门槛或完成态校验未通过，已中止最终结论生成，"
+                        "仅保留可追溯结构化装配结果。"
+                    ),
                 }
             )
             outline = _sanitize_outline(outline, Path(state.get("session_dir", "")))
@@ -2689,7 +2911,11 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
                 "report",
                 {"phase": "generate_report"},
             )
-        return {"report": report, "report_versions": versions}
+        return {
+            "report": report,
+            "report_versions": versions,
+            "completion_validation": completion_validation,
+        }
 
     def finalize_run(state: OrchestrationState) -> OrchestrationState:
         summary = {
@@ -2711,23 +2937,48 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
         summary["pipeline_fallbacks"] = audit["pipeline_fallbacks"]
         summary["custom_lines"] = audit["custom_lines"]
         summary["custom_line_summary"] = audit["custom_line_summary"]
+        iteration_lineage = list(state.get("iteration_lineage", []))
+        if not iteration_lineage:
+            iteration_lineage.append(
+                {
+                    "depth": int(state.get("depth", 1)),
+                    "iteration": int(state.get("iteration_count", 1)),
+                    "followups": state.get("followup_hypotheses", []),
+                    "unresolved_pending": False,
+                    "signals": {},
+                    "decision": "stop",
+                }
+            )
+        write_json(session_dir / "meta" / "iteration_lineage.json", {"iterations": iteration_lineage})
+        audit["iteration_lineage"] = iteration_lineage
         quality_score = _build_analysis_quality_score(session_dir)
         quality_consistency = _quality_consistency_errors(session_dir, quality_score)
         evidence_trace = _build_evidence_trace(session_dir)
         reason_code_summary = _build_reason_code_summary(session_dir)
         hypothesis_set_consistency = _build_hypothesis_set_consistency(session_dir, state.get("plan_json", {}))
+        completion_validation = _build_completion_validation(
+            session_dir,
+            gate_payload=state.get("hypothesis_gate_report", {}),
+            pack_validation=state.get("hypothesis_evidence_pack_validation", {}),
+            artifact_validation=state.get("artifact_validation", {}),
+            pipeline_gate_failures=state.get("pipeline_gate_failures", []),
+        )
         audit["analysis_quality_score"] = quality_score
         audit["quality_consistency"] = quality_consistency
         audit["hypothesis_set_consistency"] = hypothesis_set_consistency
+        audit["completion_validation"] = completion_validation
         write_json(session_dir / "meta" / "run_audit.json", audit)
         write_json(session_dir / "meta" / "analysis_quality_score.json", quality_score)
         write_json(session_dir / "meta" / "quality_consistency_errors.json", quality_consistency)
         write_json(session_dir / "meta" / "hypothesis_set_consistency.json", hypothesis_set_consistency)
+        write_json(session_dir / "meta" / "completion_validation.json", completion_validation)
         write_json(session_dir / "meta" / "evidence_trace.json", evidence_trace)
         write_json(session_dir / "meta" / "reason_code_summary.json", reason_code_summary)
         summary["analysis_quality_score"] = quality_score
         summary["quality_consistency"] = quality_consistency
         summary["hypothesis_set_consistency"] = hypothesis_set_consistency
+        summary["completion_validation"] = completion_validation
+        summary["iteration_lineage"] = iteration_lineage
         summary["evidence_trace"] = evidence_trace
         summary["reason_code_summary"] = reason_code_summary
         doc_manager = DocumentManager(session_dir)
