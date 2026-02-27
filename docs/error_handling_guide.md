@@ -274,6 +274,49 @@ logging.basicConfig(level=logging.WARNING)  # 减少日志输出
 handler.max_error_history = 500  # 默认1000
 ```
 
+## 编排层失败恢复（新增）
+
+### 1) 完成态校验失败
+
+报告前会执行完成态校验（`meta/completion_validation.json`）。常见阻塞原因：
+
+- `missing_essential_artifacts`
+- `invalid_evidence_pack`
+- `unresolved_hypothesis_gate`
+- `artifact_validation_failed`
+- `pipeline_gate_failures`
+- `predictive_repro_bundle_missing`
+
+建议处理顺序：
+
+1. 先补齐 `result/` 下核心产物；
+2. 再修复 gate 未闭环假设；
+3. 最后重跑报告装配节点。
+
+### 2) 双路径冲突无法收敛
+
+当 `hypothesis_multipath` 冲突率超过阈值，会触发 Path-C 自动裁决并输出 `result/path_adjudication.json`。
+
+如果仍未收敛（`verdict=inconclusive`），应检查：
+
+- Path-C 的 required artifacts 是否缺失；
+- A/B/C 三条路径是否使用了可区分的方法族；
+- 是否需要补充数据或缩小问题范围。
+
+### 3) 预测类结果不可复现
+
+预测类假设需要复现包（`result/ml_repro_bundle_index.json`）。如缺失：
+
+- gate 会降级为 `partial/fail`；
+- 报告会标注“复现包不完整”并给出恢复动作。
+
+最小复现包文件：
+
+- `model_spec.json`
+- `data_split.json`
+- `metrics.json`
+- `training_log.txt`
+
 ## API参考
 
 ### ErrorHandler类

@@ -98,6 +98,10 @@ def run(input_path: str | Path, output_dir: str | Path, method: str = "centroid"
     payload = {
         "model": method,
         "label_col": label_col,
+        "random_seed": 0,
+        "numeric_features": num_cols,
+        "train_size": int(len(train_df)),
+        "test_size": int(len(test_df)),
         "group_info": group_info,
         "train_accuracy": train_acc,
         "test_accuracy": test_acc,

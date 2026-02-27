@@ -1367,6 +1367,42 @@ class ReportAssembler:
                 lines.append(f"  - {action}")
         return "\n".join(lines)
 
+    def _render_path_adjudication(self, session_root: Path | None) -> str:
+        if not session_root:
+            return ""
+        path = session_root / "result" / "path_adjudication.json"
+        if not path.exists():
+            return ""
+        payload = self._load_json(path)
+        if not isinstance(payload, dict):
+            return ""
+        rows = payload.get("hypotheses", []) if isinstance(payload.get("hypotheses"), list) else []
+        if not rows:
+            return ""
+        lines = ["## 冲突裁决结果（Path-C）"]
+        lines.append(
+            f"- 触发状态: {'已触发' if payload.get('enabled', False) else '未触发'}"
+        )
+        if "conflict_rate" in payload:
+            lines.append(
+                f"- 冲突率: {payload.get('conflict_rate')}（阈值: {payload.get('threshold')}）"
+            )
+        for item in rows:
+            if not isinstance(item, dict):
+                continue
+            lines.append(
+                "- "
+                + f"{item.get('hypothesis_id','UNKNOWN')}: verdict={item.get('verdict','unknown')}, "
+                + f"path_c_status={item.get('path_c_status','unknown')}, "
+                + f"variant={item.get('variant_id','')}"
+            )
+            missing = item.get("missing_artifacts", []) if isinstance(item.get("missing_artifacts"), list) else []
+            if missing:
+                lines.append(f"  - 缺失产物: {', '.join([str(x) for x in missing])}")
+            if item.get("fallback_variant"):
+                lines.append(f"  - fallback: {item.get('fallback_variant')}")
+        return "\n".join(lines)
+
     def _render_validation_failures(self, session_root: Path | None) -> str:
         if not session_root:
             return ""
@@ -2324,6 +2360,16 @@ class ReportAssembler:
                     lines.append("</ul>")
                 else:
                     lines.append("缺失产物：无。")
+                ml_bundle = gate_entry.get("ml_repro_bundle", {}) if isinstance(gate_entry, dict) and isinstance(gate_entry.get("ml_repro_bundle"), dict) else {}
+                if ml_bundle:
+                    lines.append("模型复现包：")
+                    lines.append("<ul>")
+                    lines.append(f"<li>目录：{ml_bundle.get('bundle_dir','')}</li>")
+                    lines.append(f"<li>完整性：{'完整' if ml_bundle.get('complete', False) else '不完整'}</li>")
+                    missing_bundle = ml_bundle.get("missing_required", []) if isinstance(ml_bundle.get("missing_required"), list) else []
+                    if missing_bundle:
+                        lines.append(f"<li>缺失项：{', '.join([str(x) for x in missing_bundle])}</li>")
+                    lines.append("</ul>")
                 lines.append("")
                 lines.append("#### 定量结果（指标与证据）")
                 quant_metric_rows = (
@@ -2529,10 +2575,14 @@ class ReportAssembler:
         failure_block = self._render_validation_failures(session_root)
         quality_block = self._render_quality_warnings(session_root)
         completion_block = self._render_completion_validation(session_root)
+        adjudication_block = self._render_path_adjudication(session_root)
         matrix_block = self._render_hypothesis_matrix(session_root)
         coverage_block = self._render_coverage_report(session_root)
         if failure_block:
             lines.append(failure_block.replace("## 验证失败记录\n", ""))
+            lines.append("")
+        if adjudication_block:
+            lines.append(adjudication_block.replace("## 冲突裁决结果（Path-C）\n", ""))
             lines.append("")
         if completion_block:
             lines.append(completion_block.replace("## 完成态校验\n", ""))

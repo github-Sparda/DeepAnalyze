@@ -121,6 +121,30 @@ Key variables:
 - `DEEPANALYZE_REPORT_LOGO`
 - `DEEPANALYZE_REPORT_TOC`
 - `DEEPANALYZE_REPORT_FOOTER`
+- `DEEPANALYZE_PATHC_CONFLICT_THRESHOLD`  # Path-C 冲突触发阈值（默认 0.3）
+
+## Orchestrator Outputs (新增)
+
+当启用编排分析后，新增关键产物：
+
+- `meta/completion_validation.json`：完成态校验结果（是否允许确定性结论）
+- `meta/iteration_lineage.json`：递归迭代链路与触发原因
+- `result/path_adjudication.json`：A/B 冲突后 Path-C 自动裁决记录
+- `result/ml_repro_bundle_index.json`：预测类假设复现包索引
+
+预测类复现包目录示例：
+
+- `result/ml_repro/h2/model_spec.json`
+- `result/ml_repro/h2/data_split.json`
+- `result/ml_repro/h2/metrics.json`
+- `result/ml_repro/h2/training_log.txt`
+
+## Testing (common 环境)
+
+```bash
+conda activate common
+pytest -q tests/test_conflict_auto_path_c_adjudication.py tests/test_ml_repro_bundle_contract.py tests/test_completion_validator_states.py
+```
 ### Analysis Tools
 - `demo_cli_wrapper.py` - CLI demonstration wrapper for one-command analysis (demo-example)
 - `run_serum_cli_analysis.py` - Serum dataset end-to-end CLI analysis runner (validation-test)

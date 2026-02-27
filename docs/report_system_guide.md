@@ -259,6 +259,43 @@ export_path = manager.export_report(
 # 生成易于编辑的Markdown格式
 ```
 
+## 编排质量守卫（新增）
+
+当前报告生成前会执行完成态校验，并将结果落盘：
+
+- `meta/completion_validation.json`
+- `meta/analysis_quality_score.json`
+- `meta/iteration_lineage.json`
+
+当完成态校验未通过时，报告会自动降级为“结构化事实 + 恢复动作”，不会输出确定性结论。
+
+### 冲突裁决（Path-C）
+
+当多路径验证出现冲突且冲突率达到阈值，会自动触发第三路径裁决，并落盘：
+
+- `result/path_adjudication.json`
+
+报告中的“冲突裁决结果（Path-C）”章节会展示：
+
+- 是否触发 Path-C
+- 触发阈值与当前冲突率
+- 每个假设的 Path-C 执行状态、裁决结论、缺失产物和 fallback 信息
+
+### 预测假设复现包
+
+对于预测类假设，系统会自动生成复现包索引并在报告中展示：
+
+- `result/ml_repro_bundle_index.json`
+
+每个假设会输出最小复现文件：
+
+- `model_spec.json`
+- `data_split.json`
+- `metrics.json`
+- `training_log.txt`
+
+如果复现包不完整，门槛状态会自动降级，报告会标记缺失项并给出恢复动作。
+
 ### JSON导出
 ```python
 export_path = manager.export_report(

@@ -27,6 +27,7 @@ DEEPANALYZE_MAX_DEPTH=1                        # 最大递归深度 (0-3)
 DEEPANALYZE_CODEGEN_CONCURRENCY=2              # 代码生成并发数
 DEEPANALYZE_EXECUTION_CONCURRENCY=1            # 执行并发数
 DEEPANALYZE_EXECUTION_MAX_RETRIES=2            # 最大重试次数
+DEEPANALYZE_PATHC_CONFLICT_THRESHOLD=0.3       # 双路径冲突触发 Path-C 裁决阈值
 ```
 
 ### 报告和可视化配置
@@ -129,3 +130,11 @@ response = requests.get(f'{VLLM_BASE_URL}/models',
 print('连接状态:', '成功' if response.status_code == 200 else '失败')
 "
 ```
+
+## 🧾 新增运行产物说明（与配置联动）
+
+开启编排分析后，可重点查看：
+
+- `meta/completion_validation.json`：完成态校验（失败时报告会降级）
+- `result/path_adjudication.json`：冲突裁决结果（受 `DEEPANALYZE_PATHC_CONFLICT_THRESHOLD` 影响）
+- `result/ml_repro_bundle_index.json`：预测类假设复现包索引（缺失会触发 gate 降级）

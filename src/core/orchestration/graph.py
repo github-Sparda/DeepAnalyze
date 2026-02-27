@@ -27,6 +27,7 @@ from src.api.config import (
     ARTIFACT_COPY_ENABLED,
     ARTIFACT_MIRROR_ENABLED,
     CUSTOM_LINE_COOLDOWN_SEC,
+    PATHC_CONFLICT_THRESHOLD,
 )
 from src.api.utils import collect_file_info
 
@@ -127,6 +128,16 @@ def _safe_json_any(raw: str) -> Any:
 
 def _safe_json_load(raw: str) -> dict[str, Any]:
     payload = _safe_json_any(raw)
+    return payload if isinstance(payload, dict) else {}
+
+
+def _load_json_if_exists(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
     return payload if isinstance(payload, dict) else {}
 
 
@@ -697,6 +708,197 @@ def _maybe_run_pipeline_variants(
     return executed, failures, custom_records
 
 
+def _variant_method_family(variant: Any) -> str:
+    steps = getattr(variant, "steps", []) or []
+    if not steps:
+        return "generic"
+    first = steps[0]
+    name = str(getattr(first, "name", "") or "").strip().lower()
+    method = str(getattr(first, "method", "") or "").strip().lower()
+    if name in {"stats_tests", "multiple_testing", "feature_selection"}:
+        return "statistical"
+    if name in {"correlation", "viz_network", "viz_heatmap_cluster"}:
+        return "correlation"
+    if name in {"model_train", "model_eval", "regression", "dimensionality", "clustering"}:
+        return "predictive"
+    if name in {"robust_stats", "bootstrap", "monte_carlo"}:
+        return "robustness"
+    if name:
+        return f"{name}:{method or 'default'}"
+    return "generic"
+
+
+def _pick_path_c_variant(data_profile: dict[str, Any], excluded_families: set[str]) -> tuple[str, Any] | tuple[None, None]:
+    variants = select_pipeline_variants(data_profile, goals=[], top_k=12)
+    for scored in variants:
+        family = _variant_method_family(scored.variant)
+        if family in excluded_families:
+            continue
+        return scored.pipeline_id, scored.variant
+    return None, None
+
+
+def _status_vote(value: str) -> bool | None:
+    low = str(value or "").strip().lower()
+    if low == "validated":
+        return True
+    if low in {"failed", "rejected"}:
+        return False
+    return None
+
+
+def _run_path_c_adjudication(
+    session_dir: Path,
+    data_profile: dict[str, Any],
+    multipath_payload: dict[str, Any],
+    conflict_threshold: float,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    dataset_path = _find_first_dataset(session_dir)
+    if dataset_path is None:
+        return multipath_payload, {"enabled": False, "reason": "dataset_not_found", "hypotheses": []}
+
+    from src.core.analytics.toolkit.pipelines import pipeline_registry
+
+    registry = pipeline_registry()
+    hypotheses = multipath_payload.get("hypotheses", []) if isinstance(multipath_payload, dict) else []
+    if not isinstance(hypotheses, list):
+        hypotheses = []
+    conflict_rate = float((multipath_payload.get("stats", {}) if isinstance(multipath_payload, dict) else {}).get("conflict_rate", 0.0) or 0.0)
+    if conflict_rate < float(conflict_threshold):
+        return multipath_payload, {
+            "enabled": False,
+            "reason": "conflict_rate_below_threshold",
+            "conflict_rate": conflict_rate,
+            "threshold": float(conflict_threshold),
+            "hypotheses": [],
+        }
+
+    adjudications: list[dict[str, Any]] = []
+    for row in hypotheses:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("consistency", "")).strip().lower() != "conflict":
+            continue
+        path_rows = row.get("paths", []) if isinstance(row.get("paths"), list) else []
+        existing_families = {
+            str(p.get("method_family", "")).strip().lower()
+            for p in path_rows
+            if isinstance(p, dict) and str(p.get("method_family", "")).strip()
+        }
+        pipeline_id, candidate = _pick_path_c_variant(data_profile, existing_families)
+        if candidate is None:
+            adjudications.append(
+                {
+                    "hypothesis_id": row.get("hypothesis_id", "UNKNOWN"),
+                    "status": "skipped",
+                    "reason": "no_compatible_variant",
+                    "existing_families": sorted(existing_families),
+                }
+            )
+            continue
+
+        for step in candidate.steps:
+            run_step(step.name, dataset_path, session_dir, method=step.method)
+        missing = []
+        for artifact in getattr(candidate, "required_artifacts", []) or []:
+            if not (session_dir / "result" / artifact).exists() and not (session_dir / "plots" / artifact).exists():
+                missing.append(artifact)
+        gate_missing = _check_quality_gates(session_dir, list(getattr(candidate, "quality_gates", []) or []))
+        missing.extend(gate_missing)
+
+        fallback_used = ""
+        path_c_status = "validated"
+        if missing:
+            path_c_status = "partial"
+            fallback_id = getattr(candidate, "fallback_variant", None)
+            if fallback_id and pipeline_id in registry:
+                for variant in registry[pipeline_id].variants:
+                    if variant.variant_id != fallback_id:
+                        continue
+                    for step in variant.steps:
+                        run_step(step.name, dataset_path, session_dir, method=step.method)
+                    fallback_used = fallback_id
+                    missing = []
+                    for artifact in getattr(variant, "required_artifacts", []) or []:
+                        if not (session_dir / "result" / artifact).exists() and not (session_dir / "plots" / artifact).exists():
+                            missing.append(artifact)
+                    missing.extend(_check_quality_gates(session_dir, list(getattr(variant, "quality_gates", []) or [])))
+                    path_c_status = "validated" if not missing else "partial"
+                    break
+
+        path_c_row = {
+            "path_id": "path_c",
+            "method_family": _variant_method_family(candidate),
+            "variant_id": candidate.variant_id,
+            "pipeline_id": pipeline_id,
+            "status": path_c_status,
+            "missing_artifacts": missing,
+            "fallback_variant": fallback_used,
+        }
+        path_rows.append(path_c_row)
+        row["paths"] = path_rows
+
+        votes = [_status_vote(p.get("status", "")) for p in path_rows if isinstance(p, dict)]
+        support = sum(1 for v in votes if v is True)
+        reject = sum(1 for v in votes if v is False)
+        if support >= 2:
+            verdict = "validated"
+        elif reject >= 2:
+            verdict = "rejected"
+        else:
+            verdict = "inconclusive"
+
+        row["adjudication"] = {
+            "enabled": True,
+            "verdict": verdict,
+            "path_count": len(path_rows),
+            "support_votes": support,
+            "reject_votes": reject,
+            "missing_votes": len([v for v in votes if v is None]),
+        }
+        if verdict == "validated":
+            row["status"] = "validated"
+            row["consistency"] = "adjudicated"
+        elif verdict == "rejected":
+            row["status"] = "failed"
+            row["consistency"] = "adjudicated"
+            row["conflict_reason"] = "path_c_majority_reject"
+        else:
+            row["status"] = "inconclusive"
+            row["consistency"] = "conflict"
+            row["conflict_reason"] = row.get("conflict_reason", "") or "path_c_no_majority"
+
+        adjudications.append(
+            {
+                "hypothesis_id": row.get("hypothesis_id", "UNKNOWN"),
+                "variant_id": candidate.variant_id,
+                "pipeline_id": pipeline_id,
+                "path_c_status": path_c_status,
+                "fallback_variant": fallback_used,
+                "verdict": verdict,
+                "missing_artifacts": missing,
+            }
+        )
+
+    if adjudications:
+        total = len(hypotheses)
+        conflict_count = sum(1 for item in hypotheses if isinstance(item, dict) and str(item.get("consistency", "")).lower() == "conflict")
+        stats = multipath_payload.get("stats", {}) if isinstance(multipath_payload, dict) else {}
+        if isinstance(stats, dict):
+            stats["conflict_rate"] = round((conflict_count / total), 4) if total else 0.0
+            stats["adjudicated_count"] = sum(
+                1 for item in hypotheses if isinstance(item, dict) and str(item.get("consistency", "")).lower() == "adjudicated"
+            )
+            multipath_payload["stats"] = stats
+
+    return multipath_payload, {
+        "enabled": True,
+        "threshold": float(conflict_threshold),
+        "conflict_rate": conflict_rate,
+        "hypotheses": adjudications,
+    }
+
+
 def _sanitize_outline(outline: str, session_dir: Path) -> str:
     if not outline:
         return outline
@@ -1259,11 +1461,26 @@ def _build_completion_validation(
             status = str(row.get("gate_status", "")).strip().lower()
             if status in {"partial", "fail"}:
                 unresolved.append(str(row.get("hypothesis_id", "UNKNOWN")))
+    predictive_missing_bundle: list[str] = []
+    if isinstance(gate_rows, list):
+        for row in gate_rows:
+            if not isinstance(row, dict):
+                continue
+            if str(row.get("gate_rule_type", "")).strip().lower() != "predictive_performance":
+                continue
+            bundle = row.get("ml_repro_bundle", {}) if isinstance(row.get("ml_repro_bundle"), dict) else {}
+            if not bool(bundle.get("complete", False)):
+                predictive_missing_bundle.append(str(row.get("hypothesis_id", "UNKNOWN")))
     checks["unresolved_gate_hypotheses"] = unresolved
     checks["gate_resolved"] = len(unresolved) == 0
     if unresolved:
         blocking_reasons.append("unresolved_hypothesis_gate")
         actions.append("对未闭环假设补证据、冲突裁决或最小重跑后再给出最终结论。")
+    checks["predictive_repro_bundle_complete"] = len(predictive_missing_bundle) == 0
+    checks["predictive_missing_bundle_hypotheses"] = predictive_missing_bundle
+    if predictive_missing_bundle:
+        blocking_reasons.append("predictive_repro_bundle_missing")
+        actions.append("补齐预测类假设的模型复现包（model_spec/data_split/metrics/training_log）。")
 
     missing_roles = artifact_validation.get("missing_roles", [])
     validation_errors = artifact_validation.get("errors", [])
@@ -1290,6 +1507,112 @@ def _build_completion_validation(
         "blocking_reasons": list(dict.fromkeys(blocking_reasons)),
         "recovery_actions": list(dict.fromkeys(actions)),
     }
+
+
+def _build_ml_repro_bundle(
+    session_dir: Path,
+    gate_report: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    gate_rows = (
+        gate_report.get("hypotheses", [])
+        if isinstance(gate_report, dict) and isinstance(gate_report.get("hypotheses"), list)
+        else []
+    )
+    predictive_ids = [
+        str(row.get("hypothesis_id", "UNKNOWN")).strip().upper()
+        for row in gate_rows
+        if isinstance(row, dict) and str(row.get("gate_rule_type", "")).strip().lower() == "predictive_performance"
+    ]
+    if not predictive_ids:
+        return {"enabled": False, "hypotheses": [], "reason": "no_predictive_hypothesis"}
+
+    result_dir = session_dir / "result"
+    repro_root = ensure_dir(result_dir / "ml_repro")
+    model_results = _load_json_if_exists(result_dir / "model_results.json")
+    model_eval = _load_json_if_exists(result_dir / "model_eval.json")
+    model_eval_detail = _load_json_if_exists(result_dir / "model_eval_detail.json")
+    cv_results = _load_json_if_exists(result_dir / "cv_results.json")
+    confusion = _load_json_if_exists(result_dir / "confusion_matrix.json")
+    top_features = _load_json_if_exists(result_dir / "top_features.json")
+
+    required_files = [
+        "model_spec.json",
+        "data_split.json",
+        "metrics.json",
+        "training_log.txt",
+    ]
+    index_rows: list[dict[str, Any]] = []
+    for hid in predictive_ids:
+        bundle_dir = ensure_dir(repro_root / hid.lower())
+        model_spec = {
+            "hypothesis_id": hid,
+            "model_type": str(model_results.get("model", "centroid")),
+            "label_col": model_results.get("label_col"),
+            "numeric_features": model_results.get("numeric_features", []),
+            "random_seed": model_results.get("random_seed", 0),
+            "group_info": model_results.get("group_info", {}),
+        }
+        data_split = {
+            "hypothesis_id": hid,
+            "strategy": "train_test_split_80_20",
+            "train_size": model_results.get("train_size"),
+            "test_size": model_results.get("test_size"),
+            "n_samples": model_results.get("n_samples"),
+        }
+        metrics = {
+            "hypothesis_id": hid,
+            "train_accuracy": model_results.get("train_accuracy"),
+            "test_accuracy": model_results.get("test_accuracy"),
+            "majority_accuracy": (model_eval.get("metrics", {}) if isinstance(model_eval.get("metrics"), dict) else {}).get("majority_accuracy"),
+            "centroid_accuracy": (model_eval.get("metrics", {}) if isinstance(model_eval.get("metrics"), dict) else {}).get("centroid_accuracy"),
+            "cv_mean_accuracy": cv_results.get("mean_accuracy"),
+            "cv_std_accuracy": cv_results.get("std_accuracy"),
+            "cv_status": cv_results.get("status", "unknown"),
+        }
+        write_json(bundle_dir / "model_spec.json", model_spec)
+        write_json(bundle_dir / "data_split.json", data_split)
+        write_json(bundle_dir / "metrics.json", metrics)
+        log_lines = [
+            f"hypothesis_id={hid}",
+            f"model_type={model_spec.get('model_type')}",
+            f"train_size={data_split.get('train_size')}",
+            f"test_size={data_split.get('test_size')}",
+            f"cv_status={metrics.get('cv_status')}",
+        ]
+        validation_failure = model_eval_detail.get("validation_failure", {})
+        if isinstance(validation_failure, dict) and validation_failure.get("error"):
+            log_lines.append(f"validation_failure={validation_failure.get('error')}")
+        write_text(bundle_dir / "training_log.txt", "\n".join(log_lines))
+
+        optional_files: list[str] = []
+        if confusion:
+            write_json(bundle_dir / "confusion_matrix.json", confusion)
+            optional_files.append("confusion_matrix.json")
+        if top_features:
+            write_json(bundle_dir / "feature_importance.json", top_features)
+            optional_files.append("feature_importance.json")
+
+        missing: list[str] = []
+        for file_name in required_files:
+            if not (bundle_dir / file_name).exists():
+                missing.append(file_name)
+        index_rows.append(
+            {
+                "hypothesis_id": hid,
+                "bundle_dir": str(bundle_dir.relative_to(session_dir)),
+                "required_files": required_files,
+                "optional_files": optional_files,
+                "missing_required": missing,
+                "complete": len(missing) == 0,
+            }
+        )
+    payload = {
+        "enabled": True,
+        "required_files": required_files,
+        "hypotheses": index_rows,
+    }
+    write_json(result_dir / "ml_repro_bundle_index.json", payload)
+    return payload
 
 
 def _check_quality_gates(session_dir: Path, gates: list[str]) -> list[str]:
@@ -2160,7 +2483,15 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
                         evidence_payload,
                         contrast_payload,
                     )
+                    path_adjudication_payload: dict[str, Any] = {}
+                    multipath_payload, path_adjudication_payload = _run_path_c_adjudication(
+                        session_dir,
+                        data_profile if isinstance(data_profile, dict) else {},
+                        multipath_payload,
+                        float(state.get("config", {}).get("pathc_conflict_threshold", PATHC_CONFLICT_THRESHOLD)),
+                    )
                     write_json(session_dir / "result" / "hypothesis_multipath.json", multipath_payload)
+                    write_json(session_dir / "result" / "path_adjudication.json", path_adjudication_payload)
                     contract_payload = _build_hypothesis_validation_contract(
                         state.get("plan_json", {}) if isinstance(state.get("plan_json", {}), dict) else {},
                         contrast_payload,
@@ -2187,10 +2518,37 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
                                         "missing_artifacts": path_row.get("missing_artifacts", []),
                                     },
                                 )
+                    if path_adjudication_payload:
+                        artifact_registry.register(
+                            plan_id,
+                            "result",
+                            session_dir / "result" / "path_adjudication.json",
+                            {"phase": "analyze_results"},
+                        )
                     hypothesis_md = _hypothesis_summary_md(hypothesis_payload, session_dir)
                     auto_evidence = _collect_result_evidence(session_dir)
                 except Exception:
                     pass
+        if "multipath_payload" not in locals():
+            multipath_path = session_dir / "result" / "hypothesis_multipath.json"
+            if multipath_path.exists():
+                try:
+                    multipath_payload = json.loads(multipath_path.read_text(encoding="utf-8"))
+                except Exception:
+                    multipath_payload = {}
+        if "path_adjudication_payload" not in locals() and isinstance(locals().get("multipath_payload", {}), dict):
+            stats = locals().get("multipath_payload", {}).get("stats", {}) if isinstance(locals().get("multipath_payload", {}), dict) else {}
+            conflict_rate = float((stats or {}).get("conflict_rate", 0.0) or 0.0) if isinstance(stats, dict) else 0.0
+            if conflict_rate > 0:
+                data_profile_fallback = _load_json_if_exists(session_dir / "profile" / "data_profile.json")
+                multipath_payload, path_adjudication_payload = _run_path_c_adjudication(
+                    session_dir,
+                    data_profile_fallback,
+                    multipath_payload,
+                    float(state.get("config", {}).get("pathc_conflict_threshold", PATHC_CONFLICT_THRESHOLD)),
+                )
+                write_json(session_dir / "result" / "hypothesis_multipath.json", multipath_payload)
+                write_json(session_dir / "result" / "path_adjudication.json", path_adjudication_payload)
         execution_warning = ""
         if not outputs:
             execution_warning = "执行告警：未检测到可执行脚本输出，分析结果可能缺少编程验证。"
@@ -2323,6 +2681,7 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
             "custom_line_records": custom_records if "custom_records" in locals() else [],
             "custom_line_summary": summary_payload,
             "hypothesis_multipath": multipath_payload if "multipath_payload" in locals() else {},
+            "path_adjudication": path_adjudication_payload if "path_adjudication_payload" in locals() else {},
         }
 
     def evidence_curation(state: OrchestrationState) -> OrchestrationState:
@@ -2428,9 +2787,39 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
                         "recovery_action": "repair_evidence_pack_schema_and_rerun",
                     }
                 ]
+        ml_repro_bundle = _build_ml_repro_bundle(session_dir, gate_report)
+        if ml_repro_bundle.get("enabled", False):
+            bundle_map = {
+                str(item.get("hypothesis_id", "")).strip().upper(): item
+                for item in ml_repro_bundle.get("hypotheses", [])
+                if isinstance(item, dict)
+            }
+            for row in gate_report.get("hypotheses", []) if isinstance(gate_report, dict) else []:
+                if not isinstance(row, dict):
+                    continue
+                if str(row.get("gate_rule_type", "")).strip().lower() != "predictive_performance":
+                    continue
+                hid = str(row.get("hypothesis_id", "")).strip().upper()
+                bundle_item = bundle_map.get(hid, {})
+                missing_required = (
+                    bundle_item.get("missing_required", [])
+                    if isinstance(bundle_item, dict) and isinstance(bundle_item.get("missing_required"), list)
+                    else []
+                )
+                row["ml_repro_bundle"] = {
+                    "bundle_dir": bundle_item.get("bundle_dir", "") if isinstance(bundle_item, dict) else "",
+                    "complete": bool(bundle_item.get("complete", False)) if isinstance(bundle_item, dict) else False,
+                    "missing_required": missing_required,
+                }
+                if missing_required:
+                    row["gate_status"] = "partial" if row.get("gate_status") == "pass" else row.get("gate_status")
+                    row["reason_code"] = "ml_repro_bundle_missing"
+                    row["recovery_action"] = "build_ml_repro_bundle_and_rerun"
         write_json(session_dir / "result" / "hypothesis_evidence_pack.json", evidence_pack)
         write_json(session_dir / "result" / "hypothesis_gate_report.json", gate_report)
         write_json(session_dir / "result" / "hypothesis_evidence_pack_validation.json", validation)
+        if ml_repro_bundle:
+            write_json(session_dir / "result" / "ml_repro_bundle_index.json", ml_repro_bundle)
         plan_id = state.get("plan_id", "")
         if plan_id:
             registry = ArtifactRegistry(session_dir)
@@ -2452,10 +2841,18 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
                 session_dir / "result" / "hypothesis_evidence_pack_validation.json",
                 {"phase": "evidence_curation"},
             )
+            if ml_repro_bundle:
+                registry.register(
+                    plan_id,
+                    "result",
+                    session_dir / "result" / "ml_repro_bundle_index.json",
+                    {"phase": "evidence_curation"},
+                )
         return {
             "hypothesis_evidence_pack": evidence_pack,
             "hypothesis_gate_report": gate_report,
             "hypothesis_evidence_pack_validation": validation,
+            "ml_repro_bundle": ml_repro_bundle,
         }
 
     def generate_visualizations(state: OrchestrationState) -> OrchestrationState:
@@ -2931,12 +3328,18 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
         audit["pipeline_fallbacks"] = state.get("pipeline_fallbacks", [])
         if state.get("hypothesis_multipath"):
             audit["hypothesis_multipath"] = state.get("hypothesis_multipath", {})
+        if state.get("path_adjudication"):
+            audit["path_adjudication"] = state.get("path_adjudication", {})
+        if state.get("ml_repro_bundle"):
+            audit["ml_repro_bundle"] = state.get("ml_repro_bundle", {})
         audit["custom_lines"] = state.get("custom_line_records", [])
         audit["custom_line_summary"] = state.get("custom_line_summary", {})
         summary["run_audit"] = audit
         summary["pipeline_fallbacks"] = audit["pipeline_fallbacks"]
         summary["custom_lines"] = audit["custom_lines"]
         summary["custom_line_summary"] = audit["custom_line_summary"]
+        summary["path_adjudication"] = state.get("path_adjudication", {})
+        summary["ml_repro_bundle"] = state.get("ml_repro_bundle", {})
         iteration_lineage = list(state.get("iteration_lineage", []))
         if not iteration_lineage:
             iteration_lineage.append(

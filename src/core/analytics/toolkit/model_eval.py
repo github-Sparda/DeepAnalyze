@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -126,7 +127,7 @@ def run(
     metrics: dict[str, Any] = {"majority_accuracy": majority_acc, "group_info": group_info}
     if model_path and Path(model_path).exists():
         try:
-            model_payload = pd.read_json(model_path).to_dict()
+            model_payload = json.loads(Path(model_path).read_text(encoding="utf-8"))
         except Exception:
             model_payload = {}
         centroids = model_payload.get("centroids") if isinstance(model_payload, dict) else None
@@ -141,6 +142,19 @@ def run(
             centroids = _build_centroids(df, num_cols, labels)
             preds = [_predict_centroid(row, centroids) for row in data]
             metrics["centroid_accuracy"] = float(np.mean(labels == np.array(preds))) if len(preds) else 0.0
+    if "preds" in locals():
+        label_order = sorted(set(labels))
+        matrix: dict[str, dict[str, int]] = {}
+        for actual in label_order:
+            matrix[str(actual)] = {}
+            for predicted in label_order:
+                matrix[str(actual)][str(predicted)] = 0
+        for actual, predicted in zip(labels, preds):
+            matrix[str(actual)][str(predicted)] = int(matrix[str(actual)][str(predicted)] + 1)
+        write_json(
+            out_dir / "confusion_matrix.json",
+            {"labels": [str(x) for x in label_order], "matrix": matrix},
+        )
     cv_payload: dict[str, Any] = {}
     failure_payload: dict[str, Any] = {}
     try:
