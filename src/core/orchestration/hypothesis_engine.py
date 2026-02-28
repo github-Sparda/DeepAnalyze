@@ -1,19 +1,27 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
+from pandas.api.types import is_numeric_dtype
 
 from src.api.config import EXECUTION_MAX_RETRIES
+from src.core.analytics.resources import resolve_hypothesis_profile
 from src.core.analytics.toolkit.runner import run_step
 
 from .io_utils import ensure_dir, record_role_output, write_json
 
 
 def _run_deterministic_hypotheses(session_dir: Path, dataset_path: Path) -> dict[str, Any]:
+    difference_profile = resolve_hypothesis_profile(session_dir, explicit_key="difference")
+    predictive_profile = resolve_hypothesis_profile(session_dir, explicit_key="predictive")
+    correlation_profile = resolve_hypothesis_profile(session_dir, explicit_key="correlation")
+    embedding_profile = resolve_hypothesis_profile(session_dir, explicit_key="embedding")
+
     def _record_tool_role(role_id: str, step_name: str, result: dict[str, Any], artifacts: list[str]) -> None:
         status = result.get("status", "ok")
         record_role_output(
@@ -105,7 +113,8 @@ def _run_deterministic_hypotheses(session_dir: Path, dataset_path: Path) -> dict
     h1_expected = ["stats_results.json", "multiple_testing.json", "stats_summary.json", "top_features.json"]
     results.append(
         {
-            "hypothesis": "H1: 差异检验",
+            "hypothesis": f"H1: {str(difference_profile.get('title', '')).strip() or '差异检验'}",
+            "hypothesis_type": "difference",
             "expected_artifacts": h1_expected,
             "missing": _check_artifacts(h1_expected),
             "steps": h1_steps,
@@ -124,7 +133,8 @@ def _run_deterministic_hypotheses(session_dir: Path, dataset_path: Path) -> dict
     h2_expected = ["feature_selection.json", "feature_selection_rationale.json"]
     results.append(
         {
-            "hypothesis": "H2: 关键特征筛选",
+            "hypothesis": f"H2: {str(predictive_profile.get('title', '')).strip() or '关键特征筛选'}",
+            "hypothesis_type": "predictive",
             "expected_artifacts": h2_expected,
             "missing": _check_artifacts(h2_expected),
             "steps": h2_steps,
@@ -144,7 +154,8 @@ def _run_deterministic_hypotheses(session_dir: Path, dataset_path: Path) -> dict
     h3_expected = ["correlation.json", "network.png"]
     results.append(
         {
-            "hypothesis": "H3: 相关性结构",
+            "hypothesis": f"H3: {str(correlation_profile.get('title', '')).strip() or '相关性结构'}",
+            "hypothesis_type": "correlation",
             "expected_artifacts": h3_expected,
             "missing": _check_artifacts(h3_expected),
             "steps": h3_steps,
@@ -202,7 +213,8 @@ def _run_deterministic_hypotheses(session_dir: Path, dataset_path: Path) -> dict
     ]
     results.append(
         {
-            "hypothesis": "H4: 降维/聚类",
+            "hypothesis": f"H4: {str(embedding_profile.get('title', '')).strip() or '降维/聚类'}",
+            "hypothesis_type": "embedding",
             "expected_artifacts": h4_expected,
             "missing": _check_artifacts(h4_expected),
             "steps": h4_steps,
@@ -391,25 +403,43 @@ def _build_coverage_report(session_dir: Path) -> dict[str, Any]:
 
 def _build_visual_binding(session_dir: Path) -> dict[str, Any]:
     bindings: list[dict[str, Any]] = []
-    mapping = {
-        "H1: 差异检验": [
-            "plots/volcano_plot.png",
-            "plots/top_features_bar.png",
-        ],
-        "H2: 关键特征筛选": [
-            "result/feature_selection.json",
-        ],
-        "H3: 相关性结构": [
-            "plots/heatmap.png",
-            "plots/network.png",
-        ],
-        "H4: 降维/聚类": [
-            "plots/embedding_pca.png",
-            "plots/embedding_tsne.png",
-            "plots/scatter.png",
-        ],
-    }
-    for hypo, items in mapping.items():
+    hypothesis_rows = (
+        json.loads((session_dir / "result" / "hypothesis_results.json").read_text(encoding="utf-8")).get("hypotheses", [])
+        if (session_dir / "result" / "hypothesis_results.json").exists()
+        else []
+    )
+    if not hypothesis_rows:
+        fallback_specs = [
+            ("H1", resolve_hypothesis_profile(session_dir, explicit_key="difference")),
+            ("H2", resolve_hypothesis_profile(session_dir, explicit_key="predictive")),
+            ("H3", resolve_hypothesis_profile(session_dir, explicit_key="correlation")),
+            ("H4", resolve_hypothesis_profile(session_dir, explicit_key="embedding")),
+        ]
+        for hid, profile in fallback_specs:
+            items = [str(x).strip() for x in profile.get("visual_artifacts", []) if str(x).strip()]
+            title = str(profile.get("title", "")).strip() or hid
+            for rel in items:
+                path = session_dir / rel
+                bindings.append(
+                    {
+                        "hypothesis": f"{hid}: {title}",
+                        "artifact": rel,
+                        "exists": path.exists(),
+                    }
+                )
+        return {"bindings": bindings}
+
+    for idx, item in enumerate(hypothesis_rows):
+        if not isinstance(item, dict):
+            continue
+        hypo = str(item.get("hypothesis", "")).strip() or f"H{idx+1}"
+        profile = resolve_hypothesis_profile(
+            session_dir,
+            title=hypo,
+            hypothesis_text=hypo,
+            explicit_key=str(item.get("hypothesis_type", "")).strip(),
+        )
+        items = [str(x).strip() for x in profile.get("visual_artifacts", []) if str(x).strip()]
         for rel in items:
             path = session_dir / rel
             bindings.append(
@@ -440,6 +470,11 @@ def _build_hypothesis_evidence(
                 return "supported"
         return "inconclusive"
 
+    difference_profile = resolve_hypothesis_profile(session_dir, explicit_key="difference")
+    predictive_profile = resolve_hypothesis_profile(session_dir, explicit_key="predictive")
+    correlation_profile = resolve_hypothesis_profile(session_dir, explicit_key="correlation")
+    embedding_profile = resolve_hypothesis_profile(session_dir, explicit_key="embedding")
+
     # H1 evidence
     h1_metrics: dict[str, Any] = {}
     stats_path = session_dir / "result" / "stats_results.json"
@@ -450,6 +485,28 @@ def _build_hypothesis_evidence(
             h1_metrics["tested_features"] = int(len(df))
             if "p_value" in df.columns:
                 h1_metrics["significant_p_lt_0_05"] = int((df["p_value"] < 0.05).sum())
+            effect_columns: list[str] = []
+            for col in df.columns:
+                low = str(col).strip().lower()
+                if not low:
+                    continue
+                if not is_numeric_dtype(df[col]):
+                    continue
+                if any(token in low for token in ("effect", "fold", "log2", "diff", "change")):
+                    effect_columns.append(str(col))
+            added = 0
+            for col in effect_columns:
+                series = pd.to_numeric(df[col], errors="coerce").dropna()
+                if series.empty:
+                    continue
+                metric_key = re.sub(r"[^a-z0-9_]+", "_", col.strip().lower()).strip("_")
+                if not metric_key:
+                    continue
+                h1_metrics[f"max_abs_{metric_key}"] = float(series.abs().max())
+                h1_metrics[f"mean_abs_{metric_key}"] = float(series.abs().mean())
+                added += 1
+                if added >= 3:
+                    break
         except Exception:
             pass
     if top_path.exists():
@@ -462,7 +519,7 @@ def _build_hypothesis_evidence(
     evidence_rows.append(
         {
             "hypothesis_id": "H1",
-            "claim": "组间存在显著差异标志物",
+            "claim": str(difference_profile.get("claim", "")).strip() or "组间存在显著差异标志物",
             "evidence_sources": [
                 p
                 for p in [
@@ -477,6 +534,7 @@ def _build_hypothesis_evidence(
             ],
             "quant_metrics": h1_metrics,
             "status": _status_for("H1"),
+            "hypothesis_type": "difference",
         }
     )
 
@@ -506,10 +564,11 @@ def _build_hypothesis_evidence(
     evidence_rows.append(
         {
             "hypothesis_id": "H2",
-            "claim": "多特征组合具备诊断预测力",
+            "claim": str(predictive_profile.get("claim", "")).strip() or "多特征组合具备诊断预测力",
             "evidence_sources": [p for p in ["result/model_eval.json", "result/cv_results.json", "result/feature_selection.json"] if (session_dir / p).exists()],
             "quant_metrics": h2_metrics,
             "status": _status_for("H2"),
+            "hypothesis_type": "predictive",
         }
     )
 
@@ -531,10 +590,11 @@ def _build_hypothesis_evidence(
     evidence_rows.append(
         {
             "hypothesis_id": "H3",
-            "claim": "变量间存在结构化相关网络",
+            "claim": str(correlation_profile.get("claim", "")).strip() or "变量间存在结构化相关网络",
             "evidence_sources": [p for p in ["result/correlation.json", "plots/heatmap.png", "plots/network.png"] if (session_dir / p).exists()],
             "quant_metrics": h3_metrics,
             "status": _status_for("H3"),
+            "hypothesis_type": "correlation",
         }
     )
 
@@ -557,10 +617,11 @@ def _build_hypothesis_evidence(
     evidence_rows.append(
         {
             "hypothesis_id": "H4",
-            "claim": "样本在降维空间中存在可解释结构",
+            "claim": str(embedding_profile.get("claim", "")).strip() or "样本在降维空间中存在可解释结构",
             "evidence_sources": [p for p in ["result/dimensionality.json", "result/clustering.json", "plots/embedding_pca.png", "plots/embedding_tsne.png"] if (session_dir / p).exists()],
             "quant_metrics": h4_metrics,
             "status": _status_for("H4"),
+            "hypothesis_type": "embedding",
         }
     )
 

@@ -9,6 +9,7 @@ import pandas as pd
 from .common import (
     load_table,
     detect_group_column,
+    load_analysis_runtime_config,
     numeric_columns,
     write_json,
     normalize_output_dir,
@@ -39,14 +40,15 @@ def _predict_centroid(sample: np.ndarray, centroids: dict[str, list[float]]) -> 
 
 def run(input_path: str | Path, output_dir: str | Path, method: str = "centroid") -> dict[str, Any]:
     df = load_table(input_path)
-    label_col = detect_group_column(df)
+    runtime_config = load_analysis_runtime_config(Path(input_path).resolve().parent)
+    label_col = detect_group_column(df, runtime_config=runtime_config)
     num_cols = numeric_columns(df)
     out_dir = normalize_output_dir(output_dir, "result")
     if not label_col or not num_cols:
         payload = {"status": "skipped", "reason": "missing label or numeric columns"}
         write_json(out_dir / "model_results.json", payload)
         return {"module": "model_train", "status": "skipped", "output": str(out_dir / "model_results.json")}
-    group_series, group_info = select_group_labels(df[label_col])
+    group_series, group_info = select_group_labels(df[label_col], runtime_config=runtime_config)
     df = df.copy()
     df["_group_norm"] = group_series
     df = df[df["_group_norm"].notna()]

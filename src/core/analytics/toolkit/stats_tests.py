@@ -10,6 +10,7 @@ import pandas as pd
 from .common import (
     load_table,
     detect_group_column,
+    load_analysis_runtime_config,
     numeric_columns,
     safe_values,
     write_json,
@@ -41,11 +42,12 @@ def _t_test(a: np.ndarray, b: np.ndarray) -> tuple[float, float, float, float, f
 
 def run(input_path: str | Path, output_dir: str | Path) -> dict[str, Any]:
     df = load_table(input_path)
-    group_col = detect_group_column(df)
+    runtime_config = load_analysis_runtime_config(Path(input_path).resolve().parent)
+    group_col = detect_group_column(df, runtime_config=runtime_config)
     numeric_cols = numeric_columns(df)
     results = []
     if group_col and numeric_cols:
-        group_series, group_info = select_group_labels(df[group_col])
+        group_series, group_info = select_group_labels(df[group_col], runtime_config=runtime_config)
         df = df.copy()
         df["_group_norm"] = group_series
         groups = df["_group_norm"].dropna().unique().tolist()

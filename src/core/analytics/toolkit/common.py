@@ -8,6 +8,45 @@ import numpy as np
 import pandas as pd
 
 
+def load_analysis_runtime_config(base_dir: str | Path | None = None) -> dict[str, Any]:
+    defaults: dict[str, Any] = {
+        "group_column_candidates": ["group", "label", "class", "target"],
+        "group_selection": {
+            "prefer_reference_vs_others": True,
+            "reference_labels": ["Normal", "Control", "Healthy"],
+            "preferred_case_labels": ["EP", "Case"],
+            "max_top_groups": 2,
+        },
+    }
+    if base_dir is None:
+        return defaults
+    root = Path(base_dir)
+    candidates = [
+        root / "config" / "analysis_runtime.json",
+        root / "analysis_runtime.json",
+        Path("config") / "analysis_runtime.json",
+    ]
+    for path in candidates:
+        if not path.exists():
+            continue
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        merged = dict(defaults)
+        for key, value in payload.items():
+            if key == "group_selection" and isinstance(value, dict):
+                group_selection = dict(defaults.get("group_selection", {}))
+                group_selection.update(value)
+                merged[key] = group_selection
+            else:
+                merged[key] = value
+        return merged
+    return defaults
+
+
 def ensure_dir(path: str | Path) -> Path:
     p = Path(path)
     p.mkdir(parents=True, exist_ok=True)
@@ -39,9 +78,15 @@ def load_table(path: str | Path) -> pd.DataFrame:
     return pd.read_csv(p)
 
 
-def detect_group_column(df: pd.DataFrame) -> str | None:
+def detect_group_column(df: pd.DataFrame, runtime_config: dict[str, Any] | None = None) -> str | None:
+    config = runtime_config if isinstance(runtime_config, dict) else {}
+    candidates = [
+        str(x).strip().lower()
+        for x in config.get("group_column_candidates", [])
+        if str(x).strip()
+    ] or ["group", "label", "class", "target"]
     for col in df.columns:
-        if col.lower() in {"group", "label", "class", "target"}:
+        if col.lower() in candidates:
             return col
     non_numeric = [c for c in df.columns if not np.issubdtype(df[c].dtype, np.number)]
     return non_numeric[0] if non_numeric else None
@@ -54,7 +99,12 @@ def normalize_group_labels(series: pd.Series) -> pd.Series:
     return normalized
 
 
-def select_group_labels(series: pd.Series) -> tuple[pd.Series, dict[str, Any]]:
+def select_group_labels(
+    series: pd.Series,
+    runtime_config: dict[str, Any] | None = None,
+) -> tuple[pd.Series, dict[str, Any]]:
+    config = runtime_config if isinstance(runtime_config, dict) else {}
+    group_selection = config.get("group_selection", {}) if isinstance(config.get("group_selection"), dict) else {}
     raw = series.astype(str).fillna("")
     raw_groups = raw.unique().tolist()
     info: dict[str, Any] = {
@@ -75,16 +125,25 @@ def select_group_labels(series: pd.Series) -> tuple[pd.Series, dict[str, Any]]:
         info["method"] = "normalized"
         info["used_groups"] = norm_groups
         return normalized, info
-    if "Normal" in norm_groups:
-        other_groups = [g for g in norm_groups if g != "Normal"]
-        target_label = "EP" if any("EP" in g.upper() for g in other_groups) else "Case"
-        mapped = normalized.where(normalized == "Normal", target_label)
-        info["method"] = "normal_vs_case"
-        info["used_groups"] = ["Normal", target_label]
-        info["excluded_groups"] = []
-        return mapped, info
+    reference_labels = [str(x).strip() for x in group_selection.get("reference_labels", []) if str(x).strip()]
+    preferred_case_labels = [str(x).strip() for x in group_selection.get("preferred_case_labels", []) if str(x).strip()]
+    if bool(group_selection.get("prefer_reference_vs_others", True)) and reference_labels:
+        reference = next((label for label in reference_labels if label in norm_groups), "")
+        if reference:
+            other_groups = [g for g in norm_groups if g != reference]
+            target_label = next(
+                (candidate for candidate in preferred_case_labels if any(candidate.upper() in g.upper() for g in other_groups)),
+                "Case",
+            )
+            mapped = normalized.where(normalized == reference, target_label)
+            info["method"] = "reference_vs_others"
+            info["used_groups"] = [reference, target_label]
+            info["reference_label"] = reference
+            info["excluded_groups"] = []
+            return mapped, info
     counts = normalized.value_counts()
-    top2 = counts.head(2).index.tolist()
+    max_top_groups = int(group_selection.get("max_top_groups", 2) or 2)
+    top2 = counts.head(max(2, max_top_groups)).index.tolist()[:2]
     info["method"] = "top2_normalized"
     info["used_groups"] = top2
     info["excluded_groups"] = [g for g in norm_groups if g not in top2]

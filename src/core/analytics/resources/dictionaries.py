@@ -170,6 +170,56 @@ def default_method_dictionary() -> dict[str, dict[str, Any]]:
     }
 
 
+def default_hypothesis_profile_registry() -> dict[str, dict[str, Any]]:
+    return {
+        "difference": {
+            "title": "分组差异检验",
+            "hypothesis": "不同分组之间存在统计学显著差异特征。",
+            "claim": "组间存在显著差异标志物",
+            "primary_method_family": "parametric_test",
+            "secondary_method_family": "nonparametric_or_fdr",
+            "visual_artifacts": ["plots/volcano_plot.png", "plots/top_features_bar.png"],
+            "aliases": ["差异", "显著", "检验", "p值", "q值", "difference", "differential"],
+        },
+        "predictive": {
+            "title": "预测性能验证",
+            "hypothesis": "特征组合可用于预测或区分目标分组。",
+            "claim": "多特征组合具备诊断预测力",
+            "primary_method_family": "feature_modeling",
+            "secondary_method_family": "cross_validation",
+            "visual_artifacts": ["result/model_eval.json", "result/cv_results.json", "result/feature_selection.json"],
+            "aliases": ["预测", "分类", "模型", "auc", "accuracy", "predict", "classification"],
+        },
+        "correlation": {
+            "title": "相关结构验证",
+            "hypothesis": "关键变量之间存在可解释的相关结构。",
+            "claim": "变量间存在结构化相关网络",
+            "primary_method_family": "pearson_network",
+            "secondary_method_family": "rank_or_sparse_network",
+            "visual_artifacts": ["plots/heatmap.png", "plots/network.png"],
+            "aliases": ["相关", "网络", "协同", "corr", "correlation", "network"],
+        },
+        "embedding": {
+            "title": "低维结构验证",
+            "hypothesis": "样本在降维或聚类空间中存在稳定结构。",
+            "claim": "样本在降维空间中存在可解释结构",
+            "primary_method_family": "pca_cluster",
+            "secondary_method_family": "tsne_or_umap_cluster",
+            "visual_artifacts": ["plots/embedding_pca.png", "plots/embedding_tsne.png", "plots/scatter.png"],
+            "aliases": ["聚类", "降维", "pca", "tsne", "umap", "embedding", "cluster"],
+        },
+        "generic": {
+            "title": "通用证据验证",
+            "hypothesis": "当前问题可通过多路径验证获得定量证据支持。",
+            "claim": "已形成可追溯的定量证据",
+            "primary_method_family": "primary",
+            "secondary_method_family": "secondary",
+            "visual_artifacts": [],
+            "aliases": [],
+        },
+    }
+
+
 def _load_dictionary(session_dir: Path, filename: str, defaults: dict[str, Any]) -> dict[str, Any]:
     candidates = [
         session_dir / "meta" / filename,
@@ -200,6 +250,55 @@ def load_feature_dictionary(session_dir: Path) -> dict[str, dict[str, Any]]:
 
 def load_method_dictionary(session_dir: Path) -> dict[str, dict[str, Any]]:
     return _load_dictionary(session_dir, "method_dictionary.json", default_method_dictionary())
+
+
+def load_hypothesis_profile_registry(session_dir: Path) -> dict[str, dict[str, Any]]:
+    return _load_dictionary(
+        session_dir,
+        "hypothesis_profile_registry.json",
+        default_hypothesis_profile_registry(),
+    )
+
+
+def infer_hypothesis_profile_key(
+    title: str = "",
+    hypothesis_text: str = "",
+    metric_names: list[str] | None = None,
+    explicit_key: str = "",
+    registry: dict[str, dict[str, Any]] | None = None,
+) -> str:
+    reg = registry if isinstance(registry, dict) and registry else default_hypothesis_profile_registry()
+    key = str(explicit_key or "").strip().lower()
+    if key in reg:
+        return key
+    metric_tokens = " ".join(str(x).lower() for x in (metric_names or []) if str(x).strip())
+    haystack = f"{title} {hypothesis_text} {metric_tokens}".lower()
+    for profile_key, meta in reg.items():
+        aliases = meta.get("aliases", []) if isinstance(meta, dict) else []
+        if any(str(alias).strip().lower() in haystack for alias in aliases):
+            return profile_key
+    return "generic"
+
+
+def resolve_hypothesis_profile(
+    session_dir: Path,
+    title: str = "",
+    hypothesis_text: str = "",
+    metric_names: list[str] | None = None,
+    explicit_key: str = "",
+) -> dict[str, Any]:
+    registry = load_hypothesis_profile_registry(session_dir)
+    key = infer_hypothesis_profile_key(
+        title=title,
+        hypothesis_text=hypothesis_text,
+        metric_names=metric_names,
+        explicit_key=explicit_key,
+        registry=registry,
+    )
+    profile = registry.get(key, registry.get("generic", {}))
+    merged = dict(profile)
+    merged["key"] = key
+    return merged
 
 
 def _annotated_quant_metrics(metrics: dict[str, Any], metric_dict: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
@@ -467,6 +566,7 @@ def build_hypothesis_evidence_pack(
         rows.append(
             {
                 "hypothesis_id": hid,
+                "hypothesis_type": str(item.get("hypothesis_type", "")).strip(),
                 "claim": claim,
                 "status": status,
                 "quant_metrics": quant_metrics,
@@ -503,6 +603,8 @@ def build_hypothesis_gate_report(
         gate_rule_type: str,
         existing: str,
     ) -> str:
+        if not failed_checks:
+            return ""
         if existing:
             return existing
         if consistency == "conflict" or "path_consistency" in failed_checks:
@@ -586,6 +688,8 @@ def build_hypothesis_gate_report(
         reason_code = str(hyp.get("reason_code", "")).strip()
         recovery_action = str(hyp.get("recovery_action", "")).strip()
         reason_code = _infer_reason_code(failed_checks, consistency, gate_rule_type, reason_code)
+        if not failed_checks:
+            recovery_action = ""
         if not recovery_action and reason_code:
             recovery_action = REASON_RECOVERY_MAP.get(reason_code, "")
         if not recovery_action and failed_checks:
