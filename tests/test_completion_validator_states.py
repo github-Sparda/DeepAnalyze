@@ -46,3 +46,29 @@ def test_completion_validator_blocks_on_unresolved_gate(tmp_path) -> None:
     assert payload["complete"] is False
     assert "unresolved_hypothesis_gate" in payload["blocking_reasons"]
     assert payload["checks"]["unresolved_gate_hypotheses"] == ["H2"]
+
+
+def test_completion_validator_requires_report_when_expected(tmp_path) -> None:
+    session_dir = tmp_path / "session"
+    _seed_required_files(session_dir)
+    payload = orchestration_graph._build_completion_validation(
+        session_dir,
+        gate_payload={"hypotheses": [{"hypothesis_id": "H1", "gate_status": "pass"}]},
+        pack_validation={"valid": True},
+        artifact_validation={"missing_roles": [], "errors": []},
+        pipeline_gate_failures=[],
+        expect_report=True,
+    )
+    assert payload["complete"] is False
+    assert "report_missing" in payload["blocking_reasons"]
+    (session_dir / "report").mkdir(parents=True, exist_ok=True)
+    (session_dir / "report" / "report_v1.html").write_text("<html></html>", encoding="utf-8")
+    payload2 = orchestration_graph._build_completion_validation(
+        session_dir,
+        gate_payload={"hypotheses": [{"hypothesis_id": "H1", "gate_status": "pass"}]},
+        pack_validation={"valid": True},
+        artifact_validation={"missing_roles": [], "errors": []},
+        pipeline_gate_failures=[],
+        expect_report=True,
+    )
+    assert payload2["complete"] is True

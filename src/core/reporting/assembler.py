@@ -875,18 +875,41 @@ class ReportAssembler:
             line = re.sub(r"\*\*(.+?)\*\*", r"\1", line)
             line = line.replace("*", "").strip()
             low = line.lower()
+            if "：" in line and any(token in line for token in ("->", "→")):
+                line = line.split("：", 1)[1].strip() or line
+                low = line.lower()
             if (
-                "假设" in line
-                or "验证路径" in line
+                low.startswith("###")
                 or "预期产物" in line
                 or "成功判据" in line
                 or "后续行动" in line
                 or "下一步指令" in line
                 or "请确认是否开始执行" in line
-                or low.startswith("###")
             ):
                 continue
-            if any(k in line for k in ("清洗", "标准化", "检验", "校正", "建模", "交叉验证", "可视化", "装配")):
+            if re.search(r"\.(json|csv|png|jpg|jpeg|svg|html|txt|md)\b", low):
+                continue
+            if any(
+                k in low
+                for k in (
+                    "清洗",
+                    "标准化",
+                    "检验",
+                    "校正",
+                    "建模",
+                    "模型",
+                    "交叉验证",
+                    "可视化",
+                    "装配",
+                    "stats_",
+                    "model_",
+                    "viz_",
+                    "correlation",
+                    "feature_selection",
+                    "->",
+                    "→",
+                )
+            ):
                 points.append(line)
         dedup: list[str] = []
         seen: set[str] = set()
@@ -898,12 +921,44 @@ class ReportAssembler:
             if len(dedup) >= 8:
                 break
         if not dedup:
-            return ["未提取到全局流程要点（已过滤假设级重复内容）。"]
+            fallback_lines: list[str] = []
+            for raw in process_md.splitlines():
+                line = re.sub(r"^\d+\.\s*", "", str(raw).strip())
+                line = re.sub(r"^[-*]\s*", "", line).strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "：" in line and len(line.split("：", 1)[1].strip()) >= 4:
+                    line = line.split("：", 1)[1].strip()
+                fallback_lines.append(line)
+                if len(fallback_lines) >= 5:
+                    break
+            dedup = fallback_lines
+        if not dedup:
+            return ["流程信息不足：未提取到可复述的全局步骤，请检查 plan 与执行产物是否完整。"]
         lines = ["本节仅保留全局流程摘要，假设级细节请见后续“假设验证与结果分析”。", "<ol>"]
         for item in dedup:
             lines.append(f"<li>{item}</li>")
         lines.append("</ol>")
         return lines
+
+    def _synthesize_process_from_hypothesis_results(self, session_root: Path | None) -> str:
+        if not session_root:
+            return ""
+        payload = self._load_json(session_root / "result" / "hypothesis_results.json")
+        rows = payload.get("hypotheses", []) if isinstance(payload, dict) else []
+        if not isinstance(rows, list) or not rows:
+            return ""
+        lines: list[str] = ["1. 自动化执行流程（基于实际执行步骤）"]
+        for idx, row in enumerate(rows, 1):
+            if not isinstance(row, dict):
+                continue
+            title = str(row.get("hypothesis", "")).strip() or f"H{idx}"
+            step_map = row.get("steps", {}) if isinstance(row.get("steps"), dict) else {}
+            step_names = [str(name).strip() for name in step_map.keys() if str(name).strip()]
+            if not step_names:
+                continue
+            lines.append(f"{idx}. {title}：{' -> '.join(step_names)}")
+        return "\n".join(lines)
 
     def _render_hypothesis_problem_block(
         self,
@@ -967,6 +1022,10 @@ class ReportAssembler:
                 if any(k in low for k in ("logistic", "randomforest", "xgboost", "svm", "classifier", "model")):
                     model_found = True
                     break
+        if not model_found and isinstance(gate_entry.get("ml_repro_bundle"), dict):
+            bundle = gate_entry.get("ml_repro_bundle", {})
+            if bundle.get("bundle_dir"):
+                model_found = True
         if not model_found:
             missing.append("predictive_model_name_missing")
 
@@ -1131,55 +1190,65 @@ class ReportAssembler:
                     extra_groups["Result"].append(rel)
                 elif kind in {"meta", "audit"}:
                     extra_groups["Meta"].append(rel)
+        def _append_entry(rel: str, hypothesis: str = "ALL", title: str | None = None) -> None:
+            display = title or Path(rel).name
+            lines.append(
+                f"<div class=\"appendix-item\" data-hypothesis=\"{hypothesis}\">"
+                f"<div><strong>{display}</strong>（fallback path: <code>{rel}</code>）</div>"
+                "</div>"
+            )
+
         if remaining_visuals:
-            lines.append("- Visualization (remaining):")
+            lines.append("<h3>Visualization (remaining)</h3>")
             for item in remaining_visuals:
                 rel = self._normalize_relative_path(session_root, str(item.get("relative_path", "")))
                 hyp = binding_map.get(rel, "ALL")
-                lines.append(f"  - <div class=\"appendix-item\" data-hypothesis=\"{hyp}\">{self._report_relative(rel)} (fallback path: {rel})</div>")
+                _append_entry(rel, hyp, Path(rel).name)
                 lower = rel.lower()
                 if lower.endswith((".html", ".htm")):
                     lines.append(
-                        f"    <iframe src=\"{self._report_relative(rel)}\" loading=\"lazy\" "
+                        f"<iframe src=\"{self._report_relative(rel)}\" loading=\"lazy\" "
                         "style=\"width:100%;height:360px;border:1px solid #ddd;\"></iframe>"
                     )
                 elif lower.endswith((".png", ".jpg", ".jpeg", ".svg", ".gif")):
-                    lines.append(f"    <img src=\"{self._report_relative(rel)}\" style=\"max-width:100%;border:1px solid #ddd;\"/>")
+                    lines.append(f"<img src=\"{self._report_relative(rel)}\" style=\"max-width:100%;border:1px solid #ddd;\"/>")
         if remaining_tables:
-            lines.append("- Tables (remaining):")
+            lines.append("<h3>Tables (remaining)</h3>")
             for item in remaining_tables:
                 rel = self._normalize_relative_path(session_root, str(item.get("relative_path", "")))
-                lines.append(f"  - <div class=\"appendix-item\" data-hypothesis=\"ALL\">{self._report_relative(rel)} (fallback path: {rel})</div>")
-                lines.append(f"    <div class=\"table-preview\" data-src=\"{self._report_relative(rel)}\" data-title=\"{item.get('name','table')}\"></div>")
+                _append_entry(rel, "ALL", str(item.get("name", "table")))
+                lines.append(
+                    f"<div class=\"table-preview\" data-src=\"{self._report_relative(rel)}\" data-title=\"{item.get('name','table')}\"></div>"
+                )
         for group, paths in extra_groups.items():
             uniq = sorted(set(paths))
             if not uniq:
                 continue
-            lines.append(f"- {group}:")
+            lines.append(f"<h3>{group}</h3>")
             for rel in uniq:
                 rel2 = self._normalize_relative_path(session_root, str(rel))
-                lines.append(f"  - <div class=\"appendix-item\" data-hypothesis=\"ALL\">{self._report_relative(rel2)} (fallback path: {rel2})</div>")
+                _append_entry(rel2, "ALL", Path(rel2).name)
                 lower = rel2.lower()
-                if lower.endswith((".txt", ".md", ".log")):
-                    lines.append(f"    <pre class=\"attachment-preview\" data-src=\"{self._report_relative(rel2)}\"></pre>")
-                elif lower.endswith(".json"):
-                    lines.append(f"    <pre class=\"attachment-preview\" data-src=\"{self._report_relative(rel2)}\"></pre>")
+                if lower.endswith((".txt", ".md", ".log", ".json")):
+                    lines.append(f"<pre class=\"attachment-preview\" data-src=\"{self._report_relative(rel2)}\"></pre>")
                 elif lower.endswith(".csv"):
-                    lines.append(f"    <div class=\"table-preview\" data-src=\"{self._report_relative(rel2)}\" data-title=\"{Path(rel2).name}\"></div>")
+                    lines.append(
+                        f"<div class=\"table-preview\" data-src=\"{self._report_relative(rel2)}\" data-title=\"{Path(rel2).name}\"></div>"
+                    )
                 elif lower.endswith(".pdf"):
                     lines.append(
-                        f"    <object data=\"{self._report_relative(rel2)}\" type=\"application/pdf\" "
+                        f"<object data=\"{self._report_relative(rel2)}\" type=\"application/pdf\" "
                         "style=\"width:100%;height:420px;border:1px solid #ddd;\">"
                         f"<a href=\"{self._report_relative(rel2)}\" target=\"_blank\">PDF 预览失败，点击打开原文件</a>"
                         "</object>"
                     )
                 elif lower.endswith((".html", ".htm")):
                     lines.append(
-                        f"    <iframe src=\"{self._report_relative(rel2)}\" loading=\"lazy\" "
+                        f"<iframe src=\"{self._report_relative(rel2)}\" loading=\"lazy\" "
                         "style=\"width:100%;height:360px;border:1px solid #ddd;\"></iframe>"
                     )
                     lines.append(
-                        f"    <div>若 iframe 失败，请直接打开: <a href=\"{self._report_relative(rel2)}\" target=\"_blank\">{Path(rel2).name}</a></div>"
+                        f"<div>若 iframe 失败，请直接打开: <a href=\"{self._report_relative(rel2)}\" target=\"_blank\">{Path(rel2).name}</a></div>"
                     )
         if len(lines) == 2:
             lines.append("- 无剩余附件。")
@@ -1361,6 +1430,36 @@ class ReportAssembler:
         unresolved = checks.get("unresolved_gate_hypotheses", []) if isinstance(checks, dict) else []
         if unresolved:
             lines.append(f"- 未闭环假设: {', '.join([str(x) for x in unresolved])}")
+        waived_count = int(checks.get("pipeline_gate_waived_count", 0) or 0) if isinstance(checks, dict) else 0
+        if waived_count:
+            lines.append(f"- Pipeline 守卫等价放行: {waived_count} 项")
+            for row in checks.get("pipeline_gate_waived_details", []) if isinstance(checks, dict) else []:
+                if not isinstance(row, dict):
+                    continue
+                pipeline_id = str(row.get("pipeline_id", "")).strip()
+                variant_id = str(row.get("variant_id", "")).strip()
+                source = str(row.get("source", "")).strip()
+                text = f"  - {pipeline_id}/{variant_id}"
+                if source:
+                    text += f"：依据 {source} 放行"
+                waivers = row.get("waivers", []) if isinstance(row.get("waivers"), list) else []
+                if waivers:
+                    parts = []
+                    for waiver in waivers:
+                        if not isinstance(waiver, dict):
+                            continue
+                        basis = str(waiver.get("waiver_basis", "")).strip()
+                        target = str(waiver.get("target", "")).strip()
+                        matched = str(waiver.get("matched_target", "")).strip()
+                        if basis == "artifact_alias" and target and matched:
+                            parts.append(f"{target} 由等价产物 {matched} 替代")
+                        elif basis == "capability_match":
+                            caps = waiver.get("matched_capabilities", [])
+                            if isinstance(caps, list) and caps:
+                                parts.append(f"{target} 由同类能力 {', '.join([str(x) for x in caps])} 放行")
+                    if parts:
+                        text += "（" + "；".join(parts) + "）"
+                lines.append(text)
         if actions:
             lines.append("- 建议恢复动作:")
             for action in actions:
@@ -1377,8 +1476,6 @@ class ReportAssembler:
         if not isinstance(payload, dict):
             return ""
         rows = payload.get("hypotheses", []) if isinstance(payload.get("hypotheses"), list) else []
-        if not rows:
-            return ""
         lines = ["## 冲突裁决结果（Path-C）"]
         lines.append(
             f"- 触发状态: {'已触发' if payload.get('enabled', False) else '未触发'}"
@@ -1387,6 +1484,9 @@ class ReportAssembler:
             lines.append(
                 f"- 冲突率: {payload.get('conflict_rate')}（阈值: {payload.get('threshold')}）"
             )
+        reason = str(payload.get("reason", "")).strip()
+        if reason and not payload.get("enabled", False):
+            lines.append(f"- 未触发原因: {reason}")
         for item in rows:
             if not isinstance(item, dict):
                 continue
@@ -1434,6 +1534,30 @@ class ReportAssembler:
                 payload = self._load_json(path)
                 if isinstance(payload, dict) and payload.get("hypotheses"):
                     return payload
+        # Fallback: synthesize a minimal structured plan from executed hypothesis results.
+        results_payload = self._load_json(session_root / "result" / "hypothesis_results.json")
+        rows = results_payload.get("hypotheses", []) if isinstance(results_payload, dict) else []
+        hypotheses: list[dict[str, Any]] = []
+        for idx, row in enumerate(rows):
+            if not isinstance(row, dict):
+                continue
+            raw = str(row.get("hypothesis", "")).strip()
+            hid_match = re.search(r"\b(H\d+)\b", raw.upper())
+            hid = hid_match.group(1) if hid_match else f"H{idx+1}"
+            title = raw.split(":", 1)[1].strip() if ":" in raw else (raw or hid)
+            steps = list((row.get("steps", {}) or {}).keys()) if isinstance(row.get("steps"), dict) else []
+            expected = row.get("expected_artifacts", []) if isinstance(row.get("expected_artifacts"), list) else []
+            hypotheses.append(
+                {
+                    "id": hid,
+                    "title": title,
+                    "hypothesis": title,
+                    "validation_plan_steps": [str(x) for x in steps if str(x).strip()],
+                    "expected_artifacts": [str(x) for x in expected if str(x).strip()],
+                }
+            )
+        if hypotheses:
+            return {"hypotheses": hypotheses, "source": "synthesized_from_execution"}
         return {}
 
     def _load_hypothesis_results(self, session_root: Path | None) -> dict[str, Any]:
@@ -2199,6 +2323,8 @@ class ReportAssembler:
         plan_json = self._load_plan_json(session_root)
         hypotheses_md, process_md = self._extract_plan_sections(session_root)
         plan_markdown = self._load_plan_markdown(session_root)
+        if not process_md:
+            process_md = self._synthesize_process_from_hypothesis_results(session_root)
         lines.append("## 研究目标与原始假设")
         overview = self._render_plan_hypothesis_overview(plan_json)
         if overview:

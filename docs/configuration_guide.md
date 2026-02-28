@@ -136,5 +136,27 @@ print('连接状态:', '成功' if response.status_code == 200 else '失败')
 开启编排分析后，可重点查看：
 
 - `meta/completion_validation.json`：完成态校验（失败时报告会降级）
+- `meta/plan_validation/file_summary_fallback.json`：DataIngest 降级追踪（可选）
+- `meta/plan_validation/report_llm_fallback.json`：ReportAssembly 降级追踪（可选）
+
+## Runtime Config Files (新增)
+
+可选配置文件：
+
+- `config/analysis_runtime.json`
+- `<session_dir>/config/analysis_runtime.json`
+- `config/hypothesis_profile_registry.json`
+- `<session_dir>/config/hypothesis_profile_registry.json`
+
+用途：
+
+- `analysis_runtime.json`
+  - `group_column_candidates`
+  - `group_selection.reference_labels`
+  - `group_selection.preferred_case_labels`
+  - `group_selection.max_top_groups`
+  - `required_result_artifacts`
+- `hypothesis_profile_registry.json`
+  - 自定义假设类型的标题、默认假设文本、证据 claim、方法族、默认图表绑定
 - `result/path_adjudication.json`：冲突裁决结果（受 `DEEPANALYZE_PATHC_CONFLICT_THRESHOLD` 影响）
 - `result/ml_repro_bundle_index.json`：预测类假设复现包索引（缺失会触发 gate 降级）

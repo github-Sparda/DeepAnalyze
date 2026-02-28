@@ -74,9 +74,12 @@ from src.core.analytics.toolkit.cooldown import record_failure, in_cooldown
 from src.core.analytics.resources import (
     build_hypothesis_evidence_pack,
     build_hypothesis_gate_report,
+    infer_hypothesis_profile_key,
     load_feature_dictionary,
+    load_hypothesis_profile_registry,
     load_method_dictionary,
     load_metric_dictionary,
+    resolve_hypothesis_profile,
     validate_hypothesis_evidence_pack,
 )
 from .state import OrchestrationState
@@ -139,6 +142,229 @@ def _load_json_if_exists(path: Path) -> dict[str, Any]:
     except Exception:
         return {}
     return payload if isinstance(payload, dict) else {}
+
+
+def _load_analysis_runtime_config(session_dir: Path | None = None) -> dict[str, Any]:
+    defaults = {
+        "required_result_artifacts": [
+            "analysis_results.md",
+            "stats_results.json",
+            "correlation.json",
+            "feature_selection.json",
+            "hypothesis_evidence.json",
+            "hypothesis_evidence_pack.json",
+            "hypothesis_evidence_pack_validation.json",
+            "hypothesis_contrast.json",
+            "hypothesis_multipath.json",
+            "hypothesis_validation_contract.json",
+            "hypothesis_gate_report.json",
+            "expected_artifact_validation.json",
+            "hypothesis_matrix.json",
+            "coverage_report.json",
+            "visual_binding.json",
+            "model_eval.json",
+            "cv_results.json",
+        ]
+    }
+    candidates: list[Path] = []
+    if isinstance(session_dir, Path):
+        candidates.append(session_dir / "config" / "analysis_runtime.json")
+    candidates.append(Path("config") / "analysis_runtime.json")
+    for path in candidates:
+        if not path.exists():
+            continue
+        payload = _load_json_if_exists(path)
+        if not payload:
+            continue
+        merged = dict(defaults)
+        merged.update(payload)
+        return merged
+    return defaults
+
+
+def _build_file_summary_fallback(file_info: str) -> str:
+    raw = str(file_info or "").strip()
+    if not raw:
+        return "文件摘要（降级生成）：当前工作目录未检测到可读文件。"
+    items: list[dict[str, Any]] = []
+    for block in re.findall(r"File\s+\d+:\s*(\{[\s\S]*?\})", raw):
+        try:
+            payload = json.loads(block)
+        except Exception:
+            continue
+        if isinstance(payload, dict):
+            items.append(payload)
+    if not items:
+        lines = [line.strip() for line in raw.splitlines() if line.strip()]
+        preview = "；".join(lines[:4])
+        return f"文件摘要（降级生成）：已发现输入文件信息。原始摘要片段：{preview}"
+    lines = ["文件摘要（降级生成）："]
+    lines.append(f"- 检测到文件数量：{len(items)}")
+    for idx, item in enumerate(items, 1):
+        name = str(item.get("name", "")).strip() or f"file_{idx}"
+        size = str(item.get("size", "")).strip() or "unknown"
+        lines.append(f"- 文件 {idx}：{name}（大小：{size}）")
+    lines.append("- 说明：当前摘要由系统在 LLM 超时/不可用时自动生成，用于保障流程连续执行。")
+    return "\n".join(lines)
+
+
+def _build_expected_artifact_validation_payload(plan_json: dict[str, Any]) -> dict[str, Any]:
+    rows: list[dict[str, Any]] = []
+    for hyp in plan_json.get("hypotheses", []) if isinstance(plan_json, dict) else []:
+        if not isinstance(hyp, dict):
+            continue
+        hid = str(hyp.get("id", "")).strip()
+        expected = hyp.get("expected_artifacts", []) if isinstance(hyp.get("expected_artifacts"), list) else []
+        invalid = hyp.get("invalid_expected_artifacts", []) if isinstance(hyp.get("invalid_expected_artifacts"), list) else []
+        rows.append(
+            {
+                "hypothesis_id": hid,
+                "valid_count": len(expected),
+                "invalid_count": len(invalid),
+                "invalid_items": invalid,
+            }
+        )
+    return {"hypotheses": rows, "valid": all(r["invalid_count"] == 0 for r in rows)}
+
+
+def _render_plan_markdown_from_json(plan_json: dict[str, Any]) -> str:
+    hypotheses = plan_json.get("hypotheses", []) if isinstance(plan_json, dict) else []
+    if not hypotheses:
+        return "## 分析计划\n\n未生成结构化假设。"
+    lines = ["## 分析计划", ""]
+    for hyp in hypotheses:
+        if not isinstance(hyp, dict):
+            continue
+        hid = str(hyp.get("id", "")).strip() or "H?"
+        title = str(hyp.get("title", "")).strip() or hid
+        hypothesis = str(hyp.get("hypothesis", "")).strip() or "未提供"
+        steps = hyp.get("validation_plan_steps", []) if isinstance(hyp.get("validation_plan_steps"), list) else []
+        expected = hyp.get("expected_artifacts", []) if isinstance(hyp.get("expected_artifacts"), list) else []
+        lines.append(f"### {hid} {title}")
+        lines.append(f"- 假设：{hypothesis}")
+        if steps:
+            lines.append("- 分析步骤：")
+            for idx, step in enumerate(steps, 1):
+                lines.append(f"  {idx}. {step}")
+        if expected:
+            lines.append("- 预期产物：")
+            for item in expected:
+                lines.append(f"  - {item}")
+        lines.append("")
+    return "\n".join(lines).strip()
+
+
+def _synthesize_plan_from_hypothesis_results(
+    session_dir: Path, data_quality: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    results_payload = _load_json_if_exists(session_dir / "result" / "hypothesis_results.json")
+    rows = results_payload.get("hypotheses", []) if isinstance(results_payload, dict) else []
+    hypotheses: list[dict[str, Any]] = []
+
+    for idx, row in enumerate(rows):
+        if not isinstance(row, dict):
+            continue
+        raw = str(row.get("hypothesis", "")).strip()
+        hid_match = re.search(r"\b(H\d+)\b", raw.upper())
+        hid = hid_match.group(1) if hid_match else f"H{idx+1}"
+        title = raw
+        if ":" in raw:
+            title = raw.split(":", 1)[1].strip() or raw
+        step_map = row.get("steps", {}) if isinstance(row.get("steps"), dict) else {}
+        step_names = [str(name).strip() for name in step_map.keys() if str(name).strip()]
+        expected_raw = row.get("expected_artifacts", []) if isinstance(row.get("expected_artifacts"), list) else []
+        artifacts, invalid = _sanitize_expected_artifacts([str(x).strip() for x in expected_raw if str(x).strip()])
+        profile = resolve_hypothesis_profile(
+            session_dir,
+            title=title,
+            hypothesis_text=raw,
+            explicit_key={
+                "H1": "difference",
+                "H2": "predictive",
+                "H3": "correlation",
+                "H4": "embedding",
+            }.get(hid, ""),
+        )
+        hypothesis_text = str(profile.get("hypothesis", "")).strip() or f"{title} 可通过多路径验证获得证据支持。"
+        normalized_title = str(profile.get("title", "")).strip() or title
+        hypotheses.append(
+            {
+                "id": hid,
+                "title": normalized_title,
+                "hypothesis": hypothesis_text,
+                "validation_plan_steps": step_names,
+                "expected_artifacts": artifacts,
+                "minimum_evidence_requirements": {
+                    "quant_metrics_min": 2,
+                    "require_significance_metric": True,
+                    "require_effect_metric": True,
+                },
+                "assumption_checks": ["data_quality_ready", "feature_schema_valid"],
+                "validation_paths": _default_validation_paths(
+                    hid,
+                    step_names,
+                    artifacts,
+                    normalized_title,
+                    hypothesis_text,
+                    session_dir=session_dir,
+                ),
+                "steps": step_names,
+                "artifacts": artifacts,
+                "invalid_expected_artifacts": invalid,
+                "hypothesis_type": str(profile.get("key", "")).strip(),
+            }
+        )
+
+    if hypotheses:
+        return {"hypotheses": hypotheses}
+
+    datasets = data_quality.get("datasets", []) if isinstance(data_quality, dict) else []
+    first = datasets[0] if datasets and isinstance(datasets[0], dict) else {}
+    dtypes = first.get("dtypes", {}) if isinstance(first.get("dtypes"), dict) else {}
+    columns = set(dtypes.keys())
+    numeric_cols = [name for name, dtype in dtypes.items() if any(token in str(dtype).lower() for token in ("int", "float", "double"))]
+    has_group = any(col.lower() in {"group", "label", "target", "class"} for col in columns)
+
+    fallback: list[dict[str, Any]] = []
+    if has_group and numeric_cols:
+        difference_profile = resolve_hypothesis_profile(session_dir, explicit_key="difference")
+        fallback.append(
+            {
+                "id": "H1",
+                "title": str(difference_profile.get("title", "")).strip() or "分组差异检验",
+                "hypothesis": str(difference_profile.get("hypothesis", "")).strip() or "不同分组在关键数值特征上存在显著差异。",
+                "validation_plan_steps": ["stats_tests", "multiple_testing", "stats_summary"],
+                "expected_artifacts": ["stats_results.json", "multiple_testing.json", "stats_summary.json"],
+                "hypothesis_type": "difference",
+            }
+        )
+    if numeric_cols:
+        correlation_profile = resolve_hypothesis_profile(session_dir, explicit_key="correlation")
+        fallback.append(
+            {
+                "id": "H2",
+                "title": str(correlation_profile.get("title", "")).strip() or "相关结构验证",
+                "hypothesis": str(correlation_profile.get("hypothesis", "")).strip() or "关键变量之间存在可解释的相关结构。",
+                "validation_plan_steps": ["correlation", "viz_heatmap_cluster", "viz_network"],
+                "expected_artifacts": ["correlation.json", "heatmap.png", "network.png"],
+                "hypothesis_type": "correlation",
+            }
+        )
+    if has_group and numeric_cols:
+        predictive_profile = resolve_hypothesis_profile(session_dir, explicit_key="predictive")
+        fallback.append(
+            {
+                "id": "H3",
+                "title": str(predictive_profile.get("title", "")).strip() or "预测性能验证",
+                "hypothesis": str(predictive_profile.get("hypothesis", "")).strip() or "特征组合可达到高于基线的分组识别性能。",
+                "validation_plan_steps": ["model_train", "model_eval"],
+                "expected_artifacts": ["model_results.json", "model_eval.json", "cv_results.json"],
+                "hypothesis_type": "predictive",
+            }
+        )
+
+    normalized = _normalize_plan_json({"hypotheses": fallback}, "")
+    return normalized if normalized.get("hypotheses") else {"hypotheses": []}
 
 
 def _register_plan_artifact(
@@ -428,6 +654,7 @@ def _normalize_plan_json(plan_json: dict[str, Any], plan_md: str) -> dict[str, A
                 "id": hyp_id,
                 "title": title,
                 "hypothesis": hypothesis_text,
+                "hypothesis_type": str(base.get("hypothesis_type", "")).strip(),
                 "validation_plan_steps": steps,
                 "expected_artifacts": artifacts,
                 "minimum_evidence_requirements": {
@@ -449,18 +676,27 @@ def _normalize_plan_json(plan_json: dict[str, Any], plan_md: str) -> dict[str, A
     return {"hypotheses": normalized}
 
 
-def _infer_method_family(hyp_id: str, title: str, hypothesis_text: str, index: int) -> str:
-    haystack = f"{hyp_id} {title} {hypothesis_text}".lower()
-    path_kind = "primary" if index == 0 else "secondary"
-    if any(key in haystack for key in ("差异", "differ", "显著", "p值", "q值")):
-        return "parametric_test" if path_kind == "primary" else "nonparametric_or_fdr"
-    if any(key in haystack for key in ("特征", "预测", "模型", "auc", "分类")):
-        return "feature_modeling" if path_kind == "primary" else "cross_validation"
-    if any(key in haystack for key in ("相关", "网络", "协同", "corr")):
-        return "pearson_network" if path_kind == "primary" else "rank_or_sparse_network"
-    if any(key in haystack for key in ("聚类", "降维", "pca", "tsne", "umap")):
-        return "pca_cluster" if path_kind == "primary" else "tsne_or_umap_cluster"
-    return "primary" if index == 0 else "secondary"
+def _infer_method_family(
+    hyp_id: str,
+    title: str,
+    hypothesis_text: str,
+    index: int,
+    session_dir: Path | None = None,
+) -> str:
+    registry = (
+        load_hypothesis_profile_registry(session_dir)
+        if isinstance(session_dir, Path)
+        else load_hypothesis_profile_registry(Path("."))
+    )
+    profile_key = infer_hypothesis_profile_key(
+        title=f"{hyp_id} {title}",
+        hypothesis_text=hypothesis_text,
+        registry=registry,
+    )
+    profile = registry.get(profile_key, registry.get("generic", {}))
+    primary = str(profile.get("primary_method_family", "primary")).strip().lower() or "primary"
+    secondary = str(profile.get("secondary_method_family", "secondary")).strip().lower() or "secondary"
+    return primary if index == 0 else secondary
 
 
 def _default_validation_paths(
@@ -469,17 +705,18 @@ def _default_validation_paths(
     artifacts: list[str],
     title: str,
     hypothesis_text: str,
+    session_dir: Path | None = None,
 ) -> list[dict[str, Any]]:
     return [
         {
             "path_id": "path_a",
-            "method_family": _infer_method_family(hyp_id, title, hypothesis_text, 0),
+            "method_family": _infer_method_family(hyp_id, title, hypothesis_text, 0, session_dir=session_dir),
             "steps": steps,
             "expected_artifacts": artifacts,
         },
         {
             "path_id": "path_b",
-            "method_family": _infer_method_family(hyp_id, title, hypothesis_text, 1),
+            "method_family": _infer_method_family(hyp_id, title, hypothesis_text, 1, session_dir=session_dir),
             "steps": list(reversed(steps)) if len(steps) > 1 else steps,
             "expected_artifacts": artifacts,
         },
@@ -497,7 +734,8 @@ def _strict_markdown_hypothesis_fallback(plan_md: str) -> dict[str, Any]:
         hypothesis_text = re.sub(r"[*`_]+", "", hypothesis_text).strip()
         if not hypothesis_text.strip():
             continue
-        title = f"{hid}: hypothesis"
+        profile = resolve_hypothesis_profile(Path("."), title=hypothesis_text, hypothesis_text=hypothesis_text)
+        title = str(profile.get("title", "")).strip() or f"{hid}: hypothesis"
         steps = [str(x).strip() for x in step_map.get(hid, []) if str(x).strip()]
         artifacts, invalid = _sanitize_expected_artifacts(artifact_map.get(hid, []))
         hypotheses.append(
@@ -505,6 +743,7 @@ def _strict_markdown_hypothesis_fallback(plan_md: str) -> dict[str, Any]:
                 "id": hid,
                 "title": title,
                 "hypothesis": hypothesis_text.strip(),
+                "hypothesis_type": str(profile.get("key", "")).strip(),
                 "validation_plan_steps": steps,
                 "expected_artifacts": artifacts,
                 "invalid_expected_artifacts": invalid,
@@ -514,7 +753,14 @@ def _strict_markdown_hypothesis_fallback(plan_md: str) -> dict[str, Any]:
                     "require_effect_metric": True,
                 },
                 "assumption_checks": ["data_quality_ready", "group_definition_valid"],
-                "validation_paths": _default_validation_paths(hid, steps, artifacts, title, hypothesis_text.strip()),
+                "validation_paths": _default_validation_paths(
+                    hid,
+                    steps,
+                    artifacts,
+                    title,
+                    hypothesis_text.strip(),
+                    session_dir=Path("."),
+                ),
                 "steps": steps,
                 "artifacts": artifacts,
             }
@@ -679,29 +925,36 @@ def _maybe_run_pipeline_variants(
         variant = scored.variant
         for step in variant.steps:
             run_step(step.name, dataset_path, session_dir, method=step.method)
-        missing = []
-        for artifact in variant.required_artifacts:
-            if not (Path(session_dir) / "result" / artifact).exists() and not (
-                Path(session_dir) / "plots" / artifact
-            ).exists():
-                missing.append(artifact)
-        gate_missing = _check_quality_gates(Path(session_dir), variant.quality_gates)
+        contract = _evaluate_pipeline_variant_contract(
+            Path(session_dir),
+            variant,
+            execution_context={
+                "executed_steps": [{"name": step.name, "method": step.method} for step in variant.steps],
+                "custom_line_records": custom_records,
+            },
+        )
         executed.append(
             {
                 "pipeline_id": scored.pipeline_id,
                 "variant_id": variant.variant_id,
                 "required_artifacts": list(variant.required_artifacts),
                 "quality_gates": list(variant.quality_gates),
-                "missing_artifacts": missing + gate_missing,
+                "missing_artifacts": list(contract.get("missing", [])),
+                "gate_status": contract.get("status", "fail"),
+                "gate_waivers": list(contract.get("waivers", [])),
+                "artifact_checks": list(contract.get("artifact_checks", [])),
+                "gate_checks": list(contract.get("gate_checks", [])),
                 "fallback_variant": variant.fallback_variant,
             }
         )
-        if missing or gate_missing:
+        if contract.get("status") == "fail":
             failures.append(
                 {
                     "pipeline_id": scored.pipeline_id,
                     "variant_id": variant.variant_id,
-                    "missing": missing + gate_missing,
+                    "missing": list(contract.get("missing", [])),
+                    "gate_status": contract.get("status", "fail"),
+                    "waivers": list(contract.get("waivers", [])),
                     "fallback_variant": variant.fallback_variant,
                 }
             )
@@ -799,16 +1052,17 @@ def _run_path_c_adjudication(
 
         for step in candidate.steps:
             run_step(step.name, dataset_path, session_dir, method=step.method)
-        missing = []
-        for artifact in getattr(candidate, "required_artifacts", []) or []:
-            if not (session_dir / "result" / artifact).exists() and not (session_dir / "plots" / artifact).exists():
-                missing.append(artifact)
-        gate_missing = _check_quality_gates(session_dir, list(getattr(candidate, "quality_gates", []) or []))
-        missing.extend(gate_missing)
-
+        contract = _evaluate_pipeline_variant_contract(
+            session_dir,
+            candidate,
+            execution_context={
+                "executed_steps": [{"name": step.name, "method": step.method} for step in candidate.steps],
+            },
+        )
+        missing = list(contract.get("missing", []))
         fallback_used = ""
-        path_c_status = "validated"
-        if missing:
+        path_c_status = "validated" if contract.get("status") in {"pass", "waived_by_equivalent_execution"} else "partial"
+        if contract.get("status") == "fail":
             path_c_status = "partial"
             fallback_id = getattr(candidate, "fallback_variant", None)
             if fallback_id and pipeline_id in registry:
@@ -818,12 +1072,19 @@ def _run_path_c_adjudication(
                     for step in variant.steps:
                         run_step(step.name, dataset_path, session_dir, method=step.method)
                     fallback_used = fallback_id
-                    missing = []
-                    for artifact in getattr(variant, "required_artifacts", []) or []:
-                        if not (session_dir / "result" / artifact).exists() and not (session_dir / "plots" / artifact).exists():
-                            missing.append(artifact)
-                    missing.extend(_check_quality_gates(session_dir, list(getattr(variant, "quality_gates", []) or [])))
-                    path_c_status = "validated" if not missing else "partial"
+                    fallback_contract = _evaluate_pipeline_variant_contract(
+                        session_dir,
+                        variant,
+                        execution_context={
+                            "executed_steps": [{"name": step.name, "method": step.method} for step in variant.steps],
+                        },
+                    )
+                    missing = list(fallback_contract.get("missing", []))
+                    path_c_status = (
+                        "validated"
+                        if fallback_contract.get("status") in {"pass", "waived_by_equivalent_execution"}
+                        else "partial"
+                    )
                     break
 
         path_c_row = {
@@ -1202,26 +1463,13 @@ def _rollback_plan_outputs(session_dir: Path, plan_id: str) -> None:
 
 
 def _run_audit(session_dir: Path) -> dict[str, Any]:
-    required = [
-        "result/analysis_results.md",
-        "result/stats_results.json",
-        "result/correlation.json",
-        "result/feature_selection.json",
-        "result/hypothesis_evidence.json",
-        "result/hypothesis_evidence_pack.json",
-        "result/hypothesis_evidence_pack_validation.json",
-        "result/hypothesis_contrast.json",
-        "result/hypothesis_multipath.json",
-        "result/hypothesis_validation_contract.json",
-        "result/hypothesis_gate_report.json",
-        "result/expected_artifact_validation.json",
-        "result/hypothesis_matrix.json",
-        "result/coverage_report.json",
-        "result/visual_binding.json",
-        "result/model_eval.json",
-        "result/cv_results.json",
-        "report/report_v1.html",
+    runtime_config = _load_analysis_runtime_config(session_dir)
+    required_result_artifacts = [
+        str(x).strip()
+        for x in runtime_config.get("required_result_artifacts", [])
+        if str(x).strip()
     ]
+    required = [f"result/{name}" for name in required_result_artifacts] + ["report/report_v1.html"]
     missing = []
     for rel in required:
         if not (session_dir / rel).exists():
@@ -1346,7 +1594,9 @@ def _build_analysis_quality_score(session_dir: Path) -> dict[str, Any]:
             if metric_count >= 2:
                 quant_ge_2 += 1
     contract_path = session_dir / "result" / "hypothesis_validation_contract.json"
-    closure_rate = 0.0
+    gate_path = session_dir / "result" / "hypothesis_gate_report.json"
+    contract_rate: float | None = None
+    gate_rate: float | None = None
     if contract_path.exists():
         try:
             contract = json.loads(contract_path.read_text(encoding="utf-8"))
@@ -1355,11 +1605,36 @@ def _build_analysis_quality_score(session_dir: Path) -> dict[str, Any]:
                 closed = sum(
                     1
                     for row in rows
-                    if str(row.get("executed_status", "")) in {"validated", "inconclusive"}
+                    if str(row.get("executed_status", "")).strip().lower() in {"validated", "inconclusive"}
                 )
-                closure_rate = round(closed / len(rows), 4)
+                contract_rate = round(closed / len(rows), 4)
         except Exception:
-            closure_rate = 0.0
+            contract_rate = None
+    if gate_path.exists():
+        try:
+            gate_payload = json.loads(gate_path.read_text(encoding="utf-8"))
+            gate_rows = gate_payload.get("hypotheses", []) if isinstance(gate_payload, dict) else []
+            if gate_rows:
+                passed = sum(
+                    1
+                    for row in gate_rows
+                    if str(row.get("gate_status", "")).strip().lower() in {"pass"}
+                )
+                gate_rate = round(passed / len(gate_rows), 4)
+        except Exception:
+            gate_rate = None
+    closure_source = "none"
+    if contract_rate is not None and gate_rate is not None:
+        closure_rate = min(contract_rate, gate_rate)
+        closure_source = "min(contract,gate)"
+    elif gate_rate is not None:
+        closure_rate = gate_rate
+        closure_source = "gate"
+    elif contract_rate is not None:
+        closure_rate = contract_rate
+        closure_source = "contract"
+    else:
+        closure_rate = 0.0
     contrast_path = session_dir / "result" / "hypothesis_contrast.json"
     conflict_explain_rate = 0.0
     if contrast_path.exists():
@@ -1386,6 +1661,7 @@ def _build_analysis_quality_score(session_dir: Path) -> dict[str, Any]:
         "quantitative_coverage": round((with_quant / total), 4) if total else 0.0,
         "quant_metric_ge_2_rate": round((quant_ge_2 / total), 4) if total else 0.0,
         "hypothesis_closure_rate": closure_rate,
+        "closure_source": closure_source,
         "conflict_explain_rate": conflict_explain_rate,
         "fluff_sentence_rate": fluff_sentence_rate,
     }
@@ -1422,12 +1698,17 @@ def _build_completion_validation(
     pack_validation: dict[str, Any] | None = None,
     artifact_validation: dict[str, Any] | None = None,
     pipeline_gate_failures: list[dict[str, Any]] | None = None,
+    pipeline_gate_waivers: list[dict[str, Any]] | None = None,
+    expect_report: bool = False,
 ) -> dict[str, Any]:
     gate_payload = gate_payload if isinstance(gate_payload, dict) else {}
     pack_validation = pack_validation if isinstance(pack_validation, dict) else {}
     artifact_validation = artifact_validation if isinstance(artifact_validation, dict) else {}
     pipeline_gate_failures = (
         pipeline_gate_failures if isinstance(pipeline_gate_failures, list) else []
+    )
+    pipeline_gate_waivers = (
+        pipeline_gate_waivers if isinstance(pipeline_gate_waivers, list) else []
     )
 
     checks: dict[str, Any] = {}
@@ -1490,6 +1771,9 @@ def _build_completion_validation(
         actions.append("修复角色产物缺失/错误，确保 artifact validator 通过。")
 
     checks["pipeline_gate_clean"] = len(pipeline_gate_failures) == 0
+    checks["pipeline_gate_failure_count"] = len(pipeline_gate_failures)
+    checks["pipeline_gate_waived_count"] = len(pipeline_gate_waivers)
+    checks["pipeline_gate_waived_details"] = pipeline_gate_waivers
     if pipeline_gate_failures:
         blocking_reasons.append("pipeline_gate_failures")
         actions.append("按 pipeline gate 失败原因切换 fallback 变体并重跑失败路径。")
@@ -1499,6 +1783,14 @@ def _build_completion_validation(
     if validation_failures_path.exists():
         blocking_reasons.append("validation_failure_recorded")
         actions.append("处理 validation_failures.json 指定失败阶段并执行最小重跑。")
+
+    if expect_report:
+        report_dir = session_dir / "report"
+        report_generated = report_dir.exists() and any(report_dir.glob("report_v*.*"))
+        checks["report_generated"] = report_generated
+        if not report_generated:
+            blocking_reasons.append("report_missing")
+            actions.append("补跑报告装配步骤并确认 report/report_v*.html 产出。")
 
     return {
         "complete": len(blocking_reasons) == 0,
@@ -1614,31 +1906,331 @@ def _build_ml_repro_bundle(
     write_json(result_dir / "ml_repro_bundle_index.json", payload)
     return payload
 
+def _generic_artifact_aliases(target: str) -> list[str]:
+    family_aliases = {
+        "volcano_plot.png": ["manhattan_plot.png"],
+        "manhattan_plot.png": ["volcano_plot.png"],
+        "heatmap_cluster.png": ["heatmap.png", "cluster.png"],
+        "heatmap.png": ["heatmap_cluster.png", "cluster.png"],
+        "cluster.png": ["heatmap_cluster.png", "heatmap.png"],
+    }
+    return list(family_aliases.get(target, []))
+
+
+def _resolve_artifact_path(session_dir: Path, location: str, target: str) -> Path | None:
+    if not target:
+        return None
+    if location == "result":
+        path = session_dir / "result" / target
+        return path if path.exists() else None
+    if location == "plots":
+        path = session_dir / "plots" / target
+        return path if path.exists() else None
+    if location == "report":
+        path = session_dir / "report" / target
+        return path if path.exists() else None
+    result_path = session_dir / "result" / target
+    if result_path.exists():
+        return result_path
+    plot_path = session_dir / "plots" / target
+    if plot_path.exists():
+        return plot_path
+    report_path = session_dir / "report" / target
+    if report_path.exists():
+        return report_path
+    return None
+
+
+def _artifact_capability_tags(location: str, target: str) -> set[str]:
+    normalized = str(target or "").strip()
+    stem = Path(normalized).name
+    tags: set[str] = set()
+    if not stem:
+        return tags
+    if stem in {"volcano_plot.png", "manhattan_plot.png"}:
+        tags.update({"plot:differential", "goal:key_feature_screening"})
+    if stem in {"heatmap_cluster.png", "heatmap.png", "cluster.png"}:
+        tags.update({"plot:cluster_heatmap_family", "goal:correlation_structure"})
+    if stem == "stats_results.json":
+        tags.update({"result:stats_results", "goal:key_feature_screening"})
+    if stem == "feature_selection.json":
+        tags.update({"result:feature_selection", "goal:key_feature_screening"})
+    if stem == "correlation.json":
+        tags.update({"result:correlation", "goal:correlation_structure"})
+    if stem == "model_results.json":
+        tags.update({"result:model_results", "goal:model_evaluation"})
+    if not tags:
+        base = f"{location}:{stem}" if location != "any" else stem
+        tags.add(base)
+    return tags
+
+
+def _collect_session_capabilities(
+    session_dir: Path,
+    execution_context: dict[str, Any] | None = None,
+) -> set[str]:
+    tags: set[str] = set()
+    for location in ("result", "plots", "report"):
+        base = session_dir / location
+        if not base.exists():
+            continue
+        for path in base.rglob("*"):
+            if not path.is_file():
+                continue
+            rel = path.relative_to(base)
+            tags.update(_artifact_capability_tags(location, rel.name))
+    if (session_dir / "result" / "hypothesis_results.json").exists():
+        tags.add("execution:deterministic_hypothesis")
+    if isinstance(execution_context, dict):
+        for step in execution_context.get("executed_steps", []) or []:
+            if not isinstance(step, dict):
+                continue
+            name = str(step.get("name", "")).strip()
+            method = str(step.get("method", "")).strip()
+            if name:
+                tags.add(f"step:{name}")
+            if name and method:
+                tags.add(f"step:{name}:{method}")
+        if any(bool(row.get("success")) for row in execution_context.get("custom_line_records", []) or [] if isinstance(row, dict)):
+            tags.add("execution:custom_line_success")
+    return tags
+
+
+def _evaluate_gate_target(
+    session_dir: Path,
+    gate: str,
+    *,
+    artifact_aliases: dict[str, list[str]] | None = None,
+    equivalence_rules: list[str] | None = None,
+    available_capabilities: set[str] | None = None,
+) -> dict[str, Any]:
+    location = "any"
+    target = gate
+    if ":" in gate:
+        location, target = gate.split(":", 1)
+    location = str(location or "any").strip() or "any"
+    target = str(target or "").strip()
+    report = {
+        "gate": gate,
+        "location": location,
+        "target": target,
+        "status": "missing",
+    }
+    if not target:
+        report["status"] = "skipped"
+        return report
+    resolved = _resolve_artifact_path(session_dir, location, target)
+    if resolved is not None:
+        report["status"] = "present"
+        report["matched_path"] = str(resolved)
+        return report
+    alias_candidates: list[str] = []
+    if isinstance(artifact_aliases, dict):
+        alias_candidates.extend([str(x) for x in artifact_aliases.get(target, []) if str(x).strip()])
+    alias_candidates.extend(_generic_artifact_aliases(target))
+    seen: set[str] = set()
+    deduped_aliases: list[str] = []
+    for alias in alias_candidates:
+        if alias in seen:
+            continue
+        seen.add(alias)
+        deduped_aliases.append(alias)
+    for alias in deduped_aliases:
+        alias_resolved = _resolve_artifact_path(session_dir, location, alias)
+        if alias_resolved is None:
+            continue
+        report["status"] = "waived_by_equivalent_execution"
+        report["waiver_basis"] = "artifact_alias"
+        report["matched_target"] = alias
+        report["matched_path"] = str(alias_resolved)
+        return report
+    rules = {str(x).strip() for x in (equivalence_rules or []) if str(x).strip()}
+    capabilities = available_capabilities or set()
+    if "allow_capability_equivalence" in rules:
+        required_caps = {
+            tag for tag in _artifact_capability_tags(location, target) if not str(tag).startswith("goal:")
+        }
+        matched_caps = sorted(required_caps & capabilities)
+        if matched_caps:
+            report["status"] = "waived_by_equivalent_execution"
+            report["waiver_basis"] = "capability_match"
+            report["matched_capabilities"] = matched_caps
+            return report
+    return report
+
+
+def _check_quality_gates_detailed(
+    session_dir: Path,
+    gates: list[str],
+    *,
+    artifact_aliases: dict[str, list[str]] | None = None,
+    equivalence_rules: list[str] | None = None,
+    execution_context: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    available_capabilities = _collect_session_capabilities(session_dir, execution_context)
+    rows: list[dict[str, Any]] = []
+    for gate in gates:
+        rows.append(
+            _evaluate_gate_target(
+                session_dir,
+                gate,
+                artifact_aliases=artifact_aliases,
+                equivalence_rules=equivalence_rules,
+                available_capabilities=available_capabilities,
+            )
+        )
+    return rows
+
+
+def _evaluate_pipeline_variant_contract(
+    session_dir: Path,
+    variant: Any,
+    *,
+    execution_context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    artifact_aliases = dict(getattr(variant, "artifact_aliases", {}) or {})
+    equivalence_rules = list(getattr(variant, "equivalence_rules", []) or [])
+    available_capabilities = _collect_session_capabilities(session_dir, execution_context)
+    artifact_rows = []
+    for artifact in list(getattr(variant, "required_artifacts", []) or []):
+        gate = f"plots:{artifact}" if Path(artifact).suffix.lower() in {".png", ".jpg", ".jpeg", ".svg", ".html"} else f"result:{artifact}"
+        artifact_rows.append(
+            _evaluate_gate_target(
+                session_dir,
+                gate,
+                artifact_aliases=artifact_aliases,
+                equivalence_rules=equivalence_rules,
+                available_capabilities=available_capabilities,
+            )
+        )
+    gate_rows = _check_quality_gates_detailed(
+        session_dir,
+        list(getattr(variant, "quality_gates", []) or []),
+        artifact_aliases=artifact_aliases,
+        equivalence_rules=equivalence_rules,
+        execution_context=execution_context,
+    )
+    missing_targets: list[str] = []
+    for row in [*artifact_rows, *gate_rows]:
+        if row.get("status") != "missing":
+            continue
+        gate = str(row.get("gate", "")).strip()
+        if gate and gate not in missing_targets:
+            missing_targets.append(gate)
+    waivers = [
+        row
+        for row in [*artifact_rows, *gate_rows]
+        if row.get("status") == "waived_by_equivalent_execution"
+    ]
+    status = "fail" if missing_targets else ("waived_by_equivalent_execution" if waivers else "pass")
+    return {
+        "status": status,
+        "missing": missing_targets,
+        "artifact_checks": artifact_rows,
+        "gate_checks": gate_rows,
+        "waivers": waivers,
+        "capabilities": sorted(available_capabilities),
+    }
+
+
+def _resolve_pipeline_gate_failures(
+    session_dir: Path,
+    failures: list[dict[str, Any]],
+    *,
+    custom_line_records: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    if not failures:
+        return {"remaining_failures": [], "fallback_records": [], "waived_records": []}
+    from src.core.analytics.toolkit.pipelines import pipeline_registry
+
+    registry = pipeline_registry()
+    dataset_path = _find_first_dataset(session_dir)
+    fallback_records: list[dict[str, Any]] = []
+    waived_records: list[dict[str, Any]] = []
+    remaining: list[dict[str, Any]] = []
+    for failure in failures:
+        pipeline_id = str(failure.get("pipeline_id", "")).strip()
+        variant_id = str(failure.get("variant_id", "")).strip()
+        spec = registry.get(pipeline_id)
+        variant = None
+        if spec:
+            for item in spec.variants:
+                if item.variant_id == variant_id:
+                    variant = item
+                    break
+        if variant is not None:
+            contract = _evaluate_pipeline_variant_contract(
+                session_dir,
+                variant,
+                execution_context={"custom_line_records": custom_line_records or []},
+            )
+            if contract["status"] in {"pass", "waived_by_equivalent_execution"}:
+                waived_records.append(
+                    {
+                        "pipeline_id": pipeline_id,
+                        "variant_id": variant_id,
+                        "status": contract["status"],
+                        "waivers": contract["waivers"],
+                        "source": "existing_equivalent_outputs",
+                    }
+                )
+                continue
+        fallback_id = str(failure.get("fallback_variant", "")).strip()
+        fallback_variant = None
+        if spec and fallback_id:
+            for item in spec.variants:
+                if item.variant_id == fallback_id:
+                    fallback_variant = item
+                    break
+        if fallback_variant is not None and dataset_path is not None:
+            for step in fallback_variant.steps:
+                run_step(step.name, dataset_path, session_dir, method=step.method)
+            contract = _evaluate_pipeline_variant_contract(
+                session_dir,
+                fallback_variant,
+                execution_context={
+                    "custom_line_records": custom_line_records or [],
+                    "executed_steps": [
+                        {"name": step.name, "method": step.method} for step in fallback_variant.steps
+                    ],
+                },
+            )
+            fallback_records.append(
+                {
+                    "pipeline_id": pipeline_id,
+                    "fallback_variant": fallback_id,
+                    "status": contract["status"],
+                    "reason": failure.get("missing", []),
+                }
+            )
+            if contract["status"] in {"pass", "waived_by_equivalent_execution"}:
+                if contract["status"] == "waived_by_equivalent_execution":
+                    waived_records.append(
+                        {
+                            "pipeline_id": pipeline_id,
+                            "variant_id": fallback_id,
+                            "status": contract["status"],
+                            "waivers": contract["waivers"],
+                            "source": "fallback_variant",
+                        }
+                    )
+                continue
+        unresolved = dict(failure)
+        missing_items = failure.get("missing", []) if isinstance(failure.get("missing"), list) else []
+        unresolved["reason_summary"] = "；".join([f"仍缺少 {item}" for item in missing_items]) if missing_items else "产物或门槛仍未满足"
+        remaining.append(unresolved)
+    return {
+        "remaining_failures": remaining,
+        "fallback_records": fallback_records,
+        "waived_records": waived_records,
+    }
+
 
 def _check_quality_gates(session_dir: Path, gates: list[str]) -> list[str]:
     missing: list[str] = []
-    for gate in gates:
-        target = gate
-        location = "any"
-        if ":" in gate:
-            location, target = gate.split(":", 1)
-        target = target.strip()
-        if not target:
-            continue
-        if location == "result":
-            if not (session_dir / "result" / target).exists():
-                missing.append(gate)
-        elif location == "plots":
-            if not (session_dir / "plots" / target).exists():
-                missing.append(gate)
-        elif location == "report":
-            if not (session_dir / "report" / target).exists():
-                missing.append(gate)
-        else:
-            if not (session_dir / "result" / target).exists() and not (
-                session_dir / "plots" / target
-            ).exists():
-                missing.append(gate)
+    for row in _check_quality_gates_detailed(session_dir, gates):
+        if row.get("status") == "missing":
+            missing.append(row["gate"])
     return missing
 
 
@@ -1651,7 +2243,6 @@ def _artifact_validation_report(session_dir: Path) -> dict[str, Any]:
         "Insights",
         "EvidenceCurator",
         "Visualization",
-        "ReportAssembly",
         "RunGuard",
     ]
     manifest_path = Path(session_dir) / "meta" / "role_manifest.json"
@@ -1665,9 +2256,21 @@ def _artifact_validation_report(session_dir: Path) -> dict[str, Any]:
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         except Exception:
             manifest = []
-        seen_roles = {entry.get("role_id") for entry in manifest if entry.get("role_id")}
+        latest_by_role: dict[str, dict[str, Any]] = {}
+        for entry in manifest:
+            if not isinstance(entry, dict):
+                continue
+            role_id = str(entry.get("role_id", "")).strip()
+            if not role_id:
+                continue
+            latest_by_role[role_id] = entry
+        seen_roles = set(latest_by_role.keys())
         report["missing_roles"] = [r for r in required_roles if r not in seen_roles]
-        report["errors"] = [entry for entry in manifest if entry.get("status") == "error"]
+        report["errors"] = [
+            entry
+            for role, entry in latest_by_role.items()
+            if str(entry.get("status", "")).strip().lower() == "error"
+        ]
     else:
         report["missing_roles"] = required_roles
     return report
@@ -1739,8 +2342,22 @@ def _build_hypothesis_set_consistency(
     report_ids = _extract_hypothesis_ids_from_report(session_dir / "report" / "report_v1.html")
 
     base = set(plan_ids)
+    base_source = "plan"
+    if not base:
+        for source_name, ids in (
+            ("results", results_ids),
+            ("evidence_pack", evidence_ids),
+            ("gate", gate_ids),
+            ("multipath", multipath_ids),
+        ):
+            if ids:
+                base = set(ids)
+                base_source = f"inferred:{source_name}"
+                break
     checks = {
         "plan_ids": plan_ids,
+        "base_ids": sorted(base),
+        "base_source": base_source,
         "results_ids": results_ids,
         "multipath_ids": multipath_ids,
         "evidence_pack_ids": evidence_ids,
@@ -1749,7 +2366,7 @@ def _build_hypothesis_set_consistency(
     }
     mismatches: dict[str, Any] = {}
     for name, ids in checks.items():
-        if name == "plan_ids":
+        if name in {"plan_ids", "base_ids", "base_source"}:
             continue
         if name == "report_ids" and not require_report_ids:
             continue
@@ -1769,12 +2386,26 @@ def _build_hypothesis_set_consistency(
         repair["notes"].append("pre_report_stage: report_ids check skipped deterministically")
         mismatches = {}
     return {
-        "satisfied": not mismatches and bool(plan_ids),
+        "satisfied": not mismatches and bool(base),
         "checks": checks,
         "mismatches": mismatches,
         "repair": repair,
         "reason": "" if not mismatches else "incomplete_hypothesis_set",
     }
+
+
+def _summarize_set_consistency_mismatches(payload: dict[str, Any]) -> str:
+    mismatches = payload.get("mismatches", {}) if isinstance(payload, dict) else {}
+    if not isinstance(mismatches, dict) or not mismatches:
+        return ""
+    parts: list[str] = []
+    for key, row in mismatches.items():
+        if not isinstance(row, dict):
+            continue
+        missing = row.get("missing_from_current", []) if isinstance(row.get("missing_from_current"), list) else []
+        extra = row.get("extra_in_current", []) if isinstance(row.get("extra_in_current"), list) else []
+        parts.append(f"{key}: 缺失{len(missing)}项/额外{len(extra)}项")
+    return "；".join(parts)
 
 
 def _validate_plan_json_contract(plan_json: dict[str, Any]) -> tuple[bool, list[str]]:
@@ -1970,17 +2601,33 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
         init_data_sessions_active(session_dir)
         file_info = collect_file_info(str(session_dir))
         language = state.get("config", {}).get("report_language", "zh")
-        messages = render_role_prompt(
-            "file_understanding",
-            language,
-            prompt_key="file_summary",
-            file_info=file_info,
-        )
-        summary = llm.chat(messages, max_tokens=2048)
+        fallback_note: dict[str, Any] = {}
+        try:
+            messages = render_role_prompt(
+                "file_understanding",
+                language,
+                prompt_key="file_summary",
+                file_info=file_info,
+            )
+            summary = llm.chat(messages, max_tokens=2048)
+        except Exception as exc:
+            summary = _build_file_summary_fallback(file_info)
+            fallback_note = {
+                "fallback_used": True,
+                "reason": f"llm_unavailable:{exc}",
+                "timestamp": int(time.time()),
+            }
+            write_json(
+                ensure_dir(session_dir / "meta" / "plan_validation") / "file_summary_fallback.json",
+                fallback_note,
+            )
         summary_path = session_dir / "plan" / "file_summary.md"
         write_text(summary_path, summary)
         record_artifact(session_dir, summary_path, "plan", "understand_files")
-        return {"file_summary": summary, "iteration_count": int(state.get("iteration_count", 0)) or 1}
+        output = {"file_summary": summary, "iteration_count": int(state.get("iteration_count", 0)) or 1}
+        if fallback_note:
+            output["file_summary_fallback"] = fallback_note
+        return output
 
     def data_quality(state: OrchestrationState) -> OrchestrationState:
         if not config.get("data_quality_enabled", DATA_QUALITY_ENABLED):
@@ -2044,6 +2691,7 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
     def plan_analysis(state: OrchestrationState) -> OrchestrationState:
         summary = state.get("file_summary", "")
         language = state.get("config", {}).get("report_language", "zh")
+        session_dir = Path(state.get("session_dir", ""))
         plan_store = PlanStore(Path(state.get("session_dir", "")))
         planner = HypothesisPlanner(llm, language)
         plan_id_hint = state.get("plan_id", "")
@@ -2061,92 +2709,105 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
         followups = list(state.get("followup_hypotheses", []) or [])
         if followups:
             history.append("Follow-up hypotheses:\n" + "\n".join(f"- {h}" for h in followups))
-        plan = planner.plan(
-            summary,
-            history,
-            plan_id=plan_id_hint,
-            artifact_context=artifact_context,
-            telemetry_context=telemetry_context,
-            goal_hint=goal_hint,
-        )
-        plan_path = Path(state.get("session_dir", "")) / "plan" / "analysis_plan.md"
-        write_text(plan_path, plan)
-        record_artifact(state.get("session_dir", ""), plan_path, "plan", "plan_analysis")
+        error_dir = ensure_dir(session_dir / "meta" / "plan_validation")
+        plan_runtime_errors: list[str] = []
+        plan = ""
+        raw_plan_json: dict[str, Any] = {}
+        plan_json: dict[str, Any] = {"hypotheses": []}
 
-        struct_prompt = get_prompt("planning_struct", language)
-        struct_messages = [
-            {"role": "system", "content": get_system(language)},
-            {"role": "user", "content": f"{struct_prompt}\n\nPlan:\n{plan}"},
-        ]
-        plan_json_raw = llm.chat(struct_messages, max_tokens=2048)
-        raw_plan_json = _safe_json_load(plan_json_raw)
-        plan_json = _normalize_plan_json(raw_plan_json, plan)
-        upgrade_preview = _upgrade_plan_schema_preview(raw_plan_json, plan)
-        error_dir = ensure_dir(Path(state.get("session_dir", "")) / "meta" / "plan_validation")
-        write_json(error_dir / "upgrade_preview.json", upgrade_preview)
-        if _needs_validation_path_repair(plan_json):
-            repair_prompt = (
-                "仅提取每条假设的 validation_paths，返回严格 JSON："
-                "{hypotheses:[{id,validation_paths:[{path_id,method_family,steps,expected_artifacts}]}]}。"
-                "必须每条假设至少两条路径，且 method_family 不同。"
+        try:
+            plan = planner.plan(
+                summary,
+                history,
+                plan_id=plan_id_hint,
+                artifact_context=artifact_context,
+                telemetry_context=telemetry_context,
+                goal_hint=goal_hint,
             )
-            repair_messages = [
-                {"role": "system", "content": get_system(language)},
-                {
-                    "role": "user",
-                    "content": (
-                        f"{repair_prompt}\n\n原始计划：\n{plan}\n\n当前结构化 JSON：\n"
-                        f"{json.dumps(plan_json, ensure_ascii=False)}"
-                    ),
-                },
-            ]
-            repair_raw = llm.chat(repair_messages, max_tokens=1536)
-            repair_payload = _safe_json_load(repair_raw)
-            plan_json = _merge_validation_paths(plan_json, repair_payload)
+        except Exception as exc:
+            plan_runtime_errors.append(f"planner_llm_failed:{exc}")
+
+        if plan:
+            try:
+                struct_prompt = get_prompt("planning_struct", language)
+                struct_messages = [
+                    {"role": "system", "content": get_system(language)},
+                    {"role": "user", "content": f"{struct_prompt}\n\nPlan:\n{plan}"},
+                ]
+                plan_json_raw = llm.chat(struct_messages, max_tokens=2048)
+                raw_plan_json = _safe_json_load(plan_json_raw)
+                plan_json = _normalize_plan_json(raw_plan_json, plan)
+                if _needs_validation_path_repair(plan_json):
+                    repair_prompt = (
+                        "仅提取每条假设的 validation_paths，返回严格 JSON："
+                        "{hypotheses:[{id,validation_paths:[{path_id,method_family,steps,expected_artifacts}]}]}。"
+                        "必须每条假设至少两条路径，且 method_family 不同。"
+                    )
+                    repair_messages = [
+                        {"role": "system", "content": get_system(language)},
+                        {
+                            "role": "user",
+                            "content": (
+                                f"{repair_prompt}\n\n原始计划：\n{plan}\n\n当前结构化 JSON：\n"
+                                f"{json.dumps(plan_json, ensure_ascii=False)}"
+                            ),
+                        },
+                    ]
+                    repair_raw = llm.chat(repair_messages, max_tokens=1536)
+                    repair_payload = _safe_json_load(repair_raw)
+                    plan_json = _merge_validation_paths(plan_json, repair_payload)
+            except Exception as exc:
+                plan_runtime_errors.append(f"plan_struct_llm_failed:{exc}")
+
         valid_plan, plan_errors = _validate_plan_json_contract(plan_json)
-        if not valid_plan:
+        if not valid_plan and plan:
             # strict fallback: extract only explicit H1/H2/... hypothesis statements from markdown
             plan_json = _strict_markdown_hypothesis_fallback(plan)
             valid_plan, plan_errors = _validate_plan_json_contract(plan_json)
         if not valid_plan:
-            write_json(
-                error_dir / "plan_contract_invalid.json",
-                {
-                    "plan_contract_invalid": True,
-                    "errors": plan_errors,
-                    "suggestions": _plan_validation_suggestions(plan_errors),
-                },
+            deterministic_plan = _synthesize_plan_from_hypothesis_results(
+                session_dir,
+                state.get("data_quality", {}),
             )
-            plan_json = {"hypotheses": []}
-        if plan_errors:
+            if deterministic_plan.get("hypotheses"):
+                plan_json = deterministic_plan
+                valid_plan, plan_errors = _validate_plan_json_contract(plan_json)
+                if not plan:
+                    plan = _render_plan_markdown_from_json(plan_json)
+            if not valid_plan:
+                write_json(
+                    error_dir / "plan_contract_invalid.json",
+                    {
+                        "plan_contract_invalid": True,
+                        "errors": plan_errors,
+                        "suggestions": _plan_validation_suggestions(plan_errors),
+                    },
+                )
+                plan_json = {"hypotheses": []}
+        if not plan:
+            plan = _render_plan_markdown_from_json(plan_json)
+
+        upgrade_preview = _upgrade_plan_schema_preview(raw_plan_json or plan_json, plan)
+        write_json(error_dir / "upgrade_preview.json", upgrade_preview)
+        if plan_errors or plan_runtime_errors:
             write_json(
                 error_dir / "errors.json",
                 {
                     "errors": plan_errors,
+                    "runtime_errors": plan_runtime_errors,
                     "valid": valid_plan,
                     "suggestions": _plan_validation_suggestions(plan_errors),
                 },
             )
-        expected_validation_rows: list[dict[str, Any]] = []
-        for hyp in plan_json.get("hypotheses", []) if isinstance(plan_json, dict) else []:
-            if not isinstance(hyp, dict):
-                continue
-            hid = str(hyp.get("id", ""))
-            expected = hyp.get("expected_artifacts", []) if isinstance(hyp.get("expected_artifacts"), list) else []
-            invalid = hyp.get("invalid_expected_artifacts", []) if isinstance(hyp.get("invalid_expected_artifacts"), list) else []
-            expected_validation_rows.append(
-                {
-                    "hypothesis_id": hid,
-                    "valid_count": len(expected),
-                    "invalid_count": len(invalid),
-                    "invalid_items": invalid,
-                }
-            )
+
+        plan_path = session_dir / "plan" / "analysis_plan.md"
+        write_text(plan_path, plan)
+        record_artifact(state.get("session_dir", ""), plan_path, "plan", "plan_analysis")
         write_json(
-            Path(state.get("session_dir", "")) / "result" / "expected_artifact_validation.json",
-            {"hypotheses": expected_validation_rows, "valid": all(r["invalid_count"] == 0 for r in expected_validation_rows)},
+            session_dir / "result" / "expected_artifact_validation.json",
+            _build_expected_artifact_validation_payload(plan_json),
         )
-        plan_json_path = Path(state.get("session_dir", "")) / "plan" / "analysis_plan.json"
+        plan_json_path = session_dir / "plan" / "analysis_plan.json"
         write_json(plan_json_path, plan_json)
         record_artifact(state.get("session_dir", ""), plan_json_path, "plan", "plan_analysis")
         hypotheses = [
@@ -2477,9 +3138,30 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
                     write_json(session_dir / "result" / "hypothesis_evidence.json", evidence_payload)
                     contrast_payload = _build_hypothesis_contrast(evidence_payload, session_dir)
                     write_json(session_dir / "result" / "hypothesis_contrast.json", contrast_payload)
+                    effective_plan_json = (
+                        state.get("plan_json", {})
+                        if isinstance(state.get("plan_json", {}), dict)
+                        else {}
+                    )
+                    if not effective_plan_json.get("hypotheses"):
+                        effective_plan_json = _load_json_if_exists(session_dir / "plan" / "analysis_plan.json")
+                    if not effective_plan_json.get("hypotheses"):
+                        effective_plan_json = _synthesize_plan_from_hypothesis_results(
+                            session_dir,
+                            state.get("data_quality", {}),
+                        )
+                        write_json(session_dir / "plan" / "analysis_plan.json", effective_plan_json)
+                        write_text(
+                            session_dir / "plan" / "analysis_plan.md",
+                            _render_plan_markdown_from_json(effective_plan_json),
+                        )
+                    write_json(
+                        session_dir / "result" / "expected_artifact_validation.json",
+                        _build_expected_artifact_validation_payload(effective_plan_json),
+                    )
                     multipath_payload = _evaluate_hypothesis_validation_paths(
                         session_dir,
-                        state.get("plan_json", {}) if isinstance(state.get("plan_json", {}), dict) else {},
+                        effective_plan_json,
                         evidence_payload,
                         contrast_payload,
                     )
@@ -2493,7 +3175,7 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
                     write_json(session_dir / "result" / "hypothesis_multipath.json", multipath_payload)
                     write_json(session_dir / "result" / "path_adjudication.json", path_adjudication_payload)
                     contract_payload = _build_hypothesis_validation_contract(
-                        state.get("plan_json", {}) if isinstance(state.get("plan_json", {}), dict) else {},
+                        effective_plan_json,
                         contrast_payload,
                         multipath_payload,
                     )
@@ -2678,10 +3360,16 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
             "errors": errors,
             "pipeline_variants": executed if "executed" in locals() else [],
             "pipeline_gate_failures": failures if "failures" in locals() else [],
+            "pipeline_gate_waivers": [
+                row
+                for row in (executed if "executed" in locals() else [])
+                if isinstance(row, dict) and row.get("gate_status") == "waived_by_equivalent_execution"
+            ],
             "custom_line_records": custom_records if "custom_records" in locals() else [],
             "custom_line_summary": summary_payload,
             "hypothesis_multipath": multipath_payload if "multipath_payload" in locals() else {},
             "path_adjudication": path_adjudication_payload if "path_adjudication_payload" in locals() else {},
+            "plan_json": effective_plan_json if "effective_plan_json" in locals() else state.get("plan_json", {}),
         }
 
     def evidence_curation(state: OrchestrationState) -> OrchestrationState:
@@ -2736,15 +3424,21 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
         except Exception:
             conflict_rate = 0.0
         calibration_context["conflict_rate"] = conflict_rate
-        if conflict_rate > 0.3:
-            dynamic_overrides.update(
-                {
-                    "significance_count_min": 2.0,
-                    "primary_performance_min": max(0.65, float(dynamic_overrides.get("primary_performance_min", 0.6))),
-                    "secondary_performance_min": max(0.62, float(dynamic_overrides.get("secondary_performance_min", 0.6))),
-                }
-            )
+        conflict_threshold = float(
+            state.get("config", {}).get("pathc_conflict_threshold", PATHC_CONFLICT_THRESHOLD)
+        )
+        high_conflict_defaults = {
+            "significance_count_min": 2.0,
+            "primary_performance_min": 0.65,
+            "secondary_performance_min": 0.62,
+        }
+        configured_high_conflict = state.get("config", {}).get("gate_high_conflict_overrides", {})
+        if isinstance(configured_high_conflict, dict):
+            high_conflict_defaults.update(configured_high_conflict)
+        if conflict_rate > conflict_threshold:
+            dynamic_overrides.update(high_conflict_defaults)
             calibration_context["high_conflict_adjustment"] = True
+        calibration_context["conflict_threshold"] = conflict_threshold
         merged_overrides: dict[str, Any] = {}
         if isinstance(gate_overrides, dict):
             merged_overrides.update(gate_overrides)
@@ -2948,37 +3642,21 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
 
     def pipeline_guard(state: OrchestrationState) -> OrchestrationState:
         failures = state.get("pipeline_gate_failures", []) or []
+        existing_waivers = list(state.get("pipeline_gate_waivers", []) or [])
         if not failures:
-            return {}
+            return {"pipeline_guard_ran": True, "pipeline_gate_waivers": existing_waivers}
         session_dir = Path(state.get("session_dir", ""))
-        dataset_path = _find_first_dataset(session_dir)
-        if dataset_path is None:
-            return {}
-        from src.core.analytics.toolkit.pipelines import pipeline_registry
-
-        registry = pipeline_registry()
-        fallback_records: list[dict[str, Any]] = []
-        for failure in failures:
-            pipeline_id = failure.get("pipeline_id")
-            fallback_id = failure.get("fallback_variant")
-            if not (pipeline_id and fallback_id):
-                continue
-            spec = registry.get(pipeline_id)
-            if not spec:
-                continue
-            for variant in spec.variants:
-                if variant.variant_id == fallback_id:
-                    for step in variant.steps:
-                        run_step(step.name, dataset_path, session_dir, method=step.method)
-                    fallback_records.append(
-                        {
-                            "pipeline_id": pipeline_id,
-                            "fallback_variant": fallback_id,
-                            "reason": failure.get("missing", []),
-                        }
-                    )
-                    break
-        return {"pipeline_guard_ran": True, "pipeline_fallbacks": fallback_records}
+        resolution = _resolve_pipeline_gate_failures(
+            session_dir,
+            failures,
+            custom_line_records=list(state.get("custom_line_records", []) or []),
+        )
+        return {
+            "pipeline_guard_ran": True,
+            "pipeline_fallbacks": resolution["fallback_records"],
+            "pipeline_gate_failures": resolution["remaining_failures"],
+            "pipeline_gate_waivers": existing_waivers + resolution["waived_records"],
+        }
 
     def artifact_validator(state: OrchestrationState) -> OrchestrationState:
         if not state.get("config", {}).get("role_guard_enabled", ROLE_GUARD_ENABLED):
@@ -3210,7 +3888,7 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
         write_json(session_dir / "meta" / "hypothesis_set_consistency.json", set_consistency)
         if not set_consistency.get("satisfied", False):
             fail_reason = "incomplete_hypothesis_set"
-            detail = json.dumps(set_consistency.get("mismatches", {}), ensure_ascii=False)
+            detail = _summarize_set_consistency_mismatches(set_consistency)
             if execution_warning:
                 execution_warning = execution_warning + f"\n执行门槛告警：{fail_reason}。{detail}"
             else:
@@ -3222,6 +3900,7 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
             pack_validation=pack_validation,
             artifact_validation=state.get("artifact_validation", {}),
             pipeline_gate_failures=state.get("pipeline_gate_failures", []),
+            pipeline_gate_waivers=state.get("pipeline_gate_waivers", []),
         )
         write_json(session_dir / "meta" / "completion_validation.json", completion_validation)
         if not completion_validation.get("complete", False):
@@ -3263,8 +3942,40 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
         if not completion_validation.get("complete", False):
             use_report_llm = False
         if use_report_llm:
-            report_raw = llm.chat(messages, max_tokens=4096)
-            report_payload = normalize_report_payload(parse_structured_payload(report_raw))
+            try:
+                report_raw = llm.chat(messages, max_tokens=4096)
+                report_payload = normalize_report_payload(parse_structured_payload(report_raw))
+            except Exception as exc:
+                raw_reason = str(exc)
+                short_reason = "report_llm_unavailable"
+                low_reason = raw_reason.lower()
+                if "429" in low_reason or "model_not_found" in low_reason or "rate" in low_reason:
+                    short_reason = "report_model_unavailable_or_rate_limited"
+                report_payload = normalize_report_payload(
+                    {
+                        "outline_mode": "structure_only",
+                        "summary": (
+                            "报告模型在装配阶段不可用，已自动切换为结构化兜底装配。"
+                            "结论基于现有执行产物与证据，不使用自由文本推断。"
+                        ),
+                    }
+                )
+                execution_warning = (
+                    f"{execution_warning}\n报告装配降级：{short_reason}。".strip()
+                    if execution_warning
+                    else f"报告装配降级：{short_reason}。"
+                )
+                write_json(
+                    ensure_dir(Path(state.get("session_dir", "")) / "meta" / "plan_validation")
+                    / "report_llm_fallback.json",
+                    {
+                        "fallback_used": True,
+                        "reason": short_reason,
+                        "raw_error": raw_reason,
+                        "timestamp": int(time.time()),
+                    },
+                )
+                outline = _sanitize_outline(outline, Path(state.get("session_dir", "")))
         else:
             report_payload = normalize_report_payload(
                 {
@@ -3326,6 +4037,20 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
         session_dir = Path(state.get("session_dir", ""))
         audit = _run_audit(session_dir)
         audit["pipeline_fallbacks"] = state.get("pipeline_fallbacks", [])
+        audit["pipeline_gate_waivers"] = state.get("pipeline_gate_waivers", [])
+        pipeline_variants = state.get("pipeline_variants", []) if isinstance(state.get("pipeline_variants", []), list) else []
+        audit["pipeline_gate_summary"] = {
+            "total": len(pipeline_variants),
+            "passed": sum(
+                1 for row in pipeline_variants if isinstance(row, dict) and row.get("gate_status") == "pass"
+            ),
+            "waived": sum(
+                1
+                for row in pipeline_variants
+                if isinstance(row, dict) and row.get("gate_status") == "waived_by_equivalent_execution"
+            ),
+            "failed": len(state.get("pipeline_gate_failures", []) or []),
+        }
         if state.get("hypothesis_multipath"):
             audit["hypothesis_multipath"] = state.get("hypothesis_multipath", {})
         if state.get("path_adjudication"):
@@ -3336,6 +4061,8 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
         audit["custom_line_summary"] = state.get("custom_line_summary", {})
         summary["run_audit"] = audit
         summary["pipeline_fallbacks"] = audit["pipeline_fallbacks"]
+        summary["pipeline_gate_waivers"] = audit["pipeline_gate_waivers"]
+        summary["pipeline_gate_summary"] = audit["pipeline_gate_summary"]
         summary["custom_lines"] = audit["custom_lines"]
         summary["custom_line_summary"] = audit["custom_line_summary"]
         summary["path_adjudication"] = state.get("path_adjudication", {})
@@ -3365,6 +4092,8 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
             pack_validation=state.get("hypothesis_evidence_pack_validation", {}),
             artifact_validation=state.get("artifact_validation", {}),
             pipeline_gate_failures=state.get("pipeline_gate_failures", []),
+            pipeline_gate_waivers=state.get("pipeline_gate_waivers", []),
+            expect_report=True,
         )
         audit["analysis_quality_score"] = quality_score
         audit["quality_consistency"] = quality_consistency

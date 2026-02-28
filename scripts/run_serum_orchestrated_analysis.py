@@ -40,7 +40,7 @@ from src.core.orchestration.llm import LLMClient
 def _write_json(path: Path, payload: Dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
-def _check_llm_connection() -> None:
+def _check_llm_connection(strict: bool = False) -> bool:
     try:
         client = LLMClient()
         client.chat(
@@ -50,8 +50,14 @@ def _check_llm_connection() -> None:
             ],
             max_tokens=1,
         )
+        return True
     except Exception as exc:
-        raise SystemExit(f"LLM connectivity check failed for {API_BASE}: {exc}") from exc
+        msg = f"LLM connectivity check failed for {API_BASE}: {exc}"
+        if strict:
+            raise SystemExit(msg) from exc
+        print(f"⚠️ {msg}")
+        print("⚠️ Continue in fallback mode: structured deterministic paths will be used where possible.")
+        return False
 
 
 def main() -> None:
@@ -78,13 +84,19 @@ def main() -> None:
         help="Print orchestrator node progress as it runs",
     )
     parser.add_argument(
+        "--strict-llm-check",
+        action="store_true",
+        default=False,
+        help="Exit immediately when startup LLM connectivity check fails",
+    )
+    parser.add_argument(
         "--workspace-dir",
         default=None,
         help="Workspace base directory for session artifacts (defaults to <output-dir>/workspace)",
     )
     args = parser.parse_args()
 
-    _check_llm_connection()
+    _check_llm_connection(strict=args.strict_llm_check)
 
     data_file = Path(args.data_file).expanduser().resolve()
     if not data_file.exists():

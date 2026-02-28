@@ -101,6 +101,10 @@ def run_step(module_name: str, input_path: str | Path, output_dir: str | Path, *
 
         sig = inspect.signature(module.run)
         accepted = {k: v for k, v in kwargs.items() if k in sig.parameters}
+        # Allow pipeline variants to describe implementation via `method`, while visualization
+        # modules often expose the same choice under `mode`.
+        if "method" in kwargs and "method" not in sig.parameters and "mode" in sig.parameters:
+            accepted["mode"] = kwargs["method"]
         return module.run(input_path, output_dir, **accepted)
     except Exception:
         return module.run(input_path, output_dir)

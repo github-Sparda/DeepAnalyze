@@ -266,8 +266,19 @@ export_path = manager.export_report(
 - `meta/completion_validation.json`
 - `meta/analysis_quality_score.json`
 - `meta/iteration_lineage.json`
+- `meta/plan_validation/file_summary_fallback.json`（可选，DataIngest 降级）
+- `meta/plan_validation/report_llm_fallback.json`（可选，ReportAssembly 降级）
 
 当完成态校验未通过时，报告会自动降级为“结构化事实 + 恢复动作”，不会输出确定性结论。
+
+`analysis_quality_score` 中新增：
+
+- `closure_source`：闭环率口径来源（`contract` / `gate` / `min(contract,gate)`）
+
+`completion_validation` 中新增：
+
+- `pipeline_gate_waived_count`：被“等价执行”放行的 pipeline gate 数量
+- `pipeline_gate_waived_details`：放行依据（等价产物/同类能力）
 
 ### 冲突裁决（Path-C）
 

@@ -123,14 +123,22 @@ Key variables:
 - `DEEPANALYZE_REPORT_FOOTER`
 - `DEEPANALYZE_PATHC_CONFLICT_THRESHOLD`  # Path-C 冲突触发阈值（默认 0.3）
 
+可选运行时配置文件：
+
+- `config/analysis_runtime.json`
+- `config/hypothesis_profile_registry.json`
+
 ## Orchestrator Outputs (新增)
 
 当启用编排分析后，新增关键产物：
 
 - `meta/completion_validation.json`：完成态校验结果（是否允许确定性结论）
+- `meta/plan_validation/file_summary_fallback.json`：文件摘要节点降级记录（可选）
+- `meta/plan_validation/report_llm_fallback.json`：报告装配降级记录（可选）
 - `meta/iteration_lineage.json`：递归迭代链路与触发原因
 - `result/path_adjudication.json`：A/B 冲突后 Path-C 自动裁决记录
 - `result/ml_repro_bundle_index.json`：预测类假设复现包索引
+- `meta/analysis_quality_score.json`：新增 `closure_source` 字段表示闭环率判定口径
 
 预测类复现包目录示例：
 
@@ -148,3 +156,15 @@ pytest -q tests/test_conflict_auto_path_c_adjudication.py tests/test_ml_repro_bu
 ### Analysis Tools
 - `demo_cli_wrapper.py` - CLI demonstration wrapper for one-command analysis (demo-example)
 - `run_serum_cli_analysis.py` - Serum dataset end-to-end CLI analysis runner (validation-test)
+
+### Orchestrated Runner
+- `run_serum_orchestrated_analysis.py` - 全流程编排分析入口（validation-test）
+
+示例：
+```bash
+conda activate common
+python scripts/run_serum_orchestrated_analysis.py --max-depth 2 --output-dir outputs/serum_orchestrated
+```
+
+参数补充：
+- `--strict-llm-check`：启动时 LLM 连通性检查失败即退出；默认关闭，默认会继续进入可降级执行模式。

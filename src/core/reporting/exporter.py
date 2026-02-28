@@ -83,7 +83,10 @@ def export_report(
         if "<html" in content.lower():
             html_body = content
         else:
-            if mode in {"html_convert", "html_print"}:
+            has_markdown_structure = bool(
+                re.search(r"(^|\n)\s{0,3}(#{1,6}\s+|[-*]\s+|\d+\.\s+)", content)
+            )
+            if mode in {"html_convert", "html_print"} or has_markdown_structure:
                 html_body = _wrap_html(md.markdown(content, extensions=_MD_EXTENSIONS), template)
             else:
                 html_body = _wrap_html(content, template)

@@ -274,6 +274,12 @@ logging.basicConfig(level=logging.WARNING)  # 减少日志输出
 handler.max_error_history = 500  # 默认1000
 ```
 
+4. **LLM 客户端启动报代理错误**
+```text
+Unknown scheme for proxy URL URL('socks5h://...')
+```
+当前版本会自动清理 `ALL_PROXY/all_proxy` 中不兼容的 `socks5h://` 值，优先使用 `HTTP_PROXY/HTTPS_PROXY`。
+
 ## 编排层失败恢复（新增）
 
 ### 1) 完成态校验失败
@@ -286,12 +292,23 @@ handler.max_error_history = 500  # 默认1000
 - `artifact_validation_failed`
 - `pipeline_gate_failures`
 - `predictive_repro_bundle_missing`
+- `report_missing`（finalize 阶段未检测到 `report/report_v*`）
 
 建议处理顺序：
 
 1. 先补齐 `result/` 下核心产物；
 2. 再修复 gate 未闭环假设；
 3. 最后重跑报告装配节点。
+
+补充说明：
+
+- `pipeline_gate_failures` 现在只保留真实缺失；
+- 若仅是等价产物（例如同类可视化文件名不同）满足需求，会记入 `pipeline_gate_waived_count`，不会阻塞完成态。
+
+当模型不可用时，系统会自动写入降级追踪文件：
+
+- `meta/plan_validation/file_summary_fallback.json`（DataIngest 摘要降级）
+- `meta/plan_validation/report_llm_fallback.json`（ReportAssembly 降级）
 
 ### 2) 双路径冲突无法收敛
 

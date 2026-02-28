@@ -23,6 +23,9 @@ class PipelineVariant:
     blocked_visuals: list[str] = field(default_factory=list)
     required_artifacts: list[str] = field(default_factory=list)
     quality_gates: list[str] = field(default_factory=list)
+    artifact_aliases: dict[str, list[str]] = field(default_factory=dict)
+    capability_tags: list[str] = field(default_factory=list)
+    equivalence_rules: list[str] = field(default_factory=list)
     fallback_variant: str | None = None
 
 
@@ -68,6 +71,14 @@ def _load_promoted_variants() -> list[PipelineVariant]:
                 compatible_visuals=list(line.get("compatible_visuals", [])),
                 required_artifacts=list(line.get("required_artifacts", [])),
                 quality_gates=list(line.get("quality_gates", [])),
+                artifact_aliases={
+                    str(key): [str(item) for item in value]
+                    for key, value in (line.get("artifact_aliases", {}) or {}).items()
+                    if str(key)
+                    and isinstance(value, list)
+                },
+                capability_tags=list(line.get("capability_tags", [])),
+                equivalence_rules=list(line.get("equivalence_rules", [])),
                 fallback_variant=None,
             )
         )
@@ -93,6 +104,9 @@ def pipeline_registry() -> dict[str, PipelineSpec]:
                     compatible_visuals=["volcano"],
                     required_artifacts=["stats_results.json", "feature_selection.json", "volcano_plot.png"],
                     quality_gates=["result:stats_results.json", "result:feature_selection.json", "plots:volcano_plot.png"],
+                    artifact_aliases={"volcano_plot.png": ["manhattan_plot.png"]},
+                    capability_tags=["differential_evidence", "visual_differential"],
+                    equivalence_rules=["allow_capability_equivalence"],
                     fallback_variant="u_test_volcano",
                 ),
                 PipelineVariant(
@@ -108,6 +122,9 @@ def pipeline_registry() -> dict[str, PipelineSpec]:
                     compatible_visuals=["manhattan"],
                     required_artifacts=["stats_results.json", "manhattan_plot.png"],
                     quality_gates=["result:stats_results.json", "plots:manhattan_plot.png"],
+                    artifact_aliases={"manhattan_plot.png": ["volcano_plot.png"]},
+                    capability_tags=["differential_evidence", "visual_differential"],
+                    equivalence_rules=["allow_capability_equivalence"],
                 ),
                 PipelineVariant(
                     variant_id="u_test_volcano",
@@ -122,6 +139,9 @@ def pipeline_registry() -> dict[str, PipelineSpec]:
                     compatible_visuals=["volcano"],
                     required_artifacts=["stats_results.json", "volcano_plot.png"],
                     quality_gates=["result:stats_results.json", "plots:volcano_plot.png"],
+                    artifact_aliases={"volcano_plot.png": ["manhattan_plot.png"]},
+                    capability_tags=["differential_evidence", "visual_differential"],
+                    equivalence_rules=["allow_capability_equivalence"],
                 ),
                 PipelineVariant(
                     variant_id="effect_size_heatmap",
@@ -135,6 +155,9 @@ def pipeline_registry() -> dict[str, PipelineSpec]:
                     compatible_visuals=["heatmap_cluster"],
                     required_artifacts=["feature_selection.json", "correlation.json", "heatmap_cluster.png"],
                     quality_gates=["result:feature_selection.json", "result:correlation.json", "plots:heatmap_cluster.png"],
+                    artifact_aliases={"heatmap_cluster.png": ["heatmap.png", "cluster.png"]},
+                    capability_tags=["correlation_structure", "visual_cluster_heatmap"],
+                    equivalence_rules=["allow_capability_equivalence"],
                 ),
             ],
         ),
