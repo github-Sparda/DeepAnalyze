@@ -3,6 +3,20 @@
 ## 概述
 DeepAnalyze错误处理系统提供全面的错误管理、自动恢复和监控功能，确保系统稳定性和可靠性。
 
+## LLM 不可用时的降级策略（Orchestrator）
+
+当模型服务不可用（如 `429`、`model_not_found`、超时、鉴权失败）时，编排器采用“可继续则继续”的降级策略：
+
+- `understand_files`: 使用文件元信息生成降级摘要（`fallback`）。
+- `plan_analysis`: 失败时切换为结构化提取 + 确定性假设计划（`fallback`）。
+- `parallel_generation`: 单步代码生成失败时改用内置模板脚本（`fallback`）。
+- `analyze_results`: LLM 解释失败时改用自动化证据摘要（`fallback`）。
+- `refine_hypotheses`: 该步骤为可选，LLM 不可用时跳过自由扩展，改为基于 gate 未闭环项生成 follow-up（`skip_optional_llm`）。
+- `report_outline`: 失败时生成确定性报告大纲模板（`fallback`）。
+- `generate_report`: 失败时降级为结构化装配，不做自由文本推断（`fallback`）。
+
+所有降级事件会落盘到 `meta/llm_degradation_events.json`，并汇总写入 `meta/run_audit.json` 的 `llm_degradation` 字段，用于排障与审计。
+
 ## 核心特性
 
 ### 1. 多级错误分类

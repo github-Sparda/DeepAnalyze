@@ -94,6 +94,19 @@ def main() -> None:
         default=None,
         help="Workspace base directory for session artifacts (defaults to <output-dir>/workspace)",
     )
+    parser.add_argument(
+        "--strict-fallback-mode",
+        dest="strict_fallback_mode",
+        action="store_true",
+        default=True,
+        help="Enable strict fallback quality gates when LLM is unavailable (default: enabled).",
+    )
+    parser.add_argument(
+        "--no-strict-fallback-mode",
+        dest="strict_fallback_mode",
+        action="store_false",
+        help="Disable strict fallback quality gates and allow permissive fallback behavior.",
+    )
     args = parser.parse_args()
 
     _check_llm_connection(strict=args.strict_llm_check)
@@ -154,6 +167,7 @@ def main() -> None:
         "analysis_goal": args.analysis_goal,
         "docs/analysis_goal": args.analysis_goal,
         "workspace_base_dir": str(workspace_dir),
+        "strict_fallback_mode": bool(args.strict_fallback_mode),
     }
 
     state = run_orchestrated_docs_analysis(session_id=session_id, config=config)

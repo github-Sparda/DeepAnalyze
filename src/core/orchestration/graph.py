@@ -208,6 +208,170 @@ def _build_file_summary_fallback(file_info: str) -> str:
     return "\n".join(lines)
 
 
+def _is_llm_unavailable_error(raw: str) -> bool:
+    text = str(raw or "").strip().lower()
+    if not text:
+        return False
+    tokens = [
+        "model_not_found",
+        "rate limit",
+        "429",
+        "service unavailable",
+        "connection error",
+        "connection refused",
+        "timed out",
+        "timeout",
+        "api key",
+        "invalid api key",
+        "authentication",
+    ]
+    return any(token in text for token in tokens)
+
+
+def _record_llm_degradation(
+    state: OrchestrationState,
+    node: str,
+    action: str,
+    reason: str,
+    impact: str,
+) -> list[dict[str, Any]]:
+    events = list(state.get("llm_degradation_events", []) or [])
+    events.append(
+        {
+            "node": node,
+            "action": action,
+            "reason": reason,
+            "impact": impact,
+            "timestamp": int(time.time()),
+        }
+    )
+    return events
+
+
+def _has_llm_unavailable_event(events: list[dict[str, Any]] | None) -> bool:
+    if not isinstance(events, list):
+        return False
+    for event in events:
+        if not isinstance(event, dict):
+            continue
+        if _is_llm_unavailable_error(event.get("reason", "")):
+            return True
+    return False
+
+
+def _strong_fallback_plan_ok(plan_json: dict[str, Any]) -> tuple[bool, str]:
+    if not isinstance(plan_json, dict):
+        return False, "plan_not_object"
+    hypotheses = plan_json.get("hypotheses", [])
+    if not isinstance(hypotheses, list) or len(hypotheses) < 3:
+        return False, "hypothesis_count_lt_3"
+    ids: set[str] = set()
+    for row in hypotheses:
+        if not isinstance(row, dict):
+            return False, "hypothesis_not_object"
+        hid = str(row.get("id", "")).strip().upper()
+        if not re.fullmatch(r"H\d+", hid):
+            return False, "hypothesis_id_invalid"
+        if hid in ids:
+            return False, "hypothesis_id_duplicated"
+        ids.add(hid)
+        if not str(row.get("title", "")).strip():
+            return False, "hypothesis_title_missing"
+        if not str(row.get("hypothesis_type", "")).strip():
+            return False, "hypothesis_type_missing"
+        steps = row.get("steps", [])
+        if not isinstance(steps, list) or not steps:
+            return False, f"{hid}_steps_missing"
+        paths = row.get("validation_paths", [])
+        if not isinstance(paths, list) or len(paths) < 2:
+            return False, f"{hid}_validation_paths_lt_2"
+    return True, "ok"
+
+
+def _strong_fallback_report_ok(
+    completion_validation: dict[str, Any],
+    set_consistency: dict[str, Any],
+    pack_validation: dict[str, Any],
+) -> tuple[bool, list[str]]:
+    reasons: list[str] = []
+    if not bool((completion_validation or {}).get("complete", False)):
+        reasons.append("completion_validation_failed")
+    if not bool((set_consistency or {}).get("satisfied", False)):
+        reasons.append("hypothesis_set_inconsistent")
+    if not bool((pack_validation or {}).get("valid", False)):
+        reasons.append("evidence_pack_invalid")
+    return len(reasons) == 0, reasons
+
+
+def _fallback_followup_hypotheses(session_dir: Path) -> list[str]:
+    gate_payload = _load_json_if_exists(session_dir / "result" / "hypothesis_gate_report.json")
+    rows = gate_payload.get("hypotheses", []) if isinstance(gate_payload, dict) else []
+    followups: list[str] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        status = str(row.get("gate_status", "")).strip().lower()
+        if status not in {"partial", "fail"}:
+            continue
+        hid = str(row.get("hypothesis_id", "")).strip() or "UNKNOWN"
+        reason = str(row.get("reason_code", "")).strip() or "证据不足"
+        followups.append(f"{hid} 未闭环（{reason}），建议补充缺失证据并重跑对应路径。")
+    if followups:
+        return followups[:6]
+    multipath_payload = _load_json_if_exists(session_dir / "result" / "hypothesis_multipath.json")
+    rows = multipath_payload.get("hypotheses", []) if isinstance(multipath_payload, dict) else []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        status = str(row.get("status", "")).strip().lower()
+        if status == "inconclusive":
+            hid = str(row.get("hypothesis_id", "")).strip() or "UNKNOWN"
+            followups.append(f"{hid} 路径存在冲突，建议运行第三路径或复核数据切分口径。")
+    return followups[:6]
+
+
+def _fallback_report_outline(state: OrchestrationState) -> str:
+    plan_json = state.get("plan_json", {}) if isinstance(state.get("plan_json", {}), dict) else {}
+    hypotheses = plan_json.get("hypotheses", []) if isinstance(plan_json, dict) else []
+    lines = [
+        "# 报告大纲（LLM 不可用时自动生成）",
+        "",
+        "## 一、研究目标与数据说明",
+        "## 二、方法与执行路径",
+        "## 三、假设验证结果",
+    ]
+    if isinstance(hypotheses, list) and hypotheses:
+        for idx, hyp in enumerate(hypotheses, 1):
+            if not isinstance(hyp, dict):
+                continue
+            hid = str(hyp.get("id", "")).strip() or f"H{idx}"
+            title = str(hyp.get("title", "")).strip() or "未命名假设"
+            lines.append(f"### {hid} {title}")
+            lines.append("- 验证方案")
+            lines.append("- 执行结果")
+            lines.append("- 定量分析")
+            lines.append("- 结论与后续动作")
+    else:
+        lines.extend(
+            [
+                "### 假设验证（待补充）",
+                "- 验证方案",
+                "- 执行结果",
+                "- 定量分析",
+                "- 结论与后续动作",
+            ]
+        )
+    lines.extend(
+        [
+            "",
+            "## 四、跨假设综合讨论",
+            "## 五、结论与建议",
+            "## 六、附件与证据索引",
+        ]
+    )
+    return "\n".join(lines)
+
+
 def _build_expected_artifact_validation_payload(plan_json: dict[str, Any]) -> dict[str, Any]:
     rows: list[dict[str, Any]] = []
     for hyp in plan_json.get("hypotheses", []) if isinstance(plan_json, dict) else []:
@@ -339,27 +503,27 @@ def _synthesize_plan_from_hypothesis_results(
             }
         )
     if numeric_cols:
-        correlation_profile = resolve_hypothesis_profile(session_dir, explicit_key="correlation")
-        fallback.append(
-            {
-                "id": "H2",
-                "title": str(correlation_profile.get("title", "")).strip() or "相关结构验证",
-                "hypothesis": str(correlation_profile.get("hypothesis", "")).strip() or "关键变量之间存在可解释的相关结构。",
-                "validation_plan_steps": ["correlation", "viz_heatmap_cluster", "viz_network"],
-                "expected_artifacts": ["correlation.json", "heatmap.png", "network.png"],
-                "hypothesis_type": "correlation",
-            }
-        )
-    if has_group and numeric_cols:
         predictive_profile = resolve_hypothesis_profile(session_dir, explicit_key="predictive")
         fallback.append(
             {
-                "id": "H3",
+                "id": "H2",
                 "title": str(predictive_profile.get("title", "")).strip() or "预测性能验证",
                 "hypothesis": str(predictive_profile.get("hypothesis", "")).strip() or "特征组合可达到高于基线的分组识别性能。",
                 "validation_plan_steps": ["model_train", "model_eval"],
                 "expected_artifacts": ["model_results.json", "model_eval.json", "cv_results.json"],
                 "hypothesis_type": "predictive",
+            }
+        )
+    if has_group and numeric_cols:
+        correlation_profile = resolve_hypothesis_profile(session_dir, explicit_key="correlation")
+        fallback.append(
+            {
+                "id": "H3",
+                "title": str(correlation_profile.get("title", "")).strip() or "相关结构验证",
+                "hypothesis": str(correlation_profile.get("hypothesis", "")).strip() or "关键变量之间存在可解释的相关结构。",
+                "validation_plan_steps": ["correlation", "viz_heatmap_cluster", "viz_network"],
+                "expected_artifacts": ["correlation.json", "heatmap.png", "network.png"],
+                "hypothesis_type": "correlation",
             }
         )
 
@@ -2276,6 +2440,12 @@ def _artifact_validation_report(session_dir: Path) -> dict[str, Any]:
     return report
 
 
+def _sync_hypothesis_alignment_artifacts(session_dir: Path, hypothesis_payload: dict[str, Any]) -> None:
+    write_json(session_dir / "result" / "hypothesis_results.json", hypothesis_payload)
+    write_json(session_dir / "result" / "hypothesis_matrix.json", _build_hypothesis_matrix(hypothesis_payload))
+    write_json(session_dir / "result" / "visual_binding.json", _build_visual_binding(session_dir))
+
+
 def _extract_hypothesis_ids_from_report(report_path: Path) -> list[str]:
     if not report_path.exists():
         return []
@@ -2296,6 +2466,120 @@ def _extract_hypothesis_ids_from_report(report_path: Path) -> list[str]:
         return sorted(ids)
     # Fallback for legacy reports without heading structure
     return sorted(set(x.upper() for x in re.findall(r"\bH\d+\b", text)))
+
+
+def _hypothesis_title_only(raw: str, fallback: str = "") -> str:
+    text = str(raw or "").strip()
+    if ":" in text:
+        tail = text.split(":", 1)[1].strip()
+        if tail:
+            return tail
+    return text or fallback
+
+
+def _plan_signature_map(session_dir: Path, payload: dict[str, Any]) -> dict[str, dict[str, str]]:
+    rows = payload.get("hypotheses", []) if isinstance(payload, dict) else []
+    result: dict[str, dict[str, str]] = {}
+    for item in rows:
+        if not isinstance(item, dict):
+            continue
+        hid = str(item.get("id", "")).strip().upper()
+        if not hid:
+            continue
+        title = _hypothesis_title_only(str(item.get("title", "")).strip(), hid)
+        hyp_type = str(item.get("hypothesis_type", "")).strip().lower()
+        if not hyp_type:
+            hyp_type = infer_hypothesis_profile_key(
+                title=title,
+                hypothesis_text=str(item.get("hypothesis", "")).strip(),
+                registry=load_hypothesis_profile_registry(session_dir),
+            )
+        result[hid] = {"title": title, "hypothesis_type": hyp_type}
+    return result
+
+
+def _signature_map_from_results(session_dir: Path, payload: dict[str, Any]) -> dict[str, dict[str, str]]:
+    rows = payload.get("hypotheses", []) if isinstance(payload, dict) else []
+    result: dict[str, dict[str, str]] = {}
+    for idx, item in enumerate(rows):
+        if not isinstance(item, dict):
+            continue
+        raw = str(item.get("hypothesis", "")).strip()
+        hid_match = re.search(r"\b(H\d+)\b", raw.upper())
+        hid = hid_match.group(1) if hid_match else f"H{idx+1}"
+        title = _hypothesis_title_only(raw, hid)
+        hyp_type = str(item.get("hypothesis_type", "")).strip().lower()
+        if not hyp_type:
+            hyp_type = infer_hypothesis_profile_key(
+                title=title,
+                hypothesis_text=raw,
+                registry=load_hypothesis_profile_registry(session_dir),
+            )
+        result[hid] = {"title": title, "hypothesis_type": hyp_type}
+    return result
+
+
+def _signature_map_from_evidence(session_dir: Path, payload: dict[str, Any]) -> dict[str, dict[str, str]]:
+    rows = payload.get("hypotheses", []) if isinstance(payload, dict) else []
+    result: dict[str, dict[str, str]] = {}
+    for item in rows:
+        if not isinstance(item, dict):
+            continue
+        hid = str(item.get("hypothesis_id", "")).strip().upper()
+        if not hid:
+            continue
+        hyp_type = str(item.get("hypothesis_type", "")).strip().lower()
+        profile = resolve_hypothesis_profile(session_dir, explicit_key=hyp_type)
+        result[hid] = {
+            "title": str(profile.get("title", "")).strip() or hid,
+            "hypothesis_type": str(profile.get("key", "")).strip().lower() or hyp_type,
+        }
+    return result
+
+
+def _signature_map_from_multipath(session_dir: Path, payload: dict[str, Any]) -> dict[str, dict[str, str]]:
+    rows = payload.get("hypotheses", []) if isinstance(payload, dict) else []
+    result: dict[str, dict[str, str]] = {}
+    for idx, item in enumerate(rows):
+        if not isinstance(item, dict):
+            continue
+        hid = str(item.get("hypothesis_id", "")).strip().upper() or f"H{idx+1}"
+        title = _hypothesis_title_only(str(item.get("title", "")).strip(), hid)
+        hyp_type = infer_hypothesis_profile_key(
+            title=title,
+            hypothesis_text=str(item.get("title", "")).strip(),
+            registry=load_hypothesis_profile_registry(session_dir),
+        )
+        result[hid] = {"title": title, "hypothesis_type": hyp_type}
+    return result
+
+
+def _semantic_mismatch_rows(
+    baseline: dict[str, dict[str, str]],
+    current: dict[str, dict[str, str]],
+) -> dict[str, Any]:
+    mismatches: dict[str, Any] = {}
+    for hid, expected in baseline.items():
+        actual = current.get(hid)
+        if not actual:
+            continue
+        title_mismatch = (
+            expected.get("title")
+            and actual.get("title")
+            and str(expected.get("title")).strip() != str(actual.get("title")).strip()
+        )
+        type_mismatch = (
+            expected.get("hypothesis_type")
+            and actual.get("hypothesis_type")
+            and str(expected.get("hypothesis_type")).strip().lower()
+            != str(actual.get("hypothesis_type")).strip().lower()
+        )
+        if title_mismatch or type_mismatch:
+            mismatches[hid] = {
+                "expected": expected,
+                "current": actual,
+            }
+    return mismatches
 
 
 def _build_hypothesis_set_consistency(
@@ -2340,6 +2624,9 @@ def _build_hypothesis_set_consistency(
     evidence_ids = _ids_from(_load("result/hypothesis_evidence_pack.json"), "hypothesis_id")
     gate_ids = _ids_from(_load("result/hypothesis_gate_report.json"), "hypothesis_id")
     report_ids = _extract_hypothesis_ids_from_report(session_dir / "report" / "report_v1.html")
+    results_payload = _load("result/hypothesis_results.json")
+    multipath_payload = _load("result/hypothesis_multipath.json")
+    evidence_payload = _load("result/hypothesis_evidence_pack.json")
 
     base = set(plan_ids)
     base_source = "plan"
@@ -2364,6 +2651,13 @@ def _build_hypothesis_set_consistency(
         "gate_ids": gate_ids,
         "report_ids": report_ids,
     }
+    plan_signatures = _plan_signature_map(session_dir, plan_payload)
+    semantic_checks = {
+        "plan_signatures": plan_signatures,
+        "results_signatures": _signature_map_from_results(session_dir, results_payload),
+        "multipath_signatures": _signature_map_from_multipath(session_dir, multipath_payload),
+        "evidence_pack_signatures": _signature_map_from_evidence(session_dir, evidence_payload),
+    }
     mismatches: dict[str, Any] = {}
     for name, ids in checks.items():
         if name in {"plan_ids", "base_ids", "base_source"}:
@@ -2375,6 +2669,12 @@ def _build_hypothesis_set_consistency(
         missing = sorted(base - current)
         if extra or missing:
             mismatches[name] = {"missing_from_current": missing, "extra_in_current": extra}
+    semantic_mismatches: dict[str, Any] = {}
+    if plan_signatures:
+        for name in ("results_signatures", "multipath_signatures", "evidence_pack_signatures"):
+            rows = _semantic_mismatch_rows(plan_signatures, semantic_checks.get(name, {}))
+            if rows:
+                semantic_mismatches[name] = rows
     repair = {
         "deterministic_repair_applied": False,
         "repairable": False,
@@ -2386,11 +2686,13 @@ def _build_hypothesis_set_consistency(
         repair["notes"].append("pre_report_stage: report_ids check skipped deterministically")
         mismatches = {}
     return {
-        "satisfied": not mismatches and bool(base),
+        "satisfied": not mismatches and not semantic_mismatches and bool(base),
         "checks": checks,
+        "semantic_checks": semantic_checks,
+        "semantic_mismatches": semantic_mismatches,
         "mismatches": mismatches,
         "repair": repair,
-        "reason": "" if not mismatches else "incomplete_hypothesis_set",
+        "reason": "" if (not mismatches and not semantic_mismatches) else "incomplete_hypothesis_set",
     }
 
 
@@ -2602,6 +2904,7 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
         file_info = collect_file_info(str(session_dir))
         language = state.get("config", {}).get("report_language", "zh")
         fallback_note: dict[str, Any] = {}
+        llm_events = list(state.get("llm_degradation_events", []) or [])
         try:
             messages = render_role_prompt(
                 "file_understanding",
@@ -2617,6 +2920,13 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
                 "reason": f"llm_unavailable:{exc}",
                 "timestamp": int(time.time()),
             }
+            llm_events = _record_llm_degradation(
+                state,
+                node="understand_files",
+                action="fallback",
+                reason=str(exc),
+                impact="使用文件元信息生成降级摘要，不阻断流程。",
+            )
             write_json(
                 ensure_dir(session_dir / "meta" / "plan_validation") / "file_summary_fallback.json",
                 fallback_note,
@@ -2627,6 +2937,7 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
         output = {"file_summary": summary, "iteration_count": int(state.get("iteration_count", 0)) or 1}
         if fallback_note:
             output["file_summary_fallback"] = fallback_note
+            output["llm_degradation_events"] = llm_events
         return output
 
     def data_quality(state: OrchestrationState) -> OrchestrationState:
@@ -2711,9 +3022,12 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
             history.append("Follow-up hypotheses:\n" + "\n".join(f"- {h}" for h in followups))
         error_dir = ensure_dir(session_dir / "meta" / "plan_validation")
         plan_runtime_errors: list[str] = []
+        llm_events = list(state.get("llm_degradation_events", []) or [])
+        strict_fallback_mode = bool(state.get("config", {}).get("strict_fallback_mode", True))
         plan = ""
         raw_plan_json: dict[str, Any] = {}
         plan_json: dict[str, Any] = {"hypotheses": []}
+        used_deterministic_fallback = False
 
         try:
             plan = planner.plan(
@@ -2726,6 +3040,14 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
             )
         except Exception as exc:
             plan_runtime_errors.append(f"planner_llm_failed:{exc}")
+            if _is_llm_unavailable_error(exc):
+                llm_events = _record_llm_degradation(
+                    state,
+                    node="plan_analysis",
+                    action="fallback",
+                    reason=str(exc),
+                    impact="规划阶段 LLM 不可用，后续将启用结构化/确定性计划兜底。",
+                )
 
         if plan:
             try:
@@ -2758,6 +3080,14 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
                     plan_json = _merge_validation_paths(plan_json, repair_payload)
             except Exception as exc:
                 plan_runtime_errors.append(f"plan_struct_llm_failed:{exc}")
+                if _is_llm_unavailable_error(exc):
+                    llm_events = _record_llm_degradation(
+                        {"llm_degradation_events": llm_events},
+                        node="plan_analysis_struct",
+                        action="fallback",
+                        reason=str(exc),
+                        impact="结构化计划生成失败，改用 markdown 严格抽取与确定性计划。",
+                    )
 
         valid_plan, plan_errors = _validate_plan_json_contract(plan_json)
         if not valid_plan and plan:
@@ -2772,18 +3102,41 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
             if deterministic_plan.get("hypotheses"):
                 plan_json = deterministic_plan
                 valid_plan, plan_errors = _validate_plan_json_contract(plan_json)
+                used_deterministic_fallback = True
                 if not plan:
                     plan = _render_plan_markdown_from_json(plan_json)
-            if not valid_plan:
-                write_json(
-                    error_dir / "plan_contract_invalid.json",
-                    {
-                        "plan_contract_invalid": True,
-                        "errors": plan_errors,
-                        "suggestions": _plan_validation_suggestions(plan_errors),
-                    },
-                )
+                if plan_runtime_errors:
+                    llm_events = _record_llm_degradation(
+                        {"llm_degradation_events": llm_events},
+                        node="plan_analysis",
+                        action="fallback",
+                        reason="deterministic_plan_activated",
+                        impact="采用确定性假设计划继续执行。",
+                    )
+        if valid_plan and used_deterministic_fallback and strict_fallback_mode:
+            strong_ok, strong_reason = _strong_fallback_plan_ok(plan_json)
+            if not strong_ok:
+                valid_plan = False
+                plan_runtime_errors.append(f"strict_fallback_plan_rejected:{strong_reason}")
                 plan_json = {"hypotheses": []}
+                plan = ""
+                llm_events = _record_llm_degradation(
+                    {"llm_degradation_events": llm_events},
+                    node="plan_analysis",
+                    action="skip_due_to_quality_gate",
+                    reason=strong_reason,
+                    impact="确定性计划未达到强兜底门槛，已跳过后续基于该计划的弱输出。",
+                )
+        if not valid_plan:
+            write_json(
+                error_dir / "plan_contract_invalid.json",
+                {
+                    "plan_contract_invalid": True,
+                    "errors": plan_errors,
+                    "suggestions": _plan_validation_suggestions(plan_errors),
+                },
+            )
+            plan_json = {"hypotheses": []}
         if not plan:
             plan = _render_plan_markdown_from_json(plan_json)
 
@@ -2858,7 +3211,15 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
                 "data",
                 {"phase": "data_quality"},
             )
-        return {"plan": plan, "plan_json": plan_json, "hypotheses": cleaned_hypotheses, "plan_id": plan_id}
+        output: dict[str, Any] = {
+            "plan": plan,
+            "plan_json": plan_json,
+            "hypotheses": cleaned_hypotheses,
+            "plan_id": plan_id,
+        }
+        if llm_events:
+            output["llm_degradation_events"] = llm_events
+        return output
 
     def parallel_generation(state: OrchestrationState) -> OrchestrationState:
         plan = state.get("plan", "")
@@ -2871,6 +3232,9 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
         telemetry_context = _telemetry_context(state, artifact_registry, plan_id)
         artifact_context = _artifact_context(artifact_registry, plan_id) if plan_id else ""
         errors: list[str] = []
+        llm_events = list(state.get("llm_degradation_events", []) or [])
+        strict_fallback_mode = bool(state.get("config", {}).get("strict_fallback_mode", True))
+        llm_unavailable_during_codegen = False
 
         steps: list[dict[str, Any]] = []
         hypotheses = plan_json.get("hypotheses", []) if isinstance(plan_json, dict) else []
@@ -2904,7 +3268,27 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
                         "content": f"{prompt}\n\nPlan Step:\n{step['description']}",
                     },
                 ]
-            code_json = llm.chat(messages, max_tokens=4096)
+            try:
+                code_json = llm.chat(messages, max_tokens=4096)
+            except Exception as exc:
+                if _is_llm_unavailable_error(exc):
+                    nonlocal llm_events
+                    nonlocal llm_unavailable_during_codegen
+                    llm_unavailable_during_codegen = True
+                    llm_events = _record_llm_degradation(
+                        {"llm_degradation_events": llm_events},
+                        node="parallel_generation",
+                        action="fallback",
+                        reason=str(exc),
+                        impact=f"代码生成不可用，步骤 {step['name']} 改用内置模板脚本。",
+                    )
+                    if strict_fallback_mode:
+                        raise RuntimeError(f"strict_codegen_skip:{exc}") from exc
+                return {
+                    "name": step["name"],
+                    "filename": f"{step['name']}.py",
+                    "code": _fallback_analysis_code(),
+                }
             payload = _safe_json_any(code_json)
             entry: dict[str, Any] | None = None
             if isinstance(payload, dict):
@@ -2932,15 +3316,41 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
             recorded = orchestrator.generate(steps, _generate)
         except Exception as exc:
             errors.append(f"parallel_generation generate failed: {exc}")
-        if not recorded:
-            fallback_entry = {
-                "name": "analysis_step",
-                "filename": "analysis_step.py",
-                "code": _fallback_analysis_code(),
+            if _is_llm_unavailable_error(exc):
+                llm_events = _record_llm_degradation(
+                    {"llm_degradation_events": llm_events},
+                    node="parallel_generation",
+                    action="fallback",
+                    reason=str(exc),
+                    impact="代码生成整体失败，转为单脚本模板兜底。",
+                )
+        codegen_skipped = bool(strict_fallback_mode and llm_unavailable_during_codegen and not recorded)
+        if codegen_skipped:
+            skip_payload = {
+                "skipped": True,
+                "reason": "llm_unavailable_and_strict_fallback_mode",
+                "steps": [str(step.get("name", "")) for step in steps],
             }
-            recorded = [orchestrator._write_code(fallback_entry)]
+            skip_path = ensure_dir(session_dir / "meta" / "plan_validation") / "codegen_skipped.json"
+            write_json(skip_path, skip_payload)
+            record_artifact(session_dir, skip_path, "meta", "parallel_generation")
+            llm_events = _record_llm_degradation(
+                {"llm_degradation_events": llm_events},
+                node="parallel_generation",
+                action="skip_due_to_quality_gate",
+                reason="llm_unavailable_and_strict_fallback_mode",
+                impact="为避免低质量模板代码污染验证结果，本轮跳过代码生成与执行。",
+            )
+        if not recorded:
+            if not codegen_skipped:
+                fallback_entry = {
+                    "name": "analysis_step",
+                    "filename": "analysis_step.py",
+                    "code": _fallback_analysis_code(),
+                }
+                recorded = [orchestrator._write_code(fallback_entry)]
         valid_codegen, code_errors = _validate_codegen_steps(recorded)
-        if not valid_codegen:
+        if not valid_codegen and not codegen_skipped:
             errors.extend([f"codegen_contract:{err}" for err in code_errors])
             fallback_entry = {
                 "name": "analysis_step",
@@ -2957,24 +3367,27 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
             artifact_registry.register(plan_id, "code", steps_path, {"phase": "parallel_generation"})
 
         monitor = ExecutionMonitor(session_dir, plan_id)
-        try:
-            exec_results = orchestrator.execute(
-                recorded,
-                int(config.get("code_execution_timeout", CODE_EXECUTION_TIMEOUT)),
-                monitor,
-                retries,
-            )
-        except Exception as exc:
-            errors.append(f"parallel_generation execute failed: {exc}")
-            monitor.log_attempt("execution", "error", str(exc))
-            exec_results = [
-                {
-                    "step": "execution",
-                    "output": str(exc),
-                    "path": "",
-                    "statuses": ["error"],
-                }
-            ]
+        if codegen_skipped:
+            exec_results = []
+        else:
+            try:
+                exec_results = orchestrator.execute(
+                    recorded,
+                    int(config.get("code_execution_timeout", CODE_EXECUTION_TIMEOUT)),
+                    monitor,
+                    retries,
+                )
+            except Exception as exc:
+                errors.append(f"parallel_generation execute failed: {exc}")
+                monitor.log_attempt("execution", "error", str(exc))
+                exec_results = [
+                    {
+                        "step": "execution",
+                        "output": str(exc),
+                        "path": "",
+                        "statuses": ["error"],
+                    }
+                ]
         execution_entries = list(monitor.entries)
         legacy_results_dir = ensure_dir(session_dir / "result")
         write_json(legacy_results_dir / "exec_results.json", exec_results)
@@ -2990,6 +3403,8 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
             "exec_results": exec_results,
             "execution_entries": execution_entries,
             "errors": existing_errors,
+            "llm_degradation_events": llm_events,
+            "codegen_skipped": codegen_skipped,
         }
 
     def execution_guard(state: OrchestrationState) -> OrchestrationState:
@@ -3037,6 +3452,27 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
     def code_repair(state: OrchestrationState) -> OrchestrationState:
         if not state.get("config", {}).get("role_guard_enabled", ROLE_GUARD_ENABLED):
             return {}
+        strict_fallback_mode = bool(state.get("config", {}).get("strict_fallback_mode", True))
+        llm_events = list(state.get("llm_degradation_events", []) or [])
+        if strict_fallback_mode and _has_llm_unavailable_event(llm_events):
+            session_dir = Path(state.get("session_dir", ""))
+            skip_path = ensure_dir(session_dir / "meta" / "plan_validation") / "code_repair_skipped.json"
+            write_json(
+                skip_path,
+                {
+                    "skipped": True,
+                    "reason": "llm_unavailable_and_strict_fallback_mode",
+                },
+            )
+            record_artifact(session_dir, skip_path, "meta", "code_repair")
+            llm_events = _record_llm_degradation(
+                {"llm_degradation_events": llm_events},
+                node="code_repair",
+                action="skip_due_to_quality_gate",
+                reason="llm_unavailable_and_strict_fallback_mode",
+                impact="调试修复依赖模型能力，当前直接跳过，避免输出不可靠修复代码。",
+            )
+            return {"code_repair_skipped": True, "llm_degradation_events": llm_events}
         failures = state.get("execution_errors", []) or []
         if not failures:
             return {}
@@ -3129,7 +3565,7 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
                                 filtered_rows.append(row)
                         if filtered_rows:
                             hypothesis_payload["hypotheses"] = filtered_rows
-                            write_json(session_dir / "result" / "hypothesis_results.json", hypothesis_payload)
+                    _sync_hypothesis_alignment_artifacts(session_dir, hypothesis_payload)
                     evidence_payload = _build_hypothesis_evidence(
                         session_dir,
                         hypothesis_payload,
@@ -3276,6 +3712,7 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
                 },
             ]
         errors = list(state.get("errors", []))
+        llm_events = list(state.get("llm_degradation_events", []) or [])
         use_llm = bool(state.get("config", {}).get("analysis_use_llm", ANALYSIS_USE_LLM))
         if use_llm:
             use_llm = _has_advanced_artifacts(Path(state.get("session_dir", "")))
@@ -3292,6 +3729,14 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
                     analysis_payload = _build_auto_analysis_payload(session_dir, auto_evidence)
             except Exception as exc:
                 errors.append(f"analysis_structured_failed: {exc}")
+                if _is_llm_unavailable_error(exc):
+                    llm_events = _record_llm_degradation(
+                        {"llm_degradation_events": llm_events},
+                        node="analyze_results",
+                        action="fallback",
+                        reason=str(exc),
+                        impact="分析解释改用自动化证据摘要与定量结果。",
+                    )
                 analysis_payload = {
                     "summary": "LLM 分析失败，已改为使用自动化证据摘要。",
                     "key_findings": [],
@@ -3370,6 +3815,7 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
             "hypothesis_multipath": multipath_payload if "multipath_payload" in locals() else {},
             "path_adjudication": path_adjudication_payload if "path_adjudication_payload" in locals() else {},
             "plan_json": effective_plan_json if "effective_plan_json" in locals() else state.get("plan_json", {}),
+            "llm_degradation_events": llm_events,
         }
 
     def evidence_curation(state: OrchestrationState) -> OrchestrationState:
@@ -3694,12 +4140,32 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
                 ),
             },
         ]
-        raw = llm.chat(messages, max_tokens=1024)
-        followups = _extract_hypotheses(raw)
+        llm_events = list(state.get("llm_degradation_events", []) or [])
+        raw = ""
+        followups: list[str] = []
+        try:
+            raw = llm.chat(messages, max_tokens=1024)
+            followups = _extract_hypotheses(raw)
+        except Exception as exc:
+            llm_events = _record_llm_degradation(
+                state,
+                node="refine_hypotheses",
+                action="skip_optional_llm",
+                reason=str(exc),
+                impact="跳过 LLM 假设扩展，改用门槛未通过项生成后续假设建议。",
+            )
+            followups = _fallback_followup_hypotheses(Path(state.get("session_dir", "")))
+            if followups:
+                raw = "LLM 不可用，自动生成后续假设建议：\n" + "\n".join(f"- {x}" for x in followups)
+            else:
+                raw = "LLM 不可用，且未发现可自动扩展的后续假设。"
         followup_path = Path(state.get("session_dir", "")) / "plan" / "followup_hypotheses.md"
         write_text(followup_path, raw)
         record_artifact(state.get("session_dir", ""), followup_path, "plan", "refine_hypotheses")
-        return {"followup_hypotheses": followups}
+        output: dict[str, Any] = {"followup_hypotheses": followups}
+        if llm_events:
+            output["llm_degradation_events"] = llm_events
+        return output
 
     def decide_recurse(state: OrchestrationState) -> OrchestrationState:
         max_depth = int(state.get("max_depth", 0))
@@ -3817,7 +4283,18 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
                 {"role": "system", "content": get_system(language)},
                 {"role": "user", "content": f"{prompt}\n\nAnalysis:\n{analysis_text}"},
             ]
-        outline = llm.chat(messages, max_tokens=2048)
+        llm_events = list(state.get("llm_degradation_events", []) or [])
+        try:
+            outline = llm.chat(messages, max_tokens=2048)
+        except Exception as exc:
+            llm_events = _record_llm_degradation(
+                state,
+                node="report_outline",
+                action="fallback",
+                reason=str(exc),
+                impact="报告大纲改用确定性结构模板，保持章节可追踪。",
+            )
+            outline = _fallback_report_outline(state)
         outline_path = Path(state.get("session_dir", "")) / "report" / "report_outline.md"
         write_text(outline_path, outline)
         record_artifact(state.get("session_dir", ""), outline_path, "report", "report_outline")
@@ -3831,7 +4308,10 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
                 "report",
                 {"phase": "report_outline"},
             )
-        return {"report_outline": outline}
+        output: dict[str, Any] = {"report_outline": outline}
+        if llm_events:
+            output["llm_degradation_events"] = llm_events
+        return output
 
     def generate_report(state: OrchestrationState) -> OrchestrationState:
         outline = state.get("report_outline", "")
@@ -3936,11 +4416,18 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
                 },
             ]
         report_payload: dict[str, Any]
+        llm_events = list(state.get("llm_degradation_events", []) or [])
+        strict_fallback_mode = bool(state.get("config", {}).get("strict_fallback_mode", True))
         use_report_llm = bool(state.get("config", {}).get("report_use_llm", REPORT_USE_LLM))
         if (not gate_payload or not pack_validation.get("valid", False)) or not set_consistency.get("satisfied", False):
             use_report_llm = False
         if not completion_validation.get("complete", False):
             use_report_llm = False
+        report_gate_ok, report_gate_reasons = _strong_fallback_report_ok(
+            completion_validation,
+            set_consistency,
+            pack_validation,
+        )
         if use_report_llm:
             try:
                 report_raw = llm.chat(messages, max_tokens=4096)
@@ -3965,6 +4452,13 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
                     if execution_warning
                     else f"报告装配降级：{short_reason}。"
                 )
+                llm_events = _record_llm_degradation(
+                    {"llm_degradation_events": llm_events},
+                    node="generate_report",
+                    action="fallback",
+                    reason=raw_reason,
+                    impact="最终报告改为结构化装配，避免自由文本推断。",
+                )
                 write_json(
                     ensure_dir(Path(state.get("session_dir", "")) / "meta" / "plan_validation")
                     / "report_llm_fallback.json",
@@ -3987,6 +4481,83 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
                 }
             )
             outline = _sanitize_outline(outline, Path(state.get("session_dir", "")))
+        if strict_fallback_mode and _has_llm_unavailable_event(llm_events) and not report_gate_ok:
+            llm_events = _record_llm_degradation(
+                {"llm_degradation_events": llm_events},
+                node="generate_report",
+                action="skip_due_to_quality_gate",
+                reason=";".join(report_gate_reasons) if report_gate_reasons else "report_gate_not_passed",
+                impact="LLM 不可用且质量门槛未通过，跳过正文报告装配，仅输出跳过说明。",
+            )
+            report = (
+                "<h1>报告已跳过生成</h1>"
+                "<p>原因：当前运行处于 LLM 不可用状态，且强兜底质量门槛未通过。</p>"
+                f"<p>阻塞项：{', '.join(report_gate_reasons) if report_gate_reasons else 'unknown'}。</p>"
+                "<p>建议：修复阻塞项后重跑，或恢复可用模型服务后再生成完整报告。</p>"
+            )
+            version = len(state.get("report_versions", [])) + 1
+            report_path = export_report(
+                report,
+                output_dir=Path(state.get("session_dir", "")) / "report",
+                report_format=report_format,
+                export_mode=export_mode,
+                template=template_from_config(language),
+                base_name=f"report_v{version}",
+            )
+            record_artifact(state.get("session_dir", ""), report_path, "report", "generate_report")
+            versions = list(state.get("report_versions", []))
+            versions.append(str(report_path))
+            write_json(
+                ensure_dir(Path(state.get("session_dir", "")) / "meta" / "plan_validation")
+                / "report_skipped_due_to_quality_gate.json",
+                {
+                    "skipped": True,
+                    "reasons": report_gate_reasons,
+                    "llm_unavailable": True,
+                },
+            )
+            llm_event_summary = {
+                "count": len(llm_events),
+                "fallback_count": sum(1 for e in llm_events if str(e.get("action", "")).startswith("fallback")),
+                "skip_count": sum(1 for e in llm_events if str(e.get("action", "")).startswith("skip")),
+                "nodes": sorted(
+                    list(
+                        {
+                            str(e.get("node", "")).strip()
+                            for e in llm_events
+                            if isinstance(e, dict) and str(e.get("node", "")).strip()
+                        }
+                    )
+                ),
+            }
+            write_json(
+                ensure_dir(Path(state.get("session_dir", "")) / "meta") / "llm_degradation_events.json",
+                {"events": llm_events, "summary": llm_event_summary},
+            )
+            return {
+                "report": report,
+                "report_versions": versions,
+                "completion_validation": completion_validation,
+                "llm_degradation_events": llm_events,
+            }
+        llm_event_summary = {
+            "count": len(llm_events),
+            "fallback_count": sum(1 for e in llm_events if str(e.get("action", "")).startswith("fallback")),
+            "skip_count": sum(1 for e in llm_events if str(e.get("action", "")).startswith("skip")),
+            "nodes": sorted(
+                list(
+                    {
+                        str(e.get("node", "")).strip()
+                        for e in llm_events
+                        if isinstance(e, dict) and str(e.get("node", "")).strip()
+                    }
+                )
+            ),
+        }
+        write_json(
+            ensure_dir(Path(state.get("session_dir", "")) / "meta") / "llm_degradation_events.json",
+            {"events": llm_events, "summary": llm_event_summary},
+        )
         doc_manager = DocumentManager(Path(state.get("session_dir", "")))
         document_manifest = doc_manager.manifest()
         assembler = ReportAssembler(language=language)
@@ -4023,6 +4594,7 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
             "report": report,
             "report_versions": versions,
             "completion_validation": completion_validation,
+            "llm_degradation_events": llm_events,
         }
 
     def finalize_run(state: OrchestrationState) -> OrchestrationState:
@@ -4106,6 +4678,28 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
         write_json(session_dir / "meta" / "completion_validation.json", completion_validation)
         write_json(session_dir / "meta" / "evidence_trace.json", evidence_trace)
         write_json(session_dir / "meta" / "reason_code_summary.json", reason_code_summary)
+        llm_events = list(state.get("llm_degradation_events", []) or [])
+        llm_event_summary = {
+            "count": len(llm_events),
+            "fallback_count": sum(1 for e in llm_events if str(e.get("action", "")).startswith("fallback")),
+            "skip_count": sum(1 for e in llm_events if str(e.get("action", "")).startswith("skip")),
+            "nodes": sorted(
+                list(
+                    {
+                        str(e.get("node", "")).strip()
+                        for e in llm_events
+                        if isinstance(e, dict) and str(e.get("node", "")).strip()
+                    }
+                )
+            ),
+        }
+        audit["llm_degradation"] = llm_event_summary
+        audit["llm_degradation_events"] = llm_events
+        write_json(
+            session_dir / "meta" / "llm_degradation_events.json",
+            {"events": llm_events, "summary": llm_event_summary},
+        )
+        write_json(session_dir / "meta" / "run_audit.json", audit)
         summary["analysis_quality_score"] = quality_score
         summary["quality_consistency"] = quality_consistency
         summary["hypothesis_set_consistency"] = hypothesis_set_consistency
@@ -4113,6 +4707,7 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
         summary["iteration_lineage"] = iteration_lineage
         summary["evidence_trace"] = evidence_trace
         summary["reason_code_summary"] = reason_code_summary
+        summary["llm_degradation"] = llm_event_summary
         doc_manager = DocumentManager(session_dir)
         document_manifest = doc_manager.manifest()
         record_artifact(

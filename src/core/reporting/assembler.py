@@ -1035,10 +1035,18 @@ class ReportAssembler:
         has_primary_perf = bool({"auc", "accuracy", "f1", "precision", "recall", "centroid_accuracy", "majority_accuracy"} & quant_names)
         if not has_primary_perf:
             missing.append("predictive_primary_metric_missing")
+        gate_status = str(gate_entry.get("gate_status", "")).strip().lower()
         conflict_reason = str(contrast_entry.get("conflict_reason", "")).strip()
         reason_code = str(gate_entry.get("reason_code", "")).strip()
+        contrast_consistency = str(contrast_entry.get("consistency", "")).strip().lower()
+        requires_conflict_explain = bool(
+            reason_code
+            or conflict_reason
+            or contrast_consistency == "conflict"
+            or gate_status in {"partial", "fail"}
+        )
         has_conflict_explain = bool(conflict_reason or reason_code)
-        if not has_conflict_explain:
+        if requires_conflict_explain and not has_conflict_explain:
             missing.append("predictive_conflict_explain_missing")
         return missing
 
@@ -1464,6 +1472,40 @@ class ReportAssembler:
             lines.append("- 建议恢复动作:")
             for action in actions:
                 lines.append(f"  - {action}")
+        return "\n".join(lines)
+
+    def _render_llm_degradation(self, session_root: Path | None) -> str:
+        if not session_root:
+            return ""
+        path = session_root / "meta" / "llm_degradation_events.json"
+        if not path.exists():
+            return ""
+        payload = self._load_json(path)
+        if not isinstance(payload, dict):
+            return ""
+        summary = payload.get("summary", {}) if isinstance(payload.get("summary"), dict) else {}
+        events = payload.get("events", []) if isinstance(payload.get("events"), list) else []
+        total = int(summary.get("count", 0) or 0)
+        fallback_count = int(summary.get("fallback_count", 0) or 0)
+        skip_count = int(summary.get("skip_count", 0) or 0)
+        lines = ["## 模型可用性与降级记录"]
+        if total <= 0:
+            lines.append("- 本次运行未触发模型降级。")
+            return "\n".join(lines)
+        lines.append(f"- 降级事件总数: {total}")
+        lines.append(f"- 兜底继续执行次数: {fallback_count}")
+        lines.append(f"- 可选步骤跳过次数: {skip_count}")
+        if events:
+            lines.append("- 关键降级事件（按执行顺序）:")
+            for event in events[:10]:
+                if not isinstance(event, dict):
+                    continue
+                node = str(event.get("node", "")).strip() or "unknown"
+                action = str(event.get("action", "")).strip() or "unknown"
+                impact = str(event.get("impact", "")).strip() or "未提供影响说明"
+                reason = str(event.get("reason", "")).strip() or "未提供原因"
+                lines.append(f"  - 节点 `{node}`：动作 `{action}`。影响：{impact}")
+                lines.append(f"    原因：{reason}")
         return "\n".join(lines)
 
     def _render_path_adjudication(self, session_root: Path | None) -> str:
@@ -2701,6 +2743,7 @@ class ReportAssembler:
         failure_block = self._render_validation_failures(session_root)
         quality_block = self._render_quality_warnings(session_root)
         completion_block = self._render_completion_validation(session_root)
+        llm_degrade_block = self._render_llm_degradation(session_root)
         adjudication_block = self._render_path_adjudication(session_root)
         matrix_block = self._render_hypothesis_matrix(session_root)
         coverage_block = self._render_coverage_report(session_root)
@@ -2712,6 +2755,9 @@ class ReportAssembler:
             lines.append("")
         if completion_block:
             lines.append(completion_block.replace("## 完成态校验\n", ""))
+            lines.append("")
+        if llm_degrade_block:
+            lines.append(llm_degrade_block.replace("## 模型可用性与降级记录\n", ""))
             lines.append("")
         if quality_block:
             lines.append(quality_block.replace("## 质量规则未达标\n", ""))

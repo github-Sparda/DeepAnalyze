@@ -168,3 +168,5 @@ python scripts/run_serum_orchestrated_analysis.py --max-depth 2 --output-dir out
 
 参数补充：
 - `--strict-llm-check`：启动时 LLM 连通性检查失败即退出；默认关闭，默认会继续进入可降级执行模式。
+- `--strict-fallback-mode`：启用强兜底质量门槛（默认开启）；当 LLM 不可用且门槛未通过时，优先跳过低可信步骤/报告，而非生成弱质量结果。
+- `--no-strict-fallback-mode`：关闭强兜底门槛，允许更宽松的兜底行为（不推荐生产使用）。
