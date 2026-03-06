@@ -207,3 +207,32 @@ def test_strong_fallback_report_gate_requires_core_checks() -> None:
     )
     assert ok is False
     assert "completion_validation_failed" in reasons
+
+
+def test_build_path_execution_status_counts_paths() -> None:
+    payload = {
+        "hypotheses": [
+            {
+                "hypothesis_id": "H1",
+                "status": "validated",
+                "paths": [
+                    {"path_id": "a", "status": "ok"},
+                    {"path_id": "b", "status": "ok"},
+                ],
+            },
+            {
+                "hypothesis_id": "H2",
+                "status": "failed",
+                "paths": [
+                    {"path_id": "a", "status": "failed", "missing_artifacts": ["x.png"]},
+                    {"path_id": "b", "status": "partial", "missing_artifacts": ["y.csv"]},
+                ],
+            },
+        ]
+    }
+    status = orchestration_graph._build_path_execution_status(payload)
+    rows = {row["hypothesis_id"]: row for row in status.get("hypotheses", [])}
+    assert rows["H1"]["overall"] == "complete"
+    assert rows["H1"]["path_success"] == 2
+    assert rows["H2"]["overall"] == "incomplete"
+    assert set(rows["H2"]["missing_artifacts"]) == {"x.png", "y.csv"}

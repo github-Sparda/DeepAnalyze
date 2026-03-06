@@ -372,6 +372,72 @@ def _fallback_report_outline(state: OrchestrationState) -> str:
     return "\n".join(lines)
 
 
+def _extract_hypothesis_id_from_label(raw: str) -> str:
+    text = str(raw or "").strip().upper()
+    match = re.search(r"\b(H\d+)\b", text)
+    return match.group(1) if match else ""
+
+
+def _active_hypothesis_ids_from_plan(plan_json: dict[str, Any]) -> list[str]:
+    rows = plan_json.get("hypotheses", []) if isinstance(plan_json, dict) else []
+    ids: list[str] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        hid = str(row.get("id", "")).strip().upper()
+        if re.fullmatch(r"H\d+", hid):
+            ids.append(hid)
+    return ids
+
+
+def _filter_hypothesis_results_payload(payload: dict[str, Any], active_ids: set[str]) -> dict[str, Any]:
+    rows = payload.get("hypotheses", []) if isinstance(payload, dict) else []
+    filtered: list[dict[str, Any]] = []
+    for row in rows if isinstance(rows, list) else []:
+        if not isinstance(row, dict):
+            continue
+        hid = _extract_hypothesis_id_from_label(row.get("hypothesis", ""))
+        if hid and hid in active_ids:
+            filtered.append(row)
+    return {"hypotheses": filtered}
+
+
+def _build_path_execution_status(
+    multipath_payload: dict[str, Any],
+) -> dict[str, Any]:
+    rows = multipath_payload.get("hypotheses", []) if isinstance(multipath_payload, dict) else []
+    status_rows: list[dict[str, Any]] = []
+    for row in rows if isinstance(rows, list) else []:
+        if not isinstance(row, dict):
+            continue
+        paths = row.get("paths", []) if isinstance(row.get("paths"), list) else []
+        total = len(paths)
+        success = sum(1 for p in paths if isinstance(p, dict) and str(p.get("status", "")).lower() in {"ok", "success"})
+        partial = sum(1 for p in paths if isinstance(p, dict) and str(p.get("status", "")).lower() == "partial")
+        failed = sum(1 for p in paths if isinstance(p, dict) and str(p.get("status", "")).lower() in {"fail", "failed"})
+        missing: list[str] = []
+        for p in paths:
+            if not isinstance(p, dict):
+                continue
+            for item in p.get("missing_artifacts", []) if isinstance(p.get("missing_artifacts"), list) else []:
+                text = str(item).strip()
+                if text and text not in missing:
+                    missing.append(text)
+        overall = "complete" if total >= 2 and success >= 2 and str(row.get("status", "")).lower() in {"validated", "ok", "success"} else "incomplete"
+        status_rows.append(
+            {
+                "hypothesis_id": row.get("hypothesis_id", ""),
+                "overall": overall,
+                "path_total": total,
+                "path_success": success,
+                "path_partial": partial,
+                "path_failed": failed,
+                "missing_artifacts": missing,
+            }
+        )
+    return {"hypotheses": status_rows}
+
+
 def _build_expected_artifact_validation_payload(plan_json: dict[str, Any]) -> dict[str, Any]:
     rows: list[dict[str, Any]] = []
     for hyp in plan_json.get("hypotheses", []) if isinstance(plan_json, dict) else []:
@@ -3667,6 +3733,53 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
                 )
                 write_json(session_dir / "result" / "hypothesis_multipath.json", multipath_payload)
                 write_json(session_dir / "result" / "path_adjudication.json", path_adjudication_payload)
+        # Enforce active hypothesis IDs (from current plan) on all downstream hypothesis artifacts
+        effective_plan_json = (
+            state.get("plan_json", {}) if isinstance(state.get("plan_json", {}), dict) else {}
+        )
+        if not effective_plan_json.get("hypotheses"):
+            effective_plan_json = _load_json_if_exists(session_dir / "plan" / "analysis_plan.json")
+        active_ids = set(_active_hypothesis_ids_from_plan(effective_plan_json))
+        if active_ids:
+            current_results = _load_json_if_exists(session_dir / "result" / "hypothesis_results.json")
+            filtered_payload = _filter_hypothesis_results_payload(current_results, active_ids)
+            write_json(session_dir / "result" / "hypothesis_results.json", filtered_payload)
+            _sync_hypothesis_alignment_artifacts(session_dir, filtered_payload)
+            evidence_payload = _build_hypothesis_evidence(
+                session_dir,
+                filtered_payload,
+                active_ids,
+            )
+            write_json(session_dir / "result" / "hypothesis_evidence.json", evidence_payload)
+            contrast_payload = _build_hypothesis_contrast(evidence_payload, session_dir)
+            write_json(session_dir / "result" / "hypothesis_contrast.json", contrast_payload)
+            multipath_payload = _evaluate_hypothesis_validation_paths(
+                session_dir,
+                effective_plan_json,
+                evidence_payload,
+                contrast_payload,
+            )
+            path_adjudication_payload = {}
+            multipath_payload, path_adjudication_payload = _run_path_c_adjudication(
+                session_dir,
+                _load_json_if_exists(session_dir / "profile" / "data_profile.json"),
+                multipath_payload,
+                float(state.get("config", {}).get("pathc_conflict_threshold", PATHC_CONFLICT_THRESHOLD)),
+            )
+            write_json(session_dir / "result" / "hypothesis_multipath.json", multipath_payload)
+            write_json(session_dir / "result" / "path_adjudication.json", path_adjudication_payload)
+            contract_payload = _build_hypothesis_validation_contract(
+                effective_plan_json,
+                contrast_payload,
+                multipath_payload,
+            )
+            write_json(session_dir / "result" / "hypothesis_validation_contract.json", contract_payload)
+            write_json(
+                session_dir / "result" / "expected_artifact_validation.json",
+                _build_expected_artifact_validation_payload(effective_plan_json),
+            )
+            path_execution_status = _build_path_execution_status(multipath_payload)
+            write_json(session_dir / "result" / "path_execution_status.json", path_execution_status)
         execution_warning = ""
         if not outputs:
             execution_warning = "执行告警：未检测到可执行脚本输出，分析结果可能缺少编程验证。"

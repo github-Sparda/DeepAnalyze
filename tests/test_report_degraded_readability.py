@@ -96,3 +96,20 @@ def test_render_llm_degradation_block(tmp_path: Path) -> None:
     assert "降级事件总数: 2" in text
     assert "节点 `report_outline`" in text
     assert "节点 `refine_hypotheses`" in text
+
+
+def test_conclusion_requires_path_execution_complete() -> None:
+    assembler = ReportAssembler(language="zh")
+    text = assembler._render_conclusion_recommendations(
+        [
+            {
+                "id": "H1",
+                "details": ["metric ok"],
+                "missing": [],
+                "gate_status": "pass",
+                "path_execution_overall": "incomplete",
+                "conflict_count": 0,
+            }
+        ]
+    )
+    assert "暂不建议输出强结论" in text

@@ -1545,6 +1545,24 @@ class ReportAssembler:
                 lines.append(f"  - fallback: {item.get('fallback_variant')}")
         return "\n".join(lines)
 
+    def _load_path_execution_status(self, session_root: Path | None) -> dict[str, Any]:
+        if not session_root:
+            return {}
+        path = session_root / "result" / "path_execution_status.json"
+        if not path.exists():
+            return {}
+        payload = self._load_json(path)
+        return payload if isinstance(payload, dict) else {}
+
+    def _hypothesis_path_execution_entry(self, hyp_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        rows = payload.get("hypotheses", []) if isinstance(payload, dict) else []
+        for row in rows if isinstance(rows, list) else []:
+            if not isinstance(row, dict):
+                continue
+            if str(row.get("hypothesis_id", "")).strip().upper() == str(hyp_id).strip().upper():
+                return row
+        return {}
+
     def _render_validation_failures(self, session_root: Path | None) -> str:
         if not session_root:
             return ""
@@ -2151,6 +2169,9 @@ class ReportAssembler:
         total = len(outcomes)
         complete = sum(1 for x in outcomes if not x.get("missing"))
         partial = total - complete
+        execution_complete = sum(
+            1 for x in outcomes if str(x.get("path_execution_overall", "")).lower() == "complete"
+        )
         gate_pass = sum(1 for x in outcomes if str(x.get("gate_status", "")).lower() == "pass")
         gate_partial = sum(1 for x in outcomes if str(x.get("gate_status", "")).lower() == "partial")
         gate_fail = sum(1 for x in outcomes if str(x.get("gate_status", "")).lower() == "fail")
@@ -2163,6 +2184,9 @@ class ReportAssembler:
         lines.append(
             f"从判定状态看：通过 {gate_pass} 条、部分通过 {gate_partial} 条、未通过 {gate_fail} 条；"
             f"检测到显式指标冲突的假设有 {conflict_count} 条。"
+        )
+        lines.append(
+            f"从路径执行看：仅 {execution_complete}/{total} 条假设满足“至少两条验证路径执行成功且状态闭环”的最低要求。"
         )
         highlights = [x for x in outcomes if x.get("details")]
         if highlights:
@@ -2189,6 +2213,7 @@ class ReportAssembler:
             if x.get("details")
             and not x.get("missing")
             and str(x.get("gate_status", "")).lower() == "pass"
+            and str(x.get("path_execution_overall", "")).lower() == "complete"
             and int(x.get("conflict_count", 0)) == 0
         ]
         uncertain = [
@@ -2196,6 +2221,7 @@ class ReportAssembler:
             for x in outcomes
             if x.get("missing")
             or str(x.get("gate_status", "")).lower() in {"partial", "fail"}
+            or str(x.get("path_execution_overall", "")).lower() != "complete"
             or int(x.get("conflict_count", 0)) > 0
         ]
         lines: list[str] = []
@@ -2398,6 +2424,7 @@ class ReportAssembler:
         hypothesis_evidence = self._load_hypothesis_evidence(session_root)
         hypothesis_contrast = self._load_hypothesis_contrast(session_root)
         hypothesis_gate = self._load_hypothesis_gate(session_root)
+        path_execution_status = self._load_path_execution_status(session_root)
         used_visuals: set[str] = set()
         used_tables: set[str] = set()
         hypothesis_outcomes: list[dict[str, Any]] = []
@@ -2418,6 +2445,7 @@ class ReportAssembler:
                 evidence_entry = self._hypothesis_evidence_entry(hyp_id, hypothesis_evidence)
                 contrast_entry = self._hypothesis_contrast_entry(hyp_id, hypothesis_contrast)
                 gate_entry = self._hypothesis_gate_entry(hyp_id, hypothesis_gate)
+                path_entry = self._hypothesis_path_execution_entry(hyp_id, path_execution_status)
                 step_map = run_entry.get("steps", {}) if isinstance(run_entry, dict) else {}
                 run_hypothesis = str(run_entry.get("hypothesis", "")) if isinstance(run_entry, dict) else ""
                 executed_title = self._extract_title_from_run_hypothesis(run_hypothesis, hyp_id)
@@ -2505,6 +2533,14 @@ class ReportAssembler:
                         lines.append("</ul>")
                 lines.append("")
                 lines.append("#### 执行事实（产物与状态）")
+                if path_entry:
+                    lines.append(
+                        "路径执行闭环："
+                        f"总体={path_entry.get('overall', 'unknown')}；"
+                        f"成功路径={path_entry.get('path_success', 0)}/{path_entry.get('path_total', 0)}；"
+                        f"部分成功={path_entry.get('path_partial', 0)}；"
+                        f"失败={path_entry.get('path_failed', 0)}。"
+                    )
                 if step_map:
                     lines.append("<ul>")
                     for step_name, payload in step_map.items():
@@ -2700,6 +2736,9 @@ class ReportAssembler:
                         "details": details,
                         "quant_metrics": quant_metrics,
                         "gate_status": str(gate_entry.get("gate_status", "")).lower() if isinstance(gate_entry, dict) else "",
+                        "path_execution_overall": str(path_entry.get("overall", "")).lower() if isinstance(path_entry, dict) else "",
+                        "path_success": int(path_entry.get("path_success", 0) or 0) if isinstance(path_entry, dict) else 0,
+                        "path_total": int(path_entry.get("path_total", 0) or 0) if isinstance(path_entry, dict) else 0,
                         "conflict_count": len(detect_metric_conflicts_detailed(outcome_conflict_input)),
                         "evidence_sources": (
                             evidence_entry.get("evidence_sources", [])
