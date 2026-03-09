@@ -571,6 +571,7 @@ def test_report_renders_planned_vs_executable_followup_block(tmp_path: Path) -> 
                 "bindings": [
                     {
                         "hypothesis_id": "H1",
+                        "depth": 2,
                         "planned_followup": {
                             "title": "核心标志物的统计稳健性假设",
                             "hypothesis": "尝试用更丰富的稳健性产物补强差异结论",
@@ -684,6 +685,75 @@ def test_report_renders_planned_vs_executable_followup_block(tmp_path: Path) -> 
     assert "<strong>已归一化为可执行验证合同</strong>：" in html
     assert "Robustness_Summary.csv" in html
     assert "prior_plan_hypothesis_type" in html
+
+
+def test_report_drops_stale_incomplete_language_when_final_completion_is_complete(tmp_path: Path) -> None:
+    session_dir = tmp_path / "session_final_complete"
+    (session_dir / "meta").mkdir(parents=True, exist_ok=True)
+    (session_dir / "result").mkdir(parents=True, exist_ok=True)
+    (session_dir / "report").mkdir(parents=True, exist_ok=True)
+    (session_dir / "meta" / "completion_validation.json").write_text(
+        json.dumps({"complete": True, "checks": {}, "blocking_reasons": [], "recovery_actions": []}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    assembler = ReportAssembler(language="zh")
+    html = assembler.assemble(
+        outline="",
+        analysis_md="",
+        document_manifest={
+            "visualizations": [],
+            "tables": [],
+            "plans": [{"plan_id": "p1", "entries": [{"kind": "meta", "path": str(session_dir / "meta" / "completion_validation.json"), "relative_path": "meta/completion_validation.json"}]}],
+        },
+        report_payload={
+            "title": "t",
+            "summary": "假设集合、证据门槛或完成态校验未通过，已中止最终结论生成，仅保留可追溯结构化装配结果。",
+            "sections": [],
+        },
+        execution_warning="完成态校验未通过：step_closure_incomplete。",
+    )
+    assert "完成态校验未通过" not in html
+    assert "已中止最终结论生成" not in html
+    assert "最终落盘产物重新装配" in html
+
+
+def test_report_overview_prefers_executed_hypothesis_title_when_plan_title_drifts(tmp_path: Path) -> None:
+    session_dir = tmp_path / "session_overview"
+    (session_dir / "plan").mkdir(parents=True, exist_ok=True)
+    (session_dir / "result").mkdir(parents=True, exist_ok=True)
+    (session_dir / "report").mkdir(parents=True, exist_ok=True)
+    (session_dir / "plan" / "analysis_plan.json").write_text(
+        json.dumps(
+            {
+                "hypotheses": [
+                    {
+                        "id": "H3",
+                        "title": "样本异质性",
+                        "hypothesis": "EP 组内部存在亚型差异",
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (session_dir / "result" / "hypothesis_results.json").write_text(
+        json.dumps({"hypotheses": [{"hypothesis": "H3: 相关结构验证", "steps": {"correlation": {"status": "ok"}}, "missing": []}]}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    assembler = ReportAssembler(language="zh")
+    html = assembler.assemble(
+        outline="",
+        analysis_md="",
+        document_manifest={
+            "visualizations": [],
+            "tables": [{"name": "hypothesis_results.json", "path": str(session_dir / "result" / "hypothesis_results.json"), "relative_path": "result/hypothesis_results.json"}],
+        },
+        report_payload={"title": "t", "summary": "", "sections": []},
+        execution_warning="",
+    )
+    assert "H3 相关结构验证" in html
+    assert "H3 样本异质性：EP 组内部存在亚型差异" not in html
 
 
 def test_volcano_explanation_contains_axes_and_color_legend(tmp_path: Path) -> None:

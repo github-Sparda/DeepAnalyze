@@ -1142,6 +1142,7 @@ def _resolve_followup_profile_key(
     hypothesis: dict[str, Any],
     prior_plan_json: dict[str, Any] | None = None,
     session_dir: Path | None = None,
+    prefer_prior_identity: bool = False,
 ) -> tuple[str, str]:
     item = dict(hypothesis) if isinstance(hypothesis, dict) else {}
     hid = str(item.get("id", "")).strip().upper()
@@ -1149,12 +1150,14 @@ def _resolve_followup_profile_key(
     hypothesis_text = str(item.get("hypothesis", "")).strip()
     supported = _runtime_supported_profile_keys()
     current_key = str(item.get("hypothesis_type", "")).strip().lower()
-    if current_key in supported:
-        return current_key, "explicit_hypothesis_type"
 
     prior_map = _prior_plan_hypothesis_map(prior_plan_json or {})
     prior_row = prior_map.get(hid, {})
     prior_key = str(prior_row.get("hypothesis_type", "")).strip().lower() if isinstance(prior_row, dict) else ""
+    if prefer_prior_identity and prior_key in supported:
+        return prior_key, "prior_plan_hypothesis_type"
+    if current_key in supported:
+        return current_key, "explicit_hypothesis_type"
     if prior_key in supported:
         return prior_key, "prior_plan_hypothesis_type"
 
@@ -1185,6 +1188,8 @@ def _bind_followup_executable_contracts(
     normalized_rows: list[dict[str, Any]] = []
     binding_rows: list[dict[str, Any]] = []
     research_only_rows: list[dict[str, Any]] = []
+    prior_map = _prior_plan_hypothesis_map(prior_plan_json or {})
+    prefer_prior_identity = int(depth or 1) > 1
     for idx, row in enumerate(hypotheses if isinstance(hypotheses, list) else []):
         if not isinstance(row, dict):
             continue
@@ -1213,11 +1218,20 @@ def _bind_followup_executable_contracts(
             item,
             prior_plan_json=prior_plan_json,
             session_dir=session_dir,
+            prefer_prior_identity=prefer_prior_identity,
         )
         runtime_expected, runtime_paths = _runtime_bound_validation_templates(profile_key)
         if runtime_expected and runtime_paths:
             executable = _bind_runtime_realizable_paths({**item, "hypothesis_type": profile_key})
             executable.pop("_planned_followup_original", None)
+            if prefer_prior_identity:
+                prior_row = prior_map.get(hid, {})
+                prior_title = str(prior_row.get("title", "")).strip() if isinstance(prior_row, dict) else ""
+                prior_hypothesis = str(prior_row.get("hypothesis", "")).strip() if isinstance(prior_row, dict) else ""
+                if prior_title:
+                    executable["title"] = prior_title
+                if prior_hypothesis:
+                    executable["hypothesis"] = prior_hypothesis
             normalized_rows.append(executable)
             executable_expected = [str(x).strip() for x in executable.get("expected_artifacts", []) if str(x).strip()]
             executable_families = sorted(
@@ -5337,6 +5351,8 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
             "report_versions": versions,
             "completion_validation": completion_validation,
             "report_generation_waiver": report_generation_waiver,
+            "report_payload": report_payload,
+            "report_execution_warning": execution_warning,
             "llm_degradation_events": llm_events,
         }
 
@@ -5438,6 +5454,27 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
             closure_status=closure_map,
             expect_report=True,
         )
+        generate_report_closure = (
+            closure_map.get("generate_report", {})
+            if isinstance(closure_map.get("generate_report", {}), dict)
+            else {}
+        )
+        if completion_validation.get("complete", False) and generate_report_closure:
+            notes = (
+                [
+                    str(item).strip()
+                    for item in generate_report_closure.get("notes", [])
+                    if str(item).strip() and str(item).strip() != "report_generated_with_explicit_waiver"
+                ]
+                if isinstance(generate_report_closure.get("notes", []), list)
+                else []
+            )
+            normalized_report_closure = dict(generate_report_closure)
+            normalized_report_closure["notes"] = notes
+            normalized_report_closure["waiver_reason"] = ""
+            normalized_report_closure["derived_from"] = []
+            closure_map["generate_report"] = normalized_report_closure
+            write_json(session_dir / "meta" / "closure_status" / "generate_report.json", normalized_report_closure)
         audit["analysis_quality_score"] = quality_score
         audit["quality_consistency"] = quality_consistency
         audit["hypothesis_set_consistency"] = hypothesis_set_consistency
@@ -5501,6 +5538,26 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
         )
         summary["documents"] = document_manifest
         record_run_summary(session_dir, summary)
+        latest_report_path = ""
+        report_versions = state.get("report_versions", [])
+        if isinstance(report_versions, list) and report_versions:
+            latest_report_path = str(report_versions[-1]).strip()
+        report_payload = state.get("report_payload", {}) if isinstance(state.get("report_payload", {}), dict) else {}
+        if latest_report_path and report_payload:
+            report_path = Path(latest_report_path)
+            if report_path.exists():
+                try:
+                    assembler = ReportAssembler(language=config.get("language", "zh"))
+                    regenerated_report = assembler.assemble(
+                        outline=str(state.get("report_outline", "") or ""),
+                        analysis_md=str(state.get("docs_analysis_results", "") or ""),
+                        document_manifest=document_manifest,
+                        report_payload=report_payload,
+                        execution_warning=str(state.get("report_execution_warning", "") or ""),
+                    )
+                    write_text(report_path, regenerated_report)
+                except Exception:
+                    pass
         return {"run_summary": summary, "document_manifest": document_manifest}
 
     graph.add_node("understand_files", _run_node("understand_files", understand_files, config))

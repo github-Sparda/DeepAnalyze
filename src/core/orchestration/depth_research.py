@@ -27,6 +27,7 @@ def build_research_digest(session_dir: Path, state: dict[str, Any]) -> dict[str,
         evidence_pack = _load_json(session_dir / "result" / "hypothesis_evidence_pack.json")
     path_execution = _load_json(session_dir / "result" / "path_execution_status.json")
     multipath = state.get("hypothesis_multipath", {}) if isinstance(state.get("hypothesis_multipath", {}), dict) else _load_json(session_dir / "result" / "hypothesis_multipath.json")
+    hypothesis_results = _load_json(session_dir / "result" / "hypothesis_results.json")
     closure_status = state.get("closure_status", {}) if isinstance(state.get("closure_status", {}), dict) else {}
 
     plan_rows = plan_json.get("hypotheses", []) if isinstance(plan_json, dict) else []
@@ -50,6 +51,18 @@ def build_research_digest(session_dir: Path, state: dict[str, Any]) -> dict[str,
         for row in multipath.get("hypotheses", [])
         if isinstance(row, dict)
     }
+    result_title_map: dict[str, str] = {}
+    for row in hypothesis_results.get("hypotheses", []) if isinstance(hypothesis_results, dict) else []:
+        if not isinstance(row, dict):
+            continue
+        raw = str(row.get("hypothesis", "")).strip()
+        if ":" not in raw:
+            continue
+        prefix, suffix = raw.split(":", 1)
+        hid = str(prefix).strip().upper()
+        title = str(suffix).strip()
+        if hid and title:
+            result_title_map[hid] = title
 
     hypotheses: list[dict[str, Any]] = []
     stable_findings: list[dict[str, Any]] = []
@@ -60,6 +73,8 @@ def build_research_digest(session_dir: Path, state: dict[str, Any]) -> dict[str,
             continue
         hid = str(item.get("id", f"H{idx+1}")).strip().upper()
         title = str(item.get("title", hid)).strip() or hid
+        if result_title_map.get(hid):
+            title = result_title_map[hid]
         gate = gate_rows.get(hid, {})
         evidence = evidence_rows.get(hid, {})
         path_status = path_rows.get(hid, {})
@@ -193,10 +208,21 @@ def select_depth_focus(digest: dict[str, Any], max_candidates: int = 3) -> dict[
     closure_candidates.sort(key=lambda item: (-int(item.get("score", 0)), str(item.get("hypothesis_id", ""))))
     closure_candidates = closure_candidates[:max_candidates]
 
+    def _has_explicit_extension_space(row: dict[str, Any]) -> bool:
+        consistency = str(row.get("consistency", "")).strip().lower()
+        reason_code = str(row.get("reason_code", "")).strip().lower()
+        if consistency == "conflict":
+            return True
+        if any(token in reason_code for token in ["robust", "mechanism", "generalization", "instability", "extension"]):
+            return True
+        return False
+
     escalated_candidates: list[dict[str, Any]] = []
     if not closure_candidates:
         for row in stable:
             if not isinstance(row, dict):
+                continue
+            if not _has_explicit_extension_space(row):
                 continue
             score = 20 + min(int(row.get("quant_metric_count", 0) or 0), 4) * 5
             escalated_candidates.append(
@@ -208,7 +234,7 @@ def select_depth_focus(digest: dict[str, Any], max_candidates: int = 3) -> dict[
                 }
             )
         escalated_candidates.sort(key=lambda item: (-int(item.get("score", 0)), str(item.get("hypothesis_id", ""))))
-        escalated_candidates = escalated_candidates[:max_candidates]
+        escalated_candidates = escalated_candidates[:1]
 
     selected = closure_candidates if closure_candidates else escalated_candidates
     return {

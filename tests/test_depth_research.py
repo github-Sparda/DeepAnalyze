@@ -71,6 +71,43 @@ def test_build_research_digest_collects_unresolved_and_stable(tmp_path: Path) ->
     assert digest["blocking_phases"] == ["generate_report"]
 
 
+def test_build_research_digest_prefers_executed_titles_over_drifted_plan_titles(tmp_path: Path) -> None:
+    _write_json(
+        tmp_path / "plan" / "analysis_plan.json",
+        {
+            "hypotheses": [
+                {"id": "H2", "title": "相关结构验证"},
+            ]
+        },
+    )
+    _write_json(
+        tmp_path / "result" / "hypothesis_results.json",
+        {
+            "hypotheses": [
+                {"hypothesis": "H2: 预测性能验证", "steps": {"model_eval": {"status": "ok"}}, "missing": []},
+            ]
+        },
+    )
+    _write_json(
+        tmp_path / "result" / "hypothesis_gate_report.json",
+        {"hypotheses": [{"hypothesis_id": "H2", "gate_status": "pass"}]},
+    )
+    _write_json(
+        tmp_path / "result" / "hypothesis_evidence_pack.json",
+        {"hypotheses": [{"hypothesis_id": "H2", "quant_metrics": [{"name": "auc", "value": 0.91}]}]},
+    )
+    _write_json(
+        tmp_path / "result" / "path_execution_status.json",
+        {"hypotheses": [{"hypothesis_id": "H2", "overall": "complete", "missing_artifacts": []}]},
+    )
+    _write_json(
+        tmp_path / "result" / "hypothesis_multipath.json",
+        {"hypotheses": [{"hypothesis_id": "H2", "consistency": "consistent"}]},
+    )
+    digest = build_research_digest(tmp_path, {"depth": 1, "closure_status": {}})
+    assert digest["hypotheses"][0]["title"] == "预测性能验证"
+
+
 def test_select_depth_focus_prefers_unresolved_candidates() -> None:
     focus = select_depth_focus(
         {
@@ -92,6 +129,40 @@ def test_select_depth_focus_prefers_unresolved_candidates() -> None:
     )
     assert focus["mode"] == "closure_followup"
     assert focus["selected"][0]["hypothesis_id"] == "H2"
+
+
+def test_select_depth_focus_stops_when_all_closed_and_no_extension_space() -> None:
+    focus = select_depth_focus(
+        {
+            "unresolved_candidates": [],
+            "stable_findings": [
+                {
+                    "hypothesis_id": "H1",
+                    "title": "差异检验",
+                    "gate_status": "pass",
+                    "path_overall": "complete",
+                    "consistency": "consistent",
+                    "reason_code": "",
+                    "quant_metric_count": 6,
+                    "missing_artifact_count": 0,
+                    "evidence_sources": ["result/stats_results.json", "result/top_features.json"],
+                },
+                {
+                    "hypothesis_id": "H2",
+                    "title": "预测性能",
+                    "gate_status": "pass",
+                    "path_overall": "complete",
+                    "consistency": "consistent",
+                    "reason_code": "",
+                    "quant_metric_count": 8,
+                    "missing_artifact_count": 0,
+                    "evidence_sources": ["result/model_eval.json", "result/cv_results.json"],
+                },
+            ],
+        }
+    )
+    assert focus["mode"] == "stop"
+    assert focus["selected"] == []
 
 
 def test_build_depth_delta_marks_no_material_gain_when_counts_do_not_improve() -> None:
@@ -220,10 +291,11 @@ def test_recursive_followup_binding_rewrites_speculative_paths_to_runtime_contra
     )
     row = normalized["hypotheses"][0]
     assert row["hypothesis_type"] == "difference"
+    assert row["title"] == "差异特征性验证"
     assert "differential_features_table.csv" in row["expected_artifacts"]
     assert "Robustness_Summary.csv" not in row["expected_artifacts"]
     binding = normalized["followup_contract_binding"]["bindings"][0]
-    assert binding["binding_source"] == "explicit_hypothesis_type"
+    assert binding["binding_source"] == "prior_plan_hypothesis_type"
     assert "Robustness_Summary.csv" in binding["rejected_expected_artifacts"]
 
 
@@ -254,3 +326,44 @@ def test_recursive_followup_binding_marks_unsupported_profile_as_research_only(t
     binding = normalized["followup_contract_binding"]["bindings"][0]
     assert binding["executable"] is False
     assert binding["rewrite_reason"] == "no_runtime_supported_equivalent"
+
+
+def test_recursive_followup_binding_preserves_prior_identity_for_h2_predictive(tmp_path: Path) -> None:
+    prior_plan = {
+        "hypotheses": [
+            {
+                "id": "H2",
+                "title": "预测性能验证",
+                "hypothesis": "利用关键特征区分 Normal 与 EP",
+                "hypothesis_type": "predictive",
+            }
+        ]
+    }
+    raw_plan = {
+        "hypotheses": [
+            {
+                "id": "H2",
+                "title": "相关结构验证",
+                "hypothesis": "尝试基于相关网络继续分析",
+                "hypothesis_type": "correlation",
+                "expected_artifacts": ["network.png"],
+                "validation_paths": [
+                    {"path_id": "path_a", "method_family": "pearson_network", "expected_artifacts": ["network.png"]},
+                    {"path_id": "path_b", "method_family": "embedding_projection", "expected_artifacts": ["tsne_umap_plot.png"]},
+                ],
+            }
+        ]
+    }
+    normalized = orchestration_graph._normalize_plan_json(
+        raw_plan,
+        "",
+        session_dir=tmp_path,
+        prior_plan_json=prior_plan,
+        depth=2,
+    )
+    row = normalized["hypotheses"][0]
+    assert row["hypothesis_type"] == "predictive"
+    assert row["title"] == "预测性能验证"
+    binding = normalized["followup_contract_binding"]["bindings"][0]
+    assert binding["binding_source"] == "prior_plan_hypothesis_type"
+    assert binding["planned_followup"]["title"] == "相关结构验证"

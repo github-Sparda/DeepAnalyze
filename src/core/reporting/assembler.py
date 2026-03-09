@@ -1111,10 +1111,24 @@ class ReportAssembler:
             dedup.append(s)
         return dedup[:8]
 
-    def _render_plan_hypothesis_overview(self, plan_json: dict[str, Any]) -> str:
+    def _render_plan_hypothesis_overview(self, plan_json: dict[str, Any], session_root: Path | None = None) -> str:
         hypotheses = plan_json.get("hypotheses", []) if isinstance(plan_json, dict) else []
         if not hypotheses:
             return ""
+        run_title_map: dict[str, str] = {}
+        if session_root:
+            payload = self._load_json(session_root / "result" / "hypothesis_results.json")
+            rows = payload.get("hypotheses", []) if isinstance(payload, dict) else []
+            for row in rows if isinstance(rows, list) else []:
+                if not isinstance(row, dict):
+                    continue
+                run_hypothesis = str(row.get("hypothesis", "")).strip()
+                match = re.search(r"\b(H\d+)\b", run_hypothesis.upper())
+                if not match:
+                    continue
+                run_title = self._extract_title_from_run_hypothesis(run_hypothesis, match.group(1))
+                if run_title:
+                    run_title_map[match.group(1)] = run_title
         lines: list[str] = []
         lines.append("<ul>")
         for item in hypotheses:
@@ -1122,9 +1136,14 @@ class ReportAssembler:
                 continue
             hid = str(item.get("id", "")).strip()
             title = str(item.get("title", "")).strip()
+            executed_title = run_title_map.get(hid.upper(), "")
+            if executed_title:
+                title = executed_title
             hyp = str(item.get("hypothesis", "")).strip()
             if not hid:
                 continue
+            if executed_title and executed_title != str(item.get("title", "")).strip():
+                hyp = ""
             if hyp:
                 lines.append(f"<li>{hid} {title}：{hyp}</li>")
             else:
@@ -1481,6 +1500,44 @@ class ReportAssembler:
             for action in actions:
                 lines.append(f"  - {action}")
         return "\n".join(lines)
+
+    def _load_completion_validation_payload(self, session_root: Path | None) -> dict[str, Any]:
+        if not session_root:
+            return {}
+        path = session_root / "meta" / "completion_validation.json"
+        if not path.exists():
+            return {}
+        payload = self._load_json(path)
+        return payload if isinstance(payload, dict) else {}
+
+    def _sanitize_execution_warning(self, execution_warning: str, completion_payload: dict[str, Any]) -> str:
+        text = str(execution_warning or "").strip()
+        if not text:
+            return ""
+        if not bool((completion_payload or {}).get("complete", False)):
+            return text
+        banned = (
+            "完成态校验未通过",
+            "已中止最终结论生成",
+            "step_closure_incomplete",
+            "执行门槛告警",
+            "incomplete_hypothesis_set",
+            "unresolved_hypothesis_gate",
+            "hypothesis_set_consistency",
+        )
+        lines = [line for line in text.splitlines() if line.strip() and not any(token in line for token in banned)]
+        return "\n".join(lines).strip()
+
+    def _sanitize_summary_text(self, summary: str, completion_payload: dict[str, Any]) -> str:
+        text = str(summary or "").strip()
+        if not text:
+            return "本报告基于自动化分析流程产物生成，重点按假设-验证-结果-分析进行组织。"
+        if not bool((completion_payload or {}).get("complete", False)):
+            return text
+        banned = ("完成态校验未通过", "已中止最终结论生成", "仅保留可追溯结构化装配结果")
+        if any(token in text for token in banned):
+            return "本报告基于最终落盘产物重新装配，内容以最终完成态、假设闭环状态与证据文件为准。"
+        return text
 
     def _render_phase_closure_summary(self, session_root: Path | None) -> str:
         if not session_root:
@@ -2513,13 +2570,18 @@ class ReportAssembler:
                         binding_map[artifact] = hypothesis
         lines: list[str] = []
         feature_dict = self._load_feature_dict(session_root)
+        completion_payload = self._load_completion_validation_payload(session_root)
+        execution_warning = self._sanitize_execution_warning(execution_warning, completion_payload)
         title = report_payload.get("title") or "DeepAnalyze 报告"
         lines.append(f"# {title}")
         lines.append("")
         if execution_warning:
             lines.append(execution_warning)
             lines.append("")
-        summary = report_payload.get("summary") or "本报告基于自动化分析流程产物生成，重点按假设-验证-结果-分析进行组织。"
+        summary = self._sanitize_summary_text(
+            report_payload.get("summary") or "本报告基于自动化分析流程产物生成，重点按假设-验证-结果-分析进行组织。",
+            completion_payload,
+        )
         outline_mode = str(report_payload.get("outline_mode", "structure_only")).strip().lower()
         lines.append("## 摘要")
         lines.append(summary)
@@ -2529,10 +2591,13 @@ class ReportAssembler:
         plan_json = self._load_plan_json(session_root)
         hypotheses_md, process_md = self._extract_plan_sections(session_root)
         plan_markdown = self._load_plan_markdown(session_root)
-        if not process_md:
-            process_md = self._synthesize_process_from_hypothesis_results(session_root)
+        synthesized_process = self._synthesize_process_from_hypothesis_results(session_root)
+        if synthesized_process:
+            process_md = synthesized_process
+        elif not process_md:
+            process_md = synthesized_process
         lines.append("## 研究目标与原始假设")
-        overview = self._render_plan_hypothesis_overview(plan_json)
+        overview = self._render_plan_hypothesis_overview(plan_json, session_root)
         if overview:
             lines.append("以下为结构化假设总览：")
             lines.append(overview)
@@ -2651,7 +2716,7 @@ class ReportAssembler:
                     )
                 )
                 lines.append("")
-                if binding_entry:
+                if binding_entry and int(binding_entry.get("depth", 1) or 1) > 1:
                     planned = binding_entry.get("planned_followup", {}) if isinstance(binding_entry.get("planned_followup"), dict) else {}
                     executable = binding_entry.get("executable_contract", {}) if isinstance(binding_entry.get("executable_contract"), dict) else {}
                     rejected_artifacts = binding_entry.get("rejected_expected_artifacts", []) if isinstance(binding_entry.get("rejected_expected_artifacts"), list) else []

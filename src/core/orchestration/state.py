@@ -55,6 +55,8 @@ class OrchestrationState(TypedDict, total=False):
      execution_errors: list[dict[str, Any]]
      report_outline: str
      report: str
+     report_payload: dict[str, Any]
+     report_execution_warning: str
      report_versions: list[str]
      plan_id: str
      depth: int
