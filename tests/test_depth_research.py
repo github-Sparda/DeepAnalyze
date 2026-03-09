@@ -9,6 +9,7 @@ from src.core.orchestration.depth_research import (
     render_research_digest_markdown,
     select_depth_focus,
 )
+from src.core.orchestration import graph as orchestration_graph
 from src.core.orchestration.recursion import DepthRecursionController
 from src.core.reporting.assembler import ReportAssembler
 
@@ -182,3 +183,74 @@ def test_recursion_controller_stops_when_no_followup_value() -> None:
         unresolved_pending=False,
     )
     assert decision["should_recurse"] is False
+
+
+def test_recursive_followup_binding_rewrites_speculative_paths_to_runtime_contract(tmp_path: Path) -> None:
+    prior_plan = {
+        "hypotheses": [
+            {
+                "id": "H1",
+                "title": "差异特征性验证",
+                "hypothesis_type": "difference",
+                "expected_artifacts": ["differential_features_table.csv", "volcano_plot.png"],
+                "validation_paths": [{"path_id": "path_a"}, {"path_id": "path_b"}],
+            }
+        ]
+    }
+    raw_plan = {
+        "hypotheses": [
+            {
+                "id": "H1",
+                "title": "核心标志物的统计稳健性假设",
+                "hypothesis": "希望通过更严格方法验证差异稳定性",
+                "expected_artifacts": ["Robustness_Summary.csv", "Volcano_Plot_Refined.png"],
+                "validation_paths": [
+                    {"path_id": "h1_a", "method_family": "parametric_statistical_inference", "expected_artifacts": ["Robustness_Summary.csv"]},
+                    {"path_id": "h1_b", "method_family": "non-parametric_resampling", "expected_artifacts": ["Volcano_Plot_Refined.png"]},
+                ],
+            }
+        ]
+    }
+    normalized = orchestration_graph._normalize_plan_json(
+        raw_plan,
+        "",
+        session_dir=tmp_path,
+        prior_plan_json=prior_plan,
+        depth=2,
+    )
+    row = normalized["hypotheses"][0]
+    assert row["hypothesis_type"] == "difference"
+    assert "differential_features_table.csv" in row["expected_artifacts"]
+    assert "Robustness_Summary.csv" not in row["expected_artifacts"]
+    binding = normalized["followup_contract_binding"]["bindings"][0]
+    assert binding["binding_source"] == "explicit_hypothesis_type"
+    assert "Robustness_Summary.csv" in binding["rejected_expected_artifacts"]
+
+
+def test_recursive_followup_binding_marks_unsupported_profile_as_research_only(tmp_path: Path) -> None:
+    raw_plan = {
+        "hypotheses": [
+            {
+                "id": "H9",
+                "title": "全新机制发现假设",
+                "hypothesis": "提出一个当前工具链不支持的全新机制假设",
+                "hypothesis_type": "generic",
+                "expected_artifacts": ["novel_mechanism_bundle.zip"],
+                "validation_paths": [
+                    {"path_id": "path_a", "method_family": "novel_method", "expected_artifacts": ["novel_mechanism_bundle.zip"]},
+                    {"path_id": "path_b", "method_family": "another_novel_method", "expected_artifacts": ["novel_mechanism_bundle.zip"]},
+                ],
+            }
+        ]
+    }
+    normalized = orchestration_graph._normalize_plan_json(
+        raw_plan,
+        "",
+        session_dir=tmp_path,
+        prior_plan_json={},
+        depth=2,
+    )
+    assert normalized["hypotheses"] == []
+    binding = normalized["followup_contract_binding"]["bindings"][0]
+    assert binding["executable"] is False
+    assert binding["rewrite_reason"] == "no_runtime_supported_equivalent"

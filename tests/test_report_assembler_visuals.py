@@ -542,6 +542,150 @@ def test_report_includes_threshold_judgement_and_gate_rule_type(tmp_path: Path) 
     assert "下一步：" in html
 
 
+def test_report_renders_planned_vs_executable_followup_block(tmp_path: Path) -> None:
+    session_dir = tmp_path / "session_followup"
+    (session_dir / "result").mkdir(parents=True, exist_ok=True)
+    (session_dir / "report").mkdir(parents=True, exist_ok=True)
+    (session_dir / "plan").mkdir(parents=True, exist_ok=True)
+    (session_dir / "meta").mkdir(parents=True, exist_ok=True)
+    (session_dir / "plan" / "analysis_plan.json").write_text(
+        json.dumps(
+            {
+                "hypotheses": [
+                    {
+                        "id": "H1",
+                        "title": "差异稳健性验证",
+                        "hypothesis": "验证差异特征的稳健性",
+                        "validation_plan_steps": ["差异检验", "稳健性复核"],
+                        "expected_artifacts": ["differential_features_table.csv", "volcano_plot.png"],
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (session_dir / "meta" / "followup_contract_binding.json").write_text(
+        json.dumps(
+            {
+                "bindings": [
+                    {
+                        "hypothesis_id": "H1",
+                        "planned_followup": {
+                            "title": "核心标志物的统计稳健性假设",
+                            "hypothesis": "尝试用更丰富的稳健性产物补强差异结论",
+                            "expected_artifacts": ["Robustness_Summary.csv", "Volcano_Plot_Refined.png"],
+                        },
+                        "executable_contract": {
+                            "title": "差异稳健性验证",
+                            "hypothesis": "回退到运行时可执行的差异稳健性验证合同",
+                            "expected_artifacts": ["differential_features_table.csv", "volcano_plot.png"],
+                        },
+                        "binding_source": "prior_plan_hypothesis_type",
+                        "rejected_expected_artifacts": ["Robustness_Summary.csv", "Volcano_Plot_Refined.png"],
+                        "rejected_method_families": ["robust_resampling"],
+                        "rewrite_reason": "mapped_to_runtime_supported_profile",
+                        "executable": True,
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (session_dir / "result" / "hypothesis_matrix.json").write_text(
+        json.dumps(
+            {"hypotheses": [{"hypothesis_id": "H1", "status": "基础完成但路径未闭环", "missing_artifacts": ["volcano_plot.png"], "reason": ""}]},
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (session_dir / "result" / "coverage_report.json").write_text(
+        json.dumps({"mode": "partial", "missing_features": [], "filter_info": {}}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    (session_dir / "result" / "hypothesis_results.json").write_text(
+        json.dumps(
+            {"hypotheses": [{"hypothesis": "H1", "steps": {"差异检验": {"status": "ok", "output": "done"}}, "missing": []}]},
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (session_dir / "result" / "hypothesis_evidence.json").write_text(
+        json.dumps(
+            {"hypotheses": [{"hypothesis_id": "H1", "quant_metrics": {"significant_p_lt_0_05": 12}, "evidence_sources": ["result/stats_results.json"]}]},
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (session_dir / "result" / "hypothesis_contrast.json").write_text(
+        json.dumps(
+            {
+                "hypotheses": [
+                    {
+                        "hypothesis_id": "H1",
+                        "path_a": {"status": "validated", "metrics": {"p_count": 12}},
+                        "path_b": {"status": "partial", "metrics": {"effect_size": 0.4}},
+                        "consistency": "partial",
+                        "status": "partial",
+                        "conflict_reason": "",
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (session_dir / "result" / "hypothesis_gate_report.json").write_text(
+        json.dumps(
+            {
+                "hypotheses": [
+                    {
+                        "hypothesis_id": "H1",
+                        "gate_status": "partial",
+                        "checks": {"has_dual_path_status": False},
+                        "failed_checks": ["has_dual_path_status"],
+                        "reason_code": "path_incomplete",
+                        "recovery_action": "rerun_missing_step_and_verify_outputs",
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (session_dir / "result" / "path_execution_status.json").write_text(
+        json.dumps(
+            {"hypotheses": [{"hypothesis_id": "H1", "overall": "incomplete", "path_total": 2, "path_success": 1, "path_failed": 1, "missing_artifacts": ["volcano_plot.png"]}]},
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    assembler = ReportAssembler(language="zh")
+    html = assembler.assemble(
+        outline="",
+        analysis_md="",
+        document_manifest={
+            "visualizations": [],
+            "tables": [
+                {
+                    "name": "hypothesis_results.json",
+                    "path": str(session_dir / "result" / "hypothesis_results.json"),
+                    "relative_path": "result/hypothesis_results.json",
+                }
+            ],
+        },
+        report_payload={"title": "t", "summary": "", "sections": []},
+        execution_warning="",
+    )
+    assert "递进规划与执行约束" in html
+    assert "<strong>计划 follow-up</strong>：" in html
+    assert "<strong>已归一化为可执行验证合同</strong>：" in html
+    assert "Robustness_Summary.csv" in html
+    assert "prior_plan_hypothesis_type" in html
+
+
 def test_volcano_explanation_contains_axes_and_color_legend(tmp_path: Path) -> None:
     session_dir = tmp_path / "session_9"
     (session_dir / "result").mkdir(parents=True, exist_ok=True)

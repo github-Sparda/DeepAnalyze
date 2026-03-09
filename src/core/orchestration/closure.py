@@ -125,6 +125,8 @@ def _status_payload(
     recovery_action: str = "",
     blocking: bool = False,
     notes: list[str] | None = None,
+    waiver_reason: str = "",
+    derived_from: list[str] | None = None,
 ) -> dict[str, Any]:
     retry_count = int(merged_state.get("execution_retry_count", 0) or 0)
     retry_limit = int((merged_state.get("config", {}) or {}).get("execution_failure_max_retries", 1) or 1)
@@ -138,6 +140,8 @@ def _status_payload(
         "retry_budget_remaining": max(0, retry_limit - retry_count),
         "blocking": blocking,
         "notes": notes or [],
+        "waiver_reason": str(waiver_reason or "").strip(),
+        "derived_from": [str(x).strip() for x in (derived_from or []) if str(x).strip()],
         "timestamp": int(time.time()),
     }
 
@@ -403,8 +407,10 @@ def evaluate_phase_closure(
             failed.append("report_body_missing")
         if "报告已跳过生成" in report_text:
             failed.append("report_generation_skipped")
+        waiver = merged_state.get("report_generation_waiver", {})
+        waiver_allowed = isinstance(waiver, dict) and bool(waiver.get("allow", False))
         completion = merged_state.get("completion_validation", {})
-        if isinstance(completion, dict) and not bool(completion.get("complete", False)):
+        if isinstance(completion, dict) and not bool(completion.get("complete", False)) and not waiver_allowed:
             failed.append("completion_validation_incomplete")
         if failed:
             return _status_payload(
@@ -415,6 +421,16 @@ def evaluate_phase_closure(
                 recoverable=False,
                 recovery_action="resolve_blockers_before_report_generation",
                 blocking=True,
+            )
+        if waiver_allowed:
+            return _status_payload(
+                phase,
+                "success",
+                [],
+                merged_state,
+                notes=["report_generated_with_explicit_waiver"],
+                waiver_reason=str(waiver.get("reason", "")).strip(),
+                derived_from=[str(x) for x in (waiver.get("derived_from", []) if isinstance(waiver.get("derived_from"), list) else [])],
             )
         return _status_payload(phase, "success", [], merged_state)
 
@@ -454,6 +470,8 @@ def persist_phase_closure(session_dir: Path, closure: dict[str, Any]) -> None:
             "recoverable": closure.get("recoverable", False),
             "recovery_action": closure.get("recovery_action", ""),
             "blocking": closure.get("blocking", False),
+            "waiver_reason": closure.get("waiver_reason", ""),
+            "derived_from": closure.get("derived_from", []),
             "timestamp": closure.get("timestamp", int(time.time())),
         }
         (recovery_dir / f"{phase}.json").write_text(

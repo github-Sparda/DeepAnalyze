@@ -186,3 +186,23 @@ def test_finalize_phase_closure_accepts_session_summary_file(tmp_path: Path) -> 
     closure = evaluate_phase_closure("finalize_run", tmp_path, {"config": {}})
     assert closure is not None
     assert closure["status"] == "success"
+
+
+def test_generate_report_closure_accepts_explicit_waiver(tmp_path: Path) -> None:
+    closure = evaluate_phase_closure(
+        "generate_report",
+        tmp_path,
+        {
+            "report_versions": ["report/report_v1.html"],
+            "report": "<h1>结构化中间报告</h1>",
+            "completion_validation": {"complete": False, "blocking_reasons": ["unresolved_hypothesis_gate"]},
+            "report_generation_waiver": {
+                "allow": True,
+                "reason": "structured_intermediate_report_allowed",
+                "derived_from": ["unresolved_hypothesis_gate"],
+            },
+        },
+    )
+    assert closure is not None
+    assert closure["status"] == "success"
+    assert closure["waiver_reason"] == "structured_intermediate_report_allowed"

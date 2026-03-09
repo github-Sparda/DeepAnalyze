@@ -117,6 +117,93 @@ def test_build_final_hypothesis_matrix_uses_path_and_gate_status(tmp_path: Path)
     assert "roc_curve.png" in rows["H2"]["missing_artifacts"]
 
 
+def test_speculative_followup_artifacts_do_not_leak_into_matrix_missing_artifacts() -> None:
+    plan_json = {
+        "hypotheses": [
+            {
+                "id": "H1",
+                "title": "差异稳健性验证",
+                "hypothesis": "验证差异特征是否稳定",
+                "hypothesis_type": "difference",
+                "expected_artifacts": ["differential_features_table.csv", "volcano_plot.png"],
+            }
+        ],
+        "followup_contract_binding": {
+            "bindings": [
+                {
+                    "hypothesis_id": "H1",
+                    "planned_followup": {
+                        "title": "核心标志物的统计稳健性假设",
+                        "expected_artifacts": ["Robustness_Summary.csv", "Volcano_Plot_Refined.png"],
+                    },
+                    "executable_contract": {
+                        "title": "差异稳健性验证",
+                        "expected_artifacts": ["differential_features_table.csv", "volcano_plot.png"],
+                    },
+                    "rejected_expected_artifacts": ["Robustness_Summary.csv", "Volcano_Plot_Refined.png"],
+                    "rewrite_reason": "mapped_to_runtime_supported_profile",
+                    "executable": True,
+                }
+            ]
+        },
+    }
+    hypothesis_payload = {"hypotheses": [{"hypothesis": "H1: 差异稳健性验证", "missing": []}]}
+    multipath_payload = {
+        "hypotheses": [
+            {
+                "hypothesis_id": "H1",
+                "status": "partial",
+                "paths": [
+                    {
+                        "path_id": "path_a",
+                        "status": "validated",
+                        "missing_artifacts": [],
+                    },
+                    {
+                        "path_id": "path_b",
+                        "status": "partial",
+                        "missing_artifacts": ["volcano_plot.png"],
+                    },
+                ],
+            }
+        ]
+    }
+    path_execution_payload = {
+        "hypotheses": [
+            {
+                "hypothesis_id": "H1",
+                "overall": "incomplete",
+                "missing_artifacts": ["volcano_plot.png"],
+            }
+        ]
+    }
+    gate_payload = {
+        "hypotheses": [
+            {
+                "hypothesis_id": "H1",
+                "gate_status": "partial",
+                "failed_checks": ["has_dual_path_status"],
+                "recovery_action": "rerun_missing_step_and_verify_outputs",
+                "recovery_plan": [
+                    {"expected_artifacts": ["Robustness_Summary.csv", "Volcano_Plot_Refined.png"]}
+                ],
+            }
+        ]
+    }
+
+    matrix = orchestration_graph._build_final_hypothesis_matrix(
+        plan_json,
+        hypothesis_payload,
+        multipath_payload,
+        path_execution_payload,
+        gate_payload,
+    )
+    row = matrix["hypotheses"][0]
+    assert "volcano_plot.png" in row["missing_artifacts"]
+    assert "Robustness_Summary.csv" not in row["missing_artifacts"]
+    assert "Volcano_Plot_Refined.png" not in row["missing_artifacts"]
+
+
 def test_build_path_execution_status_treats_validated_paths_as_complete() -> None:
     payload = {
         "hypotheses": [

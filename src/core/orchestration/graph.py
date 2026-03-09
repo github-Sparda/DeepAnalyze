@@ -74,6 +74,7 @@ from src.core.analytics.toolkit.cooldown import record_failure, in_cooldown
 from src.core.analytics.resources import (
     build_hypothesis_evidence_pack,
     build_hypothesis_gate_report,
+    default_hypothesis_profile_registry,
     infer_hypothesis_profile_key,
     load_feature_dictionary,
     load_hypothesis_profile_registry,
@@ -619,7 +620,7 @@ def _synthesize_plan_from_hypothesis_results(
             }
         )
 
-    normalized = _normalize_plan_json({"hypotheses": fallback}, "")
+    normalized = _normalize_plan_json({"hypotheses": fallback}, "", session_dir=session_dir, depth=1)
     return normalized if normalized.get("hypotheses") else {"hypotheses": []}
 
 
@@ -820,7 +821,14 @@ def _extract_hypothesis_table_steps_artifacts(plan: str) -> tuple[dict[str, list
     return step_map, artifact_map
 
 
-def _normalize_plan_json(plan_json: dict[str, Any], plan_md: str) -> dict[str, Any]:
+def _normalize_plan_json(
+    plan_json: dict[str, Any],
+    plan_md: str,
+    *,
+    session_dir: Path | None = None,
+    prior_plan_json: dict[str, Any] | None = None,
+    depth: int = 1,
+) -> dict[str, Any]:
     fallback = _parse_plan_markdown(plan_md)
     fallback_hypotheses = fallback.get("hypotheses", [])
     table_hypothesis_map = _extract_plan_table_hypotheses(plan_md)
@@ -874,6 +882,12 @@ def _normalize_plan_json(plan_json: dict[str, Any], plan_md: str) -> dict[str, A
         if any("{'description':" in a for a in artifact_texts):
             artifacts = table_artifact_map.get(hyp_id, fallback_artifacts)
         artifacts, invalid_artifacts = _sanitize_expected_artifacts(artifacts)
+        planned_followup_original = {
+            "title": title,
+            "hypothesis": hypothesis_text,
+            "expected_artifacts": [str(a).strip() for a in artifact_texts if str(a).strip()],
+            "validation_paths": [],
+        }
         existing_paths = base.get("validation_paths")
         if not isinstance(existing_paths, list) or len(existing_paths) < 2:
             existing_paths = _default_validation_paths(hyp_id, steps, artifacts, title, hypothesis_text)
@@ -905,6 +919,9 @@ def _normalize_plan_json(plan_json: dict[str, Any], plan_md: str) -> dict[str, A
                 title,
                 hypothesis_text,
             )
+        planned_followup_original["validation_paths"] = [
+            dict(path) for path in existing_paths if isinstance(path, dict)
+        ]
         normalized.append(
             _bind_runtime_realizable_paths(
                 {
@@ -928,10 +945,20 @@ def _normalize_plan_json(plan_json: dict[str, Any], plan_md: str) -> dict[str, A
                 "steps": steps,
                 "artifacts": artifacts,
                 "invalid_expected_artifacts": invalid_artifacts,
+                "_planned_followup_original": planned_followup_original,
                 }
             )
         )
-    return {"hypotheses": normalized}
+    payload = {"hypotheses": normalized}
+    bound_payload, binding_meta = _bind_followup_executable_contracts(
+        payload,
+        session_dir=session_dir,
+        prior_plan_json=prior_plan_json,
+        depth=depth,
+    )
+    if binding_meta.get("bindings"):
+        bound_payload["followup_contract_binding"] = binding_meta
+    return bound_payload
 
 
 def _infer_method_family(
@@ -1090,6 +1117,182 @@ def _runtime_bound_validation_templates(profile_key: str) -> tuple[list[str], li
     return [], []
 
 
+def _runtime_supported_profile_keys() -> set[str]:
+    registry = default_hypothesis_profile_registry()
+    return {
+        key
+        for key, meta in registry.items()
+        if key != "generic" and isinstance(meta, dict)
+    }
+
+
+def _prior_plan_hypothesis_map(prior_plan_json: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    rows = prior_plan_json.get("hypotheses", []) if isinstance(prior_plan_json, dict) else []
+    payload: dict[str, dict[str, Any]] = {}
+    for idx, row in enumerate(rows if isinstance(rows, list) else []):
+        if not isinstance(row, dict):
+            continue
+        hid = str(row.get("id", f"H{idx+1}")).strip().upper()
+        if re.fullmatch(r"H\d+", hid):
+            payload[hid] = row
+    return payload
+
+
+def _resolve_followup_profile_key(
+    hypothesis: dict[str, Any],
+    prior_plan_json: dict[str, Any] | None = None,
+    session_dir: Path | None = None,
+) -> tuple[str, str]:
+    item = dict(hypothesis) if isinstance(hypothesis, dict) else {}
+    hid = str(item.get("id", "")).strip().upper()
+    title = str(item.get("title", "")).strip()
+    hypothesis_text = str(item.get("hypothesis", "")).strip()
+    supported = _runtime_supported_profile_keys()
+    current_key = str(item.get("hypothesis_type", "")).strip().lower()
+    if current_key in supported:
+        return current_key, "explicit_hypothesis_type"
+
+    prior_map = _prior_plan_hypothesis_map(prior_plan_json or {})
+    prior_row = prior_map.get(hid, {})
+    prior_key = str(prior_row.get("hypothesis_type", "")).strip().lower() if isinstance(prior_row, dict) else ""
+    if prior_key in supported:
+        return prior_key, "prior_plan_hypothesis_type"
+
+    registry = load_hypothesis_profile_registry(session_dir or Path("."))
+    inferred = infer_hypothesis_profile_key(
+        title=title,
+        hypothesis_text=hypothesis_text,
+        explicit_key=current_key,
+        registry=registry,
+    )
+    if inferred in supported:
+        return inferred, "inferred_from_alias"
+
+    fallback_by_id = {"H1": "difference", "H2": "predictive", "H3": "correlation", "H4": "embedding"}
+    if hid in fallback_by_id:
+        return fallback_by_id[hid], "fallback_by_hypothesis_id"
+    return "", "unsupported_followup_profile"
+
+
+def _bind_followup_executable_contracts(
+    plan_json: dict[str, Any],
+    *,
+    session_dir: Path | None = None,
+    prior_plan_json: dict[str, Any] | None = None,
+    depth: int = 1,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    hypotheses = plan_json.get("hypotheses", []) if isinstance(plan_json, dict) else []
+    normalized_rows: list[dict[str, Any]] = []
+    binding_rows: list[dict[str, Any]] = []
+    research_only_rows: list[dict[str, Any]] = []
+    for idx, row in enumerate(hypotheses if isinstance(hypotheses, list) else []):
+        if not isinstance(row, dict):
+            continue
+        item = dict(row)
+        hid = str(item.get("id", f"H{idx+1}")).strip().upper() or f"H{idx+1}"
+        original_followup = item.get("_planned_followup_original", {}) if isinstance(item.get("_planned_followup_original"), dict) else {}
+        original_expected_source = (
+            original_followup.get("expected_artifacts", [])
+            if isinstance(original_followup.get("expected_artifacts"), list)
+            else item.get("expected_artifacts", [])
+        )
+        original_expected = [str(x).strip() for x in original_expected_source if str(x).strip()]
+        original_paths = (
+            original_followup.get("validation_paths", [])
+            if isinstance(original_followup.get("validation_paths"), list)
+            else item.get("validation_paths", [])
+        )
+        original_families = sorted(
+            {
+                str(path.get("method_family", "")).strip()
+                for path in original_paths
+                if isinstance(path, dict) and str(path.get("method_family", "")).strip()
+            }
+        )
+        profile_key, binding_source = _resolve_followup_profile_key(
+            item,
+            prior_plan_json=prior_plan_json,
+            session_dir=session_dir,
+        )
+        runtime_expected, runtime_paths = _runtime_bound_validation_templates(profile_key)
+        if runtime_expected and runtime_paths:
+            executable = _bind_runtime_realizable_paths({**item, "hypothesis_type": profile_key})
+            executable.pop("_planned_followup_original", None)
+            normalized_rows.append(executable)
+            executable_expected = [str(x).strip() for x in executable.get("expected_artifacts", []) if str(x).strip()]
+            executable_families = sorted(
+                {
+                    str(path.get("method_family", "")).strip()
+                    for path in executable.get("validation_paths", [])
+                    if isinstance(path, dict) and str(path.get("method_family", "")).strip()
+                }
+            )
+            rejected_expected = [x for x in original_expected if x and x not in executable_expected]
+            rejected_families = [x for x in original_families if x and x not in executable_families]
+            binding_rows.append(
+                {
+                    "hypothesis_id": hid,
+                    "depth": depth,
+                    "executable": True,
+                    "binding_source": binding_source,
+                    "profile_key": profile_key,
+                    "planned_followup": {
+                        "title": str(original_followup.get("title", item.get("title", ""))).strip(),
+                        "hypothesis": str(original_followup.get("hypothesis", item.get("hypothesis", ""))).strip(),
+                        "expected_artifacts": original_expected,
+                        "validation_paths": original_paths,
+                    },
+                    "executable_contract": {
+                        "title": str(executable.get("title", "")).strip(),
+                        "hypothesis": str(executable.get("hypothesis", "")).strip(),
+                        "expected_artifacts": executable_expected,
+                        "validation_paths": executable.get("validation_paths", []),
+                    },
+                    "rejected_expected_artifacts": rejected_expected,
+                    "rejected_method_families": rejected_families,
+                    "rewrite_reason": (
+                        "normalized_to_runtime_supported_contract"
+                        if rejected_expected or rejected_families or binding_source != "explicit_hypothesis_type"
+                        else ""
+                    ),
+                }
+            )
+            continue
+        research_row = {
+            "hypothesis_id": hid,
+            "depth": depth,
+            "executable": False,
+            "binding_source": binding_source,
+            "profile_key": profile_key,
+            "planned_followup": {
+                "title": str(original_followup.get("title", item.get("title", ""))).strip(),
+                "hypothesis": str(original_followup.get("hypothesis", item.get("hypothesis", ""))).strip(),
+                "expected_artifacts": original_expected,
+                "validation_paths": original_paths,
+            },
+            "executable_contract": {},
+            "rejected_expected_artifacts": original_expected,
+            "rejected_method_families": original_families,
+            "rewrite_reason": "no_runtime_supported_equivalent",
+        }
+        binding_rows.append(research_row)
+        research_only_rows.append(research_row)
+    normalized_payload = dict(plan_json) if isinstance(plan_json, dict) else {}
+    normalized_payload["hypotheses"] = normalized_rows
+    if research_only_rows:
+        normalized_payload["research_only_followups"] = research_only_rows
+    return normalized_payload, {
+        "depth": depth,
+        "bindings": binding_rows,
+        "research_only_followups": research_only_rows,
+        "binding_summary": {
+            "total": len(binding_rows),
+            "executable": sum(1 for row in binding_rows if row.get("executable")),
+            "research_only": sum(1 for row in binding_rows if not row.get("executable")),
+        },
+    }
+
+
 def _bind_runtime_realizable_paths(hypothesis: dict[str, Any]) -> dict[str, Any]:
     item = dict(hypothesis) if isinstance(hypothesis, dict) else {}
     title = str(item.get("title", "")).strip()
@@ -1140,7 +1343,13 @@ def _default_validation_paths(
     ]
 
 
-def _strict_markdown_hypothesis_fallback(plan_md: str) -> dict[str, Any]:
+def _strict_markdown_hypothesis_fallback(
+    plan_md: str,
+    *,
+    session_dir: Path | None = None,
+    prior_plan_json: dict[str, Any] | None = None,
+    depth: int = 1,
+) -> dict[str, Any]:
     hypothesis_map = _extract_hypothesis_descriptions(plan_md)
     table_map = _extract_plan_table_hypotheses(plan_md)
     step_map, artifact_map = _extract_hypothesis_table_steps_artifacts(plan_md)
@@ -1184,7 +1393,16 @@ def _strict_markdown_hypothesis_fallback(plan_md: str) -> dict[str, Any]:
                 }
             )
         )
-    return {"hypotheses": hypotheses}
+    payload = {"hypotheses": hypotheses}
+    bound_payload, binding_meta = _bind_followup_executable_contracts(
+        payload,
+        session_dir=session_dir,
+        prior_plan_json=prior_plan_json,
+        depth=depth,
+    )
+    if binding_meta.get("bindings"):
+        bound_payload["followup_contract_binding"] = binding_meta
+    return bound_payload
 
 
 def _needs_validation_path_repair(plan_json: dict[str, Any]) -> bool:
@@ -3079,7 +3297,11 @@ def _plan_validation_suggestions(errors: list[str]) -> list[str]:
 
 def _upgrade_plan_schema_preview(plan_json: dict[str, Any], plan_md: str) -> dict[str, Any]:
     # 只读升级预览：不覆盖原始 plan 输入，仅生成兼容 v2 的预览结构
-    normalized = _normalize_plan_json(plan_json if isinstance(plan_json, dict) else {}, plan_md)
+    normalized = _normalize_plan_json(
+        plan_json if isinstance(plan_json, dict) else {},
+        plan_md,
+        depth=1,
+    )
     return {
         "schema_version": "analysis_plan_schema_v2_preview",
         "generated_at": int(time.time()),
@@ -3413,7 +3635,13 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
                 ]
                 plan_json_raw = llm.chat(struct_messages, max_tokens=2048)
                 raw_plan_json = _safe_json_load(plan_json_raw)
-                plan_json = _normalize_plan_json(raw_plan_json, plan)
+                plan_json = _normalize_plan_json(
+                    raw_plan_json,
+                    plan,
+                    session_dir=session_dir,
+                    prior_plan_json=state.get("plan_json", {}) if isinstance(state.get("plan_json", {}), dict) else {},
+                    depth=int(state.get("depth", 1) or 1),
+                )
                 if _needs_validation_path_repair(plan_json):
                     repair_prompt = (
                         "仅提取每条假设的 validation_paths，返回严格 JSON："
@@ -3447,7 +3675,12 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
         valid_plan, plan_errors = _validate_plan_json_contract(plan_json)
         if not valid_plan and plan:
             # strict fallback: extract only explicit H1/H2/... hypothesis statements from markdown
-            plan_json = _strict_markdown_hypothesis_fallback(plan)
+            plan_json = _strict_markdown_hypothesis_fallback(
+                plan,
+                session_dir=session_dir,
+                prior_plan_json=state.get("plan_json", {}) if isinstance(state.get("plan_json", {}), dict) else {},
+                depth=int(state.get("depth", 1) or 1),
+            )
             valid_plan, plan_errors = _validate_plan_json_contract(plan_json)
         if not valid_plan:
             deterministic_plan = _synthesize_plan_from_hypothesis_results(
@@ -3518,6 +3751,15 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
         plan_json_path = session_dir / "plan" / "analysis_plan.json"
         write_json(plan_json_path, plan_json)
         record_artifact(state.get("session_dir", ""), plan_json_path, "plan", "plan_analysis")
+        binding_payload = (
+            plan_json.get("followup_contract_binding", {})
+            if isinstance(plan_json.get("followup_contract_binding"), dict)
+            else {}
+        )
+        if binding_payload:
+            binding_path = session_dir / "meta" / "followup_contract_binding.json"
+            write_json(binding_path, binding_payload)
+            record_artifact(state.get("session_dir", ""), binding_path, "meta", "plan_analysis")
         hypotheses = [
             h.get("title") for h in plan_json.get("hypotheses", []) if h.get("title")
         ]
@@ -3573,6 +3815,8 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
             "plan_id": plan_id,
             "plan_blocked": not bool(plan_json.get("hypotheses")),
         }
+        if binding_payload:
+            output["followup_contract_binding"] = binding_payload
         if llm_events:
             output["llm_degradation_events"] = llm_events
         return output
@@ -4868,6 +5112,7 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
             else:
                 execution_warning = f"完成态校验未通过：{reason_text}。"
             warning_block = f"{execution_warning}\n\n"
+        report_generation_waiver: dict[str, Any] = {}
         messages = render_role_prompt(
             "report",
             language,
@@ -4959,6 +5204,12 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
                 }
             )
             outline = _sanitize_outline(outline, Path(state.get("session_dir", "")))
+        if report_payload.get("outline_mode") == "structure_only" and not completion_validation.get("complete", False):
+            report_generation_waiver = {
+                "allow": True,
+                "reason": "structured_intermediate_report_allowed",
+                "derived_from": [str(x) for x in completion_validation.get("blocking_reasons", [])[:6]],
+            }
         if strict_fallback_mode and _has_llm_unavailable_event(llm_events) and not report_gate_ok:
             llm_events = _record_llm_degradation(
                 {"llm_degradation_events": llm_events},
@@ -5016,6 +5267,7 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
                 "report": report,
                 "report_versions": versions,
                 "completion_validation": completion_validation,
+                "report_generation_waiver": {},
                 "llm_degradation_events": llm_events,
             }
         llm_event_summary = {
@@ -5084,6 +5336,7 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
             "report": report,
             "report_versions": versions,
             "completion_validation": completion_validation,
+            "report_generation_waiver": report_generation_waiver,
             "llm_degradation_events": llm_events,
         }
 
@@ -5174,6 +5427,7 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
         evidence_trace = _build_evidence_trace(session_dir)
         reason_code_summary = _build_reason_code_summary(session_dir)
         hypothesis_set_consistency = _build_hypothesis_set_consistency(session_dir, state.get("plan_json", {}))
+        closure_map = load_phase_closure_map(session_dir)
         completion_validation = _build_completion_validation(
             session_dir,
             gate_payload=state.get("hypothesis_gate_report", {}),
@@ -5181,13 +5435,13 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
             artifact_validation=state.get("artifact_validation", {}),
             pipeline_gate_failures=state.get("pipeline_gate_failures", []),
             pipeline_gate_waivers=state.get("pipeline_gate_waivers", []),
-            closure_status=state.get("closure_status", {}),
+            closure_status=closure_map,
             expect_report=True,
         )
         audit["analysis_quality_score"] = quality_score
         audit["quality_consistency"] = quality_consistency
         audit["hypothesis_set_consistency"] = hypothesis_set_consistency
-        audit["closure_status"] = state.get("closure_status", {}) or load_phase_closure_map(session_dir)
+        audit["closure_status"] = closure_map
         audit["phase_blockers"] = state.get("phase_blockers", {}) or build_phase_blockers(audit["closure_status"])
         audit["recovery_trace"] = state.get("recovery_trace", [])
         audit["research_digest"] = current_digest

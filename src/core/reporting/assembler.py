@@ -1652,6 +1652,24 @@ class ReportAssembler:
         payload = self._load_json(path)
         return payload if isinstance(payload, dict) else {}
 
+    def _load_followup_contract_binding(self, session_root: Path | None) -> dict[str, Any]:
+        if not session_root:
+            return {}
+        path = session_root / "meta" / "followup_contract_binding.json"
+        if not path.exists():
+            return {}
+        payload = self._load_json(path)
+        return payload if isinstance(payload, dict) else {}
+
+    def _followup_contract_binding_entry(self, hyp_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        rows = payload.get("bindings", []) if isinstance(payload, dict) else []
+        for row in rows if isinstance(rows, list) else []:
+            if not isinstance(row, dict):
+                continue
+            if str(row.get("hypothesis_id", "")).strip().upper() == str(hyp_id).strip().upper():
+                return row
+        return {}
+
     def _hypothesis_matrix_entry(self, hyp_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         rows = payload.get("hypotheses", []) if isinstance(payload, dict) else []
         for row in rows if isinstance(rows, list) else []:
@@ -2546,6 +2564,7 @@ class ReportAssembler:
         hypothesis_gate = self._load_hypothesis_gate(session_root)
         path_execution_status = self._load_path_execution_status(session_root)
         hypothesis_matrix = self._load_hypothesis_matrix_payload(session_root)
+        followup_binding = self._load_followup_contract_binding(session_root)
         used_visuals: set[str] = set()
         used_tables: set[str] = set()
         hypothesis_outcomes: list[dict[str, Any]] = []
@@ -2568,6 +2587,7 @@ class ReportAssembler:
                 gate_entry = self._hypothesis_gate_entry(hyp_id, hypothesis_gate)
                 path_entry = self._hypothesis_path_execution_entry(hyp_id, path_execution_status)
                 matrix_entry = self._hypothesis_matrix_entry(hyp_id, hypothesis_matrix)
+                binding_entry = self._followup_contract_binding_entry(hyp_id, followup_binding)
                 step_map = run_entry.get("steps", {}) if isinstance(run_entry, dict) else {}
                 run_hypothesis = str(run_entry.get("hypothesis", "")) if isinstance(run_entry, dict) else ""
                 executed_title = self._extract_title_from_run_hypothesis(run_hypothesis, hyp_id)
@@ -2631,6 +2651,42 @@ class ReportAssembler:
                     )
                 )
                 lines.append("")
+                if binding_entry:
+                    planned = binding_entry.get("planned_followup", {}) if isinstance(binding_entry.get("planned_followup"), dict) else {}
+                    executable = binding_entry.get("executable_contract", {}) if isinstance(binding_entry.get("executable_contract"), dict) else {}
+                    rejected_artifacts = binding_entry.get("rejected_expected_artifacts", []) if isinstance(binding_entry.get("rejected_expected_artifacts"), list) else []
+                    rejected_methods = binding_entry.get("rejected_method_families", []) if isinstance(binding_entry.get("rejected_method_families"), list) else []
+                    lines.append("#### 递进规划与执行约束")
+                    planned_title = str(planned.get("title", "")).strip()
+                    planned_hypothesis = str(planned.get("hypothesis", "")).strip()
+                    if planned_title or planned_hypothesis:
+                        lines.append(
+                            f"<p><strong>计划 follow-up</strong>：{planned_title or hyp_title}"
+                            f"{'；' + planned_hypothesis if planned_hypothesis else ''}</p>"
+                        )
+                    if binding_entry.get("executable"):
+                        exec_title = str(executable.get("title", "")).strip()
+                        lines.append(
+                            f"<p><strong>已归一化为可执行验证合同</strong>：{exec_title or hyp_title}。"
+                            f"绑定来源：{binding_entry.get('binding_source', '') or 'unknown'}。"
+                            "</p>"
+                        )
+                    else:
+                        lines.append(
+                            "<p><strong>该 follow-up 当前仅保留为研究设想</strong>：未找到运行时可安全执行的等价合同，"
+                            "因此不纳入 gate、path closure 与最终结论。</p>"
+                        )
+                    if rejected_artifacts or rejected_methods:
+                        lines.append("<ul>")
+                        if rejected_artifacts:
+                            lines.append(f"<li>被拒绝/改写的计划产物：{', '.join([str(x) for x in rejected_artifacts])}</li>")
+                        if rejected_methods:
+                            lines.append(f"<li>被拒绝/改写的方法族：{', '.join([str(x) for x in rejected_methods])}</li>")
+                        rewrite_reason = str(binding_entry.get('rewrite_reason', '')).strip()
+                        if rewrite_reason:
+                            lines.append(f"<li>改写原因：{rewrite_reason}</li>")
+                        lines.append("</ul>")
+                    lines.append("")
                 if (not isinstance(plan_steps, list) or not plan_steps) and isinstance(step_map, dict) and step_map:
                     plan_steps = self._execution_steps_from_step_map(step_map, gate_rule)
                 lines.append("#### 方法与前置条件检查")
