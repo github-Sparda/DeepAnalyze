@@ -67,6 +67,105 @@ def test_hypothesis_matrix_and_coverage_report(tmp_path: Path) -> None:
     assert "peak3" in coverage["missing_features"]
 
 
+def test_build_final_hypothesis_matrix_uses_path_and_gate_status(tmp_path: Path) -> None:
+    plan_json = {
+        "hypotheses": [
+            {"id": "H1", "title": "差异检验", "hypothesis": "组间差异"},
+            {"id": "H2", "title": "预测性能验证", "hypothesis": "分类性能"},
+        ]
+    }
+    hypothesis_payload = {
+        "hypotheses": [
+            {"hypothesis": "H1: 差异检验", "missing": []},
+            {"hypothesis": "H2: 预测性能验证", "missing": []},
+        ]
+    }
+    multipath_payload = {
+        "hypotheses": [
+            {"hypothesis_id": "H1", "status": "validated", "conflict_reason": ""},
+            {"hypothesis_id": "H2", "status": "partial", "conflict_reason": ""},
+        ]
+    }
+    path_execution_payload = {
+        "hypotheses": [
+            {"hypothesis_id": "H1", "overall": "complete", "missing_artifacts": []},
+            {"hypothesis_id": "H2", "overall": "incomplete", "missing_artifacts": ["roc_curve.png"]},
+        ]
+    }
+    gate_payload = {
+        "hypotheses": [
+            {"hypothesis_id": "H1", "gate_status": "pass", "failed_checks": [], "recovery_action": ""},
+            {
+                "hypothesis_id": "H2",
+                "gate_status": "partial",
+                "failed_checks": ["has_dual_path_status"],
+                "recovery_action": "rerun_missing_step_and_verify_outputs",
+            },
+        ]
+    }
+
+    matrix = orchestration_graph._build_final_hypothesis_matrix(
+        plan_json,
+        hypothesis_payload,
+        multipath_payload,
+        path_execution_payload,
+        gate_payload,
+    )
+    rows = {row["hypothesis_id"]: row for row in matrix["hypotheses"]}
+    assert rows["H1"]["status"] == "已闭环"
+    assert rows["H2"]["status"] == "基础完成但路径未闭环"
+    assert "roc_curve.png" in rows["H2"]["missing_artifacts"]
+
+
+def test_build_path_execution_status_treats_validated_paths_as_complete() -> None:
+    payload = {
+        "hypotheses": [
+            {
+                "hypothesis_id": "H1",
+                "status": "validated",
+                "paths": [
+                    {"path_id": "path_a", "status": "validated", "missing_artifacts": []},
+                    {"path_id": "path_b", "status": "validated", "missing_artifacts": []},
+                ],
+            }
+        ]
+    }
+    status = orchestration_graph._build_path_execution_status(payload)
+    row = status["hypotheses"][0]
+    assert row["path_success"] == 2
+    assert row["overall"] == "complete"
+
+
+def test_deterministic_hypotheses_emit_advanced_artifacts(tmp_path: Path) -> None:
+    df = pd.DataFrame(
+        {
+            "Group": ["Normal"] * 8 + ["EP"] * 8,
+            "peak1": [0.10, 0.11, 0.12, 0.09, 0.13, 0.08, 0.12, 0.11, 0.80, 0.82, 0.81, 0.79, 0.83, 0.84, 0.78, 0.85],
+            "peak2": [0.15, 0.16, 0.14, 0.13, 0.15, 0.17, 0.14, 0.16, 0.76, 0.77, 0.79, 0.75, 0.80, 0.78, 0.81, 0.82],
+            "peak3": [0.22, 0.24, 0.21, 0.23, 0.22, 0.25, 0.21, 0.24, 0.62, 0.61, 0.63, 0.64, 0.65, 0.60, 0.66, 0.67],
+        }
+    )
+    dataset_path = tmp_path / "serum.csv"
+    df.to_csv(dataset_path, index=False)
+
+    payload = orchestration_graph._run_deterministic_hypotheses(tmp_path, dataset_path)
+    assert payload["hypotheses"]
+    assert (tmp_path / "result" / "differential_features_table.csv").exists()
+    assert (tmp_path / "plots" / "roc_curve.png").exists()
+    assert (tmp_path / "plots" / "pr_curve.png").exists()
+    assert (tmp_path / "result" / "feature_importance_rf.json").exists()
+    assert (tmp_path / "plots" / "feature_importance_plot_rf.png").exists()
+    assert (tmp_path / "plots" / "clustermap.png").exists()
+    assert (tmp_path / "plots" / "tsne_umap_plot.png").exists()
+
+    evidence = orchestration_graph._build_hypothesis_evidence(tmp_path, payload)
+    evidence_rows = {row["hypothesis_id"]: row for row in evidence["hypotheses"]}
+    h2_metrics = evidence_rows["H2"]["quant_metrics"]
+    assert h2_metrics["auc"] > 0.5
+    assert h2_metrics["cv_mean_accuracy"] > 0.5
+    assert "cv_std_accuracy" in h2_metrics
+
+
 def test_visual_binding(tmp_path: Path) -> None:
     session_dir = tmp_path
     (session_dir / "plots").mkdir(parents=True, exist_ok=True)

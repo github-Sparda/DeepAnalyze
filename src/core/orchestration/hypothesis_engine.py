@@ -73,6 +73,57 @@ def _run_deterministic_hypotheses(session_dir: Path, dataset_path: Path) -> dict
         top_df.to_csv(out_dir / "top_features.csv", index=False)
         return {"module": "stats_summary", "status": "ok", "output": str(out_dir / "stats_summary.json")}
 
+    def _build_differential_feature_table(top_k: int = 20) -> dict[str, Any]:
+        summary_path = session_dir / "result" / "stats_summary.json"
+        if not summary_path.exists():
+            return {"module": "differential_feature_table", "status": "skipped", "message": "stats_summary.json missing"}
+        try:
+            summary_df = pd.read_json(summary_path)
+        except Exception as exc:
+            return {"module": "differential_feature_table", "status": "error", "message": str(exc)}
+        if summary_df.empty:
+            return {"module": "differential_feature_table", "status": "skipped", "message": "stats summary empty"}
+        sort_candidates = [col for col in ["q_value", "p_value", "effect_size"] if col in summary_df.columns]
+        sort_col = sort_candidates[0] if sort_candidates else summary_df.columns[0]
+        ascending = sort_col in {"q_value", "p_value"}
+        selected_cols = [col for col in ["feature", "p_value", "q_value", "effect_size", "mean_diff"] if col in summary_df.columns]
+        if not selected_cols:
+            selected_cols = summary_df.columns.tolist()[: min(5, len(summary_df.columns))]
+        table_df = summary_df.sort_values(sort_col, ascending=ascending).head(top_k)[selected_cols].copy()
+        table_df["rank_source"] = sort_col
+        out_dir = ensure_dir(session_dir / "result")
+        table_df.to_csv(out_dir / "differential_features_table.csv", index=False)
+        table_df.to_json(out_dir / "differential_features_table.json", orient="records", force_ascii=False)
+        write_json(
+            out_dir / "differential_features_table.meta.json",
+            {
+                "path_csv": str(out_dir / "differential_features_table.csv"),
+                "path_json": str(out_dir / "differential_features_table.json"),
+                "sort_column": sort_col,
+                "row_count": int(len(table_df)),
+                "columns": selected_cols + ["rank_source"],
+                "source": "result/stats_summary.json",
+            },
+        )
+        return {"module": "differential_feature_table", "status": "ok", "output": str(out_dir / "differential_features_table.csv")}
+
+    def _write_group_labels_json() -> Path | None:
+        try:
+            df = pd.read_excel(dataset_path) if dataset_path.suffix.lower() in {".xlsx", ".xls"} else pd.read_csv(dataset_path)
+        except Exception:
+            return None
+        group_col = None
+        for col in df.columns:
+            if not is_numeric_dtype(df[col]):
+                group_col = col
+                break
+        if not group_col:
+            return None
+        labels = df[group_col].astype(str).fillna("").tolist()
+        out_path = session_dir / "result" / "embedding_labels.json"
+        write_json(out_path, {"labels": labels, "source_column": group_col})
+        return out_path
+
     results: list[dict[str, Any]] = []
     def _check_artifacts(expected: list[str]) -> list[str]:
         missing: list[str] = []
@@ -99,6 +150,13 @@ def _run_deterministic_hypotheses(session_dir: Path, dataset_path: Path) -> dict
         h1_steps["stats_summary"],
         ["result/stats_summary.json", "result/top_features.json"],
     )
+    h1_steps["differential_feature_table"] = _build_differential_feature_table()
+    _record_tool_role(
+        "StatsTesting",
+        "differential_feature_table",
+        h1_steps["differential_feature_table"],
+        ["result/differential_features_table.csv", "result/differential_features_table.json"],
+    )
     h1_steps["viz_volcano"] = _run_step_with_retry("viz_manhattan_volcano", stats_path, mode="volcano")
     _record_tool_role("Visualization", "viz_volcano", h1_steps["viz_volcano"], ["plots/volcano_plot.png"])
     top_features_path = session_dir / "result" / "top_features.json"
@@ -110,7 +168,13 @@ def _run_deterministic_hypotheses(session_dir: Path, dataset_path: Path) -> dict
             h1_steps["viz_top_features"],
             ["plots/top_features_bar.png"],
         )
-    h1_expected = ["stats_results.json", "multiple_testing.json", "stats_summary.json", "top_features.json"]
+    h1_expected = [
+        "stats_results.json",
+        "multiple_testing.json",
+        "stats_summary.json",
+        "top_features.json",
+        "differential_features_table.csv",
+    ]
     results.append(
         {
             "hypothesis": f"H1: {str(difference_profile.get('title', '')).strip() or '差异检验'}",
@@ -121,7 +185,7 @@ def _run_deterministic_hypotheses(session_dir: Path, dataset_path: Path) -> dict
         }
     )
 
-    # H2: feature selection with rationale
+    # H2: predictive evaluation with reproducible evidence
     h2_steps: dict[str, dict[str, Any]] = {}
     h2_steps["feature_selection"] = _run_step_with_retry("feature_selection", dataset_path, method="p_value")
     _record_tool_role(
@@ -130,7 +194,82 @@ def _run_deterministic_hypotheses(session_dir: Path, dataset_path: Path) -> dict
         h2_steps["feature_selection"],
         ["result/feature_selection.json", "result/feature_selection_rationale.json"],
     )
-    h2_expected = ["feature_selection.json", "feature_selection_rationale.json"]
+    h2_steps["model_train_logistic"] = _run_step_with_retry(
+        "model_train",
+        dataset_path,
+        method="logistic",
+    )
+    logistic_model_path = session_dir / "result" / "model_results.json"
+    _record_tool_role(
+        "Modeling",
+        "model_train_logistic",
+        h2_steps["model_train_logistic"],
+        ["result/model_results.json"],
+    )
+    h2_steps["model_eval_logistic"] = _run_step_with_retry(
+        "model_eval",
+        dataset_path,
+        method="roc_pr",
+        model_path=logistic_model_path if logistic_model_path.exists() else None,
+        cv_folds=5,
+    )
+    _record_tool_role(
+        "Modeling",
+        "model_eval_logistic",
+        h2_steps["model_eval_logistic"],
+        [
+            "result/model_eval.json",
+            "result/model_eval_detail.json",
+            "result/model_performance_comparison.csv",
+            "plots/roc_curve.png",
+            "plots/pr_curve.png",
+        ],
+    )
+    h2_steps["model_train_random_forest"] = _run_step_with_retry(
+        "model_train",
+        dataset_path,
+        method="random_forest",
+        artifact_prefix="rf",
+    )
+    rf_model_path = session_dir / "result" / "model_results_rf.json"
+    _record_tool_role(
+        "Modeling",
+        "model_train_random_forest",
+        h2_steps["model_train_random_forest"],
+        ["result/model_results_rf.json"],
+    )
+    h2_steps["model_eval_random_forest"] = _run_step_with_retry(
+        "model_eval",
+        dataset_path,
+        method="importance",
+        model_path=rf_model_path if rf_model_path.exists() else None,
+        artifact_prefix="rf",
+        cv_folds=5,
+    )
+    _record_tool_role(
+        "Modeling",
+        "model_eval_random_forest",
+        h2_steps["model_eval_random_forest"],
+        [
+            "result/model_eval_rf.json",
+            "result/model_eval_detail_rf.json",
+            "result/feature_importance_rf.json",
+            "plots/feature_importance_plot_rf.png",
+        ],
+    )
+    h2_expected = [
+        "feature_selection.json",
+        "feature_selection_rationale.json",
+        "model_results.json",
+        "model_eval.json",
+        "model_performance_comparison.csv",
+        "roc_curve.png",
+        "pr_curve.png",
+        "model_results_rf.json",
+        "model_eval_rf.json",
+        "feature_importance_rf.json",
+        "feature_importance_plot_rf.png",
+    ]
     results.append(
         {
             "hypothesis": f"H2: {str(predictive_profile.get('title', '')).strip() or '关键特征筛选'}",
@@ -141,7 +280,7 @@ def _run_deterministic_hypotheses(session_dir: Path, dataset_path: Path) -> dict
         }
     )
 
-    # H3: correlation + network
+    # H3: correlation + cluster + low-dimensional structure
     h3_steps: dict[str, dict[str, Any]] = {}
     h3_steps["correlation"] = _run_step_with_retry("correlation", dataset_path, method="pearson")
     _record_tool_role("StatsTesting", "correlation", h3_steps["correlation"], ["result/correlation.json"])
@@ -149,9 +288,22 @@ def _run_deterministic_hypotheses(session_dir: Path, dataset_path: Path) -> dict
     if corr_path.exists():
         h3_steps["viz_heatmap"] = _run_step_with_retry("viz_heatmap_cluster", corr_path, mode="heatmap")
         _record_tool_role("Visualization", "viz_heatmap", h3_steps["viz_heatmap"], ["plots/heatmap.png"])
+        h3_steps["viz_clustermap"] = _run_step_with_retry("viz_heatmap_cluster", corr_path, mode="clustermap")
+        _record_tool_role("Visualization", "viz_clustermap", h3_steps["viz_clustermap"], ["plots/clustermap.png"])
     h3_steps["viz_network"] = _run_step_with_retry("viz_network", dataset_path, mode="network")
     _record_tool_role("Visualization", "viz_network", h3_steps["viz_network"], ["plots/network.png"])
-    h3_expected = ["correlation.json", "network.png"]
+    h3_steps["dimensionality_tsne"] = _run_step_with_retry("dimensionality", dataset_path, method="tsne")
+    labels_path = _write_group_labels_json()
+    tsne_path = session_dir / "result" / "dimensionality_tsne.json"
+    if tsne_path.exists():
+        h3_steps["viz_tsne_umap"] = _run_step_with_retry(
+            "viz_embedding",
+            tsne_path,
+            labels_path=labels_path if labels_path and labels_path.exists() else None,
+            name="tsne_umap_plot",
+        )
+        _record_tool_role("Visualization", "viz_tsne_umap", h3_steps["viz_tsne_umap"], ["plots/tsne_umap_plot.png"])
+    h3_expected = ["correlation.json", "network.png", "clustermap.png", "tsne_umap_plot.png"]
     results.append(
         {
             "hypothesis": f"H3: {str(correlation_profile.get('title', '')).strip() or '相关性结构'}",
@@ -170,21 +322,22 @@ def _run_deterministic_hypotheses(session_dir: Path, dataset_path: Path) -> dict
     _record_tool_role("Modeling", "dimensionality_tsne", h4_steps["dimensionality_tsne"], ["result/dimensionality_tsne.json"])
     h4_steps["clustering"] = _run_step_with_retry("clustering", dataset_path, method="kmeans")
     _record_tool_role("Modeling", "clustering", h4_steps["clustering"], ["result/clustering.json"])
-    h4_steps["model_train"] = _run_step_with_retry("model_train", dataset_path, method="centroid")
-    _record_tool_role("Modeling", "model_train", h4_steps["model_train"], ["result/model_results.json"])
-    model_results_path = session_dir / "result" / "model_results.json"
+    h4_steps["model_train"] = _run_step_with_retry("model_train", dataset_path, method="centroid", artifact_prefix="centroid")
+    _record_tool_role("Modeling", "model_train", h4_steps["model_train"], ["result/model_results_centroid.json"])
+    model_results_path = session_dir / "result" / "model_results_centroid.json"
     h4_steps["model_eval"] = _run_step_with_retry(
         "model_eval",
         dataset_path,
         method="baseline",
         model_path=model_results_path if model_results_path.exists() else None,
+        artifact_prefix="centroid",
         cv_folds=5,
     )
     _record_tool_role(
         "Modeling",
         "model_eval",
         h4_steps["model_eval"],
-        ["result/model_eval.json", "result/model_eval_detail.json", "result/cv_results.json"],
+        ["result/model_eval_centroid.json", "result/model_eval_detail_centroid.json", "result/cv_results_centroid.json"],
     )
     h4_steps["viz_multivariate"] = _run_step_with_retry("viz_multivariate", dataset_path, mode="scatter")
     _record_tool_role("Visualization", "viz_multivariate", h4_steps["viz_multivariate"], ["plots/scatter.png"])
@@ -204,10 +357,10 @@ def _run_deterministic_hypotheses(session_dir: Path, dataset_path: Path) -> dict
     h4_expected = [
         "dimensionality.json",
         "clustering.json",
-        "model_results.json",
-        "model_eval.json",
-        "model_eval_detail.json",
-        "cv_results.json",
+        "model_results_centroid.json",
+        "model_eval_centroid.json",
+        "model_eval_detail_centroid.json",
+        "cv_results_centroid.json",
         "scatter.png",
         "embedding_pca.png",
     ]
@@ -358,6 +511,104 @@ def _build_hypothesis_matrix(payload: dict[str, Any]) -> dict[str, Any]:
             "reason": "missing artifacts" if missing else "",
         }
         matrix.append(entry)
+    return {"hypotheses": matrix}
+
+
+def _build_final_hypothesis_matrix(
+    plan_json: dict[str, Any],
+    hypothesis_payload: dict[str, Any],
+    multipath_payload: dict[str, Any],
+    path_execution_payload: dict[str, Any],
+    gate_payload: dict[str, Any],
+) -> dict[str, Any]:
+    plan_rows = plan_json.get("hypotheses", []) if isinstance(plan_json, dict) else []
+    base_map: dict[str, dict[str, Any]] = {}
+    for row in hypothesis_payload.get("hypotheses", []) if isinstance(hypothesis_payload, dict) else []:
+        if not isinstance(row, dict):
+            continue
+        raw = str(row.get("hypothesis", "")).upper()
+        match = re.search(r"\b(H\d+)\b", raw)
+        if match:
+            base_map[match.group(1)] = row
+    multipath_map = {
+        str(row.get("hypothesis_id", "")).strip().upper(): row
+        for row in multipath_payload.get("hypotheses", [])
+        if isinstance(multipath_payload, dict) and isinstance(row, dict)
+    }
+    path_map = {
+        str(row.get("hypothesis_id", "")).strip().upper(): row
+        for row in path_execution_payload.get("hypotheses", [])
+        if isinstance(path_execution_payload, dict) and isinstance(row, dict)
+    }
+    gate_map = {
+        str(row.get("hypothesis_id", "")).strip().upper(): row
+        for row in gate_payload.get("hypotheses", [])
+        if isinstance(gate_payload, dict) and isinstance(row, dict)
+    }
+    matrix: list[dict[str, Any]] = []
+    for idx, item in enumerate(plan_rows if isinstance(plan_rows, list) else []):
+        if not isinstance(item, dict):
+            continue
+        hid = str(item.get("id", "")).strip().upper() or f"H{idx + 1}"
+        title = str(item.get("title", "")).strip() or hid
+        display_name = f"{hid}: {title}" if not title.startswith(f"{hid}:") else title
+        base_row = base_map.get(hid, {})
+        path_row = path_map.get(hid, {})
+        gate_row = gate_map.get(hid, {})
+        multipath_row = multipath_map.get(hid, {})
+        base_missing = [str(x).strip() for x in base_row.get("missing", []) if str(x).strip()] if isinstance(base_row, dict) else []
+        path_missing = [str(x).strip() for x in path_row.get("missing_artifacts", []) if str(x).strip()] if isinstance(path_row, dict) else []
+        gate_missing = [
+            str(x).strip()
+            for x in ((gate_row.get("recovery_plan", [{}])[0].get("expected_artifacts", []) if isinstance(gate_row.get("recovery_plan"), list) and gate_row.get("recovery_plan") else []))
+            if str(x).strip()
+        ] if isinstance(gate_row, dict) and str(gate_row.get("gate_status", "")).strip().lower() != "pass" else []
+        merged_missing = []
+        for value in [*base_missing, *path_missing]:
+            if value and value not in merged_missing:
+                merged_missing.append(value)
+        gate_status = str(gate_row.get("gate_status", "")).strip().lower() if isinstance(gate_row, dict) else ""
+        path_overall = str(path_row.get("overall", "")).strip().lower() if isinstance(path_row, dict) else ""
+        if base_missing:
+            final_status = "基础产物未完成"
+        elif path_overall and path_overall != "complete":
+            final_status = "基础完成但路径未闭环"
+        elif path_overall == "complete" and gate_status == "pass":
+            final_status = "已闭环"
+        elif gate_status == "partial":
+            final_status = "证据部分成立"
+        elif gate_status == "pass":
+            final_status = "基础完成"
+        else:
+            final_status = "未通过"
+        reason_parts: list[str] = []
+        if base_missing:
+            reason_parts.append("基础产物存在缺失")
+        if path_overall and path_overall != "complete":
+            reason_parts.append(
+                f"路径闭环状态={path_overall}"
+            )
+        if gate_status and gate_status != "pass":
+            failed_checks = gate_row.get("failed_checks", []) if isinstance(gate_row.get("failed_checks"), list) else []
+            if failed_checks:
+                reason_parts.append(f"证据判定未满足：{', '.join([str(x) for x in failed_checks])}")
+        conflict_reason = str(multipath_row.get("conflict_reason", "")).strip() if isinstance(multipath_row, dict) else ""
+        if conflict_reason:
+            reason_parts.append(f"冲突说明：{conflict_reason}")
+        matrix.append(
+            {
+                "hypothesis_id": hid,
+                "hypothesis": display_name,
+                "base_status": "ok" if not base_missing else "missing",
+                "path_status": path_overall or "unknown",
+                "gate_status": gate_status or "unknown",
+                "status": final_status,
+                "missing_artifacts": merged_missing,
+                "reason": "；".join(reason_parts),
+                "recovery_action": str(gate_row.get("recovery_action", "")).strip() if isinstance(gate_row, dict) else "",
+                "gate_missing_artifacts_hint": gate_missing,
+            }
+        )
     return {"hypotheses": matrix}
 
 
@@ -546,9 +797,11 @@ def _build_hypothesis_evidence(
         try:
             payload = json.loads(eval_path.read_text(encoding="utf-8"))
             metrics = payload.get("metrics", {}) if isinstance(payload, dict) else {}
-            for k in ("majority_accuracy", "centroid_accuracy", "auc"):
+            for k in ("majority_accuracy", "centroid_accuracy", "auc", "train_accuracy", "test_accuracy", "pr_auc"):
                 if metrics.get(k) is not None:
                     h2_metrics[k] = metrics.get(k)
+            if metrics.get("roc_auc") is not None and h2_metrics.get("auc") is None:
+                h2_metrics["auc"] = metrics.get("roc_auc")
         except Exception:
             pass
     if cv_path.exists():
@@ -557,8 +810,11 @@ def _build_hypothesis_evidence(
             if isinstance(cv, dict):
                 if cv.get("mean_accuracy") is not None:
                     h2_metrics["cv_mean_accuracy"] = cv.get("mean_accuracy")
-                if isinstance(cv.get("folds"), list):
-                    h2_metrics["cv_folds"] = len(cv.get("folds"))
+                if cv.get("std_accuracy") is not None:
+                    h2_metrics["cv_std_accuracy"] = cv.get("std_accuracy")
+                fold_metrics = cv.get("fold_metrics")
+                if isinstance(fold_metrics, list):
+                    h2_metrics["cv_folds"] = len(fold_metrics)
         except Exception:
             pass
     evidence_rows.append(

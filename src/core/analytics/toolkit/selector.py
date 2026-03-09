@@ -53,10 +53,17 @@ def _input_capabilities(data_profile: dict[str, Any]) -> set[str]:
         caps.add("numeric_columns")
     if _has_group_columns(columns):
         caps.add("group_column")
+        caps.add("label_column")
     if _has_time_columns(columns):
         caps.add("time_column")
     if _has_latlon(columns):
         caps.add("lat_lon")
+    if _has_batch(columns):
+        caps.add("batch_column")
+    if _has_event(columns):
+        caps.add("event_column")
+    if any(str(c).lower() in {"treatment", "treat", "arm"} for c in columns):
+        caps.add("treatment_column")
     return caps
 
 

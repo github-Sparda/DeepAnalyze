@@ -14,8 +14,12 @@ class OrchestrationState(TypedDict, total=False):
      file_summary: str
      plan: str
      plan_json: dict[str, Any]
+     plan_blocked: bool
      hypotheses: list[str]
      followup_hypotheses: list[str]
+     research_digest: dict[str, Any]
+     depth_focus_selection: dict[str, Any]
+     depth_delta: dict[str, Any]
      code_steps: list[dict[str, Any]]
      exec_results: list[dict[str, Any]]
      docs_analysis_results: str
@@ -33,7 +37,14 @@ class OrchestrationState(TypedDict, total=False):
      custom_line_records: list[dict[str, Any]]
      custom_line_summary: dict[str, Any]
      artifact_validation: dict[str, Any]
+     closure_status: dict[str, Any]
+     recovery_trace: list[dict[str, Any]]
+     retry_budgets: dict[str, Any]
+     phase_retry_counts: dict[str, Any]
+     phase_blockers: dict[str, Any]
      code_repair_ran: bool
+     code_repair_skipped: bool
+     codegen_skipped: bool
      data_quality: dict[str, Any]
      data_quality_path: str
      visualization_plan: list[dict[str, Any]]

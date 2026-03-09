@@ -208,6 +208,69 @@ def test_report_renders_ab_contrast_table(tmp_path: Path) -> None:
     assert "一致性判定" in html
 
 
+def test_report_hypothesis_matrix_uses_unified_columns(tmp_path: Path) -> None:
+    session_dir = tmp_path / "session_matrix"
+    (session_dir / "result").mkdir(parents=True, exist_ok=True)
+    (session_dir / "result" / "hypothesis_matrix.json").write_text(
+        json.dumps(
+            {
+                "hypotheses": [
+                    {
+                        "hypothesis": "H2: 预测性能验证",
+                        "base_status": "ok",
+                        "path_status": "incomplete",
+                        "gate_status": "partial",
+                        "status": "基础完成但路径未闭环",
+                        "missing_artifacts": ["roc_curve.png"],
+                        "reason": "路径闭环状态=incomplete；证据判定未满足：has_dual_path_status",
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    assembler = ReportAssembler(language="zh")
+    html = assembler._render_hypothesis_matrix(session_dir)
+    assert "基础证据" in html
+    assert "路径闭环" in html
+    assert "基础完成但路径未闭环" in html
+    assert "roc_curve.png" in html
+
+
+def test_cross_hypothesis_discussion_distinguishes_base_and_closed() -> None:
+    assembler = ReportAssembler(language="zh")
+    text = assembler._render_cross_hypothesis_discussion(
+        [
+            {
+                "id": "H1",
+                "title": "差异检验",
+                "missing": [],
+                "details": ["显著特征数为 10。"],
+                "gate_status": "pass",
+                "path_execution_overall": "complete",
+                "conflict_count": 0,
+                "matrix_status": "已闭环",
+                "matrix_reason": "",
+            },
+            {
+                "id": "H2",
+                "title": "预测性能验证",
+                "missing": [],
+                "details": ["交叉验证准确率为 0.71。"],
+                "gate_status": "partial",
+                "path_execution_overall": "incomplete",
+                "conflict_count": 0,
+                "matrix_status": "基础完成但路径未闭环",
+                "matrix_reason": "路径闭环状态=incomplete；证据判定未满足：has_dual_path_status",
+            },
+        ]
+    )
+    assert "已完成基础证据落盘" in text
+    assert "达到双路径闭环要求" in text
+    assert "基础完成但路径未闭环" in text
+
+
 def test_appendix_pdf_preview_fallback(tmp_path: Path) -> None:
     session_dir = tmp_path / "session_4"
     (session_dir / "result").mkdir(parents=True, exist_ok=True)

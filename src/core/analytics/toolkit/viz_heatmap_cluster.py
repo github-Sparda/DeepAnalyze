@@ -29,12 +29,13 @@ def run(input_path: str | Path, output_dir: str | Path, mode: str = "heatmap", t
     fig, ax = plt.subplots(figsize=(6, 4))
     im = ax.imshow(data.corr(), cmap="RdYlBu", vmin=-1, vmax=1)
     fig.colorbar(im, ax=ax)
+    filename_mode = "clustermap" if mode == "clustermap" else mode
     ax.set_title("Heatmap" if mode == "heatmap" else "Clustered Heatmap")
-    path = out_dir / f"{mode}.png"
+    path = out_dir / f"{filename_mode}.png"
     fig.savefig(path, bbox_inches="tight")
     plt.close(fig)
     write_json(
-        Path(out_dir) / f"{mode}.png.json",
+        Path(out_dir) / f"{filename_mode}.png.json",
         {"path": str(path), "mode": mode, "type": "correlation_heatmap", "color_scale": "RdYlBu"},
     )
     return {"module": "viz_heatmap_cluster", "status": "ok", "output": str(path)}

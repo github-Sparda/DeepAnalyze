@@ -17,6 +17,44 @@ DeepAnalyze错误处理系统提供全面的错误管理、自动恢复和监控
 
 所有降级事件会落盘到 `meta/llm_degradation_events.json`，并汇总写入 `meta/run_audit.json` 的 `llm_degradation` 字段，用于排障与审计。
 
+## 步骤级闭环与恢复轨迹
+
+编排主流程现在会为关键节点输出步骤级闭环状态，用于判断某一步是否真正“完成”而不仅是“跑过”：
+
+- 闭环状态目录：`meta/closure_status/`
+- 恢复轨迹目录：`meta/recovery_trace/`
+- 聚合失败记录：`result/validation_failures.json`
+
+当前纳入闭环校验的关键阶段包括：
+
+- `plan_analysis`
+- `parallel_generation`
+- `execution_guard`
+- `code_repair`
+- `analyze_results`
+- `evidence_curation`
+- `generate_visualizations`
+- `report_outline`
+- `generate_report`
+- `finalize_run`
+
+每个 `meta/closure_status/<phase>.json` 至少包含以下字段：
+
+- `phase`：阶段名
+- `status`：`success` / `recovered` / `recoverable_failed` / `failed` / `skipped`
+- `failed_checks`：未通过的细粒度检查项
+- `failure_type`：失败分型（如 `code_runtime`、`artifact_missing`、`semantic_drift`）
+- `recoverable`：是否可恢复
+- `recovery_action`：建议或已采用的恢复动作
+- `retry_budget_remaining`：当前剩余重试预算
+- `blocking`：是否构成最终完成态阻塞
+
+完成态校验 `meta/completion_validation.json` 会消费这些步骤级闭环结果：
+
+- 若缺失关键阶段闭环信息，默认不阻断旧流程兼容性；
+- 若存在关键阶段闭环信息且其中仍有阻塞阶段，则会增加 `step_closure_incomplete` 阻塞原因；
+- 最终报告会在“质量校验与未完成项”章节展示步骤级闭环摘要，帮助定位卡点和恢复动作。
+
 ## 核心特性
 
 ### 1. 多级错误分类

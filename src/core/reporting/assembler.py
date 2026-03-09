@@ -1359,12 +1359,20 @@ class ReportAssembler:
         if not rows:
             return ""
         lines = ["## 假设闭环矩阵", "<table border=1 cellpadding=4 cellspacing=0>"]
-        lines.append("<thead><tr><th>假设</th><th>状态</th><th>缺失产物</th><th>原因</th></tr></thead><tbody>")
+        lines.append(
+            "<thead><tr><th>假设</th><th>基础证据</th><th>路径闭环</th><th>证据判定</th><th>最终状态</th><th>缺失产物</th><th>说明</th></tr></thead><tbody>"
+        )
         for row in rows:
             missing = ", ".join(row.get("missing_artifacts", []) or [])
             reason = row.get("reason", "")
+            base_status = row.get("base_status", "")
+            path_status = row.get("path_status", "")
+            gate_status = row.get("gate_status", "")
             lines.append(
                 f"<tr><td>{row.get('hypothesis','')}</td>"
+                f"<td>{base_status}</td>"
+                f"<td>{path_status}</td>"
+                f"<td>{gate_status}</td>"
                 f"<td>{row.get('status','')}</td>"
                 f"<td>{missing}</td>"
                 f"<td>{reason}</td></tr>"
@@ -1474,6 +1482,78 @@ class ReportAssembler:
                 lines.append(f"  - {action}")
         return "\n".join(lines)
 
+    def _render_phase_closure_summary(self, session_root: Path | None) -> str:
+        if not session_root:
+            return ""
+        closure_dir = session_root / "meta" / "closure_status"
+        if not closure_dir.exists():
+            return ""
+        payloads: list[dict[str, Any]] = []
+        for path in sorted(closure_dir.glob("*.json")):
+            data = self._load_json(path)
+            if isinstance(data, dict) and data:
+                payloads.append(data)
+        if not payloads:
+            return ""
+        status_label = {
+            "success": "已闭环",
+            "recovered": "经恢复后闭环",
+            "recoverable_failed": "未闭环（可恢复）",
+            "failed": "未闭环（不可恢复）",
+            "skipped": "已跳过",
+        }
+        lines = ["## 步骤级闭环摘要", "<ul>"]
+        for row in payloads:
+            phase = str(row.get("phase", "")).strip() or "unknown"
+            status = str(row.get("status", "")).strip().lower()
+            label = status_label.get(status, status or "unknown")
+            detail = f"<li><strong>{phase}</strong>：{label}"
+            failed_checks = row.get("failed_checks", []) if isinstance(row.get("failed_checks"), list) else []
+            if failed_checks:
+                detail += f"；问题：{'；'.join([str(x) for x in failed_checks[:4]])}"
+            action = str(row.get("recovery_action", "")).strip()
+            if action:
+                detail += f"；恢复动作：{action}"
+            detail += "</li>"
+            lines.append(detail)
+        lines.append("</ul>")
+        return "\n".join(lines)
+
+    def _render_depth_progression(self, session_root: Path | None) -> str:
+        if not session_root:
+            return ""
+        path = session_root / "meta" / "depth_delta.json"
+        if not path.exists():
+            return ""
+        payload = self._load_json(path)
+        if not isinstance(payload, dict) or not payload:
+            return ""
+        lines = ["## 多轮递进摘要"]
+        summary = str(payload.get("summary", "")).strip()
+        if summary:
+            lines.append(summary)
+        prev_depth = payload.get("previous_depth")
+        curr_depth = payload.get("current_depth")
+        if prev_depth is not None:
+            lines.append(f"- 对比轮次: depth {prev_depth} -> depth {curr_depth}")
+        selected_mode = str(payload.get("selected_mode", "")).strip()
+        if selected_mode:
+            lines.append(f"- 本轮模式: {selected_mode}")
+        selected_targets = payload.get("selected_targets", []) if isinstance(payload.get("selected_targets"), list) else []
+        if selected_targets:
+            lines.append(f"- 本轮聚焦对象: {', '.join([str(x) for x in selected_targets])}")
+        if "stable_count_delta" in payload:
+            lines.append(f"- 稳定结论变化: {payload.get('stable_count_delta')}")
+        if "unresolved_count_delta" in payload:
+            lines.append(f"- 未闭环假设变化: {payload.get('unresolved_count_delta')}")
+        if "blocking_phase_count_delta" in payload:
+            lines.append(f"- 阻塞阶段变化: {payload.get('blocking_phase_count_delta')}")
+        if "unique_evidence_source_count_delta" in payload:
+            lines.append(f"- 新增证据来源变化: {payload.get('unique_evidence_source_count_delta')}")
+        if payload.get("material_gain") is False:
+            lines.append("- 说明: 第二轮没有形成实质性深度增益，正文不应夸大为“更深结论”。")
+        return "\n".join(lines)
+
     def _render_llm_degradation(self, session_root: Path | None) -> str:
         if not session_root:
             return ""
@@ -1560,6 +1640,26 @@ class ReportAssembler:
             if not isinstance(row, dict):
                 continue
             if str(row.get("hypothesis_id", "")).strip().upper() == str(hyp_id).strip().upper():
+                return row
+        return {}
+
+    def _load_hypothesis_matrix_payload(self, session_root: Path | None) -> dict[str, Any]:
+        if not session_root:
+            return {}
+        path = session_root / "result" / "hypothesis_matrix.json"
+        if not path.exists():
+            return {}
+        payload = self._load_json(path)
+        return payload if isinstance(payload, dict) else {}
+
+    def _hypothesis_matrix_entry(self, hyp_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        rows = payload.get("hypotheses", []) if isinstance(payload, dict) else []
+        for row in rows if isinstance(rows, list) else []:
+            if not isinstance(row, dict):
+                continue
+            row_id = str(row.get("hypothesis_id", "")).strip().upper()
+            row_name = str(row.get("hypothesis", "")).strip().upper()
+            if row_id == str(hyp_id).strip().upper() or row_name.startswith(f"{str(hyp_id).strip().upper()}:"):
                 return row
         return {}
 
@@ -2167,8 +2267,12 @@ class ReportAssembler:
         if not outcomes:
             return "当前运行未形成可汇总的假设级结果。"
         total = len(outcomes)
-        complete = sum(1 for x in outcomes if not x.get("missing"))
-        partial = total - complete
+        base_complete = sum(1 for x in outcomes if not x.get("missing"))
+        path_incomplete = sum(
+            1
+            for x in outcomes
+            if str(x.get("path_execution_overall", "")).lower() != "complete"
+        )
         execution_complete = sum(
             1 for x in outcomes if str(x.get("path_execution_overall", "")).lower() == "complete"
         )
@@ -2178,8 +2282,8 @@ class ReportAssembler:
         conflict_count = sum(1 for x in outcomes if int(x.get("conflict_count", 0)) > 0)
         lines: list[str] = []
         lines.append(
-            f"本次共评估 {total} 条核心假设，其中 {complete} 条在当前产物范围内形成了相对完整的证据链，"
-            f"{partial} 条仍存在不同程度的证据缺口。"
+            f"本次共评估 {total} 条核心假设，其中 {base_complete} 条已完成基础证据落盘，"
+            f"{execution_complete} 条进一步达到双路径闭环要求，仍有 {path_incomplete} 条停留在“基础完成但路径未闭环”或更低状态。"
         )
         lines.append(
             f"从判定状态看：通过 {gate_pass} 条、部分通过 {gate_partial} 条、未通过 {gate_fail} 条；"
@@ -2201,6 +2305,22 @@ class ReportAssembler:
             lines.append(
                 f"需要注意的是，仍有假设存在未闭环环节（{miss_text}），"
                 "这会降低跨模块结论的可比性与稳定性。"
+            )
+        path_blocked = [
+            x for x in outcomes
+            if not x.get("missing") and str(x.get("path_execution_overall", "")).lower() != "complete"
+        ]
+        if path_blocked:
+            blocked_text = "；".join(
+                [
+                    f"{x['id']} 当前状态为“{x.get('matrix_status','未闭环')}”"
+                    + (f"，原因：{x.get('matrix_reason')}" if x.get("matrix_reason") else "")
+                    for x in path_blocked[:3]
+                ]
+            )
+            lines.append(
+                f"另外，有些假设虽然基础表格或图表已生成，但高级验证路径仍未收口（{blocked_text}）。"
+                " 这些假设暂时只能视为“基础证据已具备”，不能直接上升为最终验证成功。"
             )
         return "\n\n".join(lines)
 
@@ -2425,6 +2545,7 @@ class ReportAssembler:
         hypothesis_contrast = self._load_hypothesis_contrast(session_root)
         hypothesis_gate = self._load_hypothesis_gate(session_root)
         path_execution_status = self._load_path_execution_status(session_root)
+        hypothesis_matrix = self._load_hypothesis_matrix_payload(session_root)
         used_visuals: set[str] = set()
         used_tables: set[str] = set()
         hypothesis_outcomes: list[dict[str, Any]] = []
@@ -2446,6 +2567,7 @@ class ReportAssembler:
                 contrast_entry = self._hypothesis_contrast_entry(hyp_id, hypothesis_contrast)
                 gate_entry = self._hypothesis_gate_entry(hyp_id, hypothesis_gate)
                 path_entry = self._hypothesis_path_execution_entry(hyp_id, path_execution_status)
+                matrix_entry = self._hypothesis_matrix_entry(hyp_id, hypothesis_matrix)
                 step_map = run_entry.get("steps", {}) if isinstance(run_entry, dict) else {}
                 run_hypothesis = str(run_entry.get("hypothesis", "")) if isinstance(run_entry, dict) else ""
                 executed_title = self._extract_title_from_run_hypothesis(run_hypothesis, hyp_id)
@@ -2541,6 +2663,30 @@ class ReportAssembler:
                         f"部分成功={path_entry.get('path_partial', 0)}；"
                         f"失败={path_entry.get('path_failed', 0)}。"
                     )
+                matrix_status = str(matrix_entry.get("status", "")).strip() if isinstance(matrix_entry, dict) else ""
+                if matrix_status:
+                    lines.append(f"统一状态判定：{matrix_status}。")
+                gate_status_value = str(gate_entry.get("gate_status", "")).lower() if isinstance(gate_entry, dict) else ""
+                if gate_status_value == "pass" and isinstance(path_entry, dict) and str(path_entry.get("overall", "")).lower() == "complete":
+                    lines.append("本假设当前已形成闭环：计划路径已执行完成，证据门槛已通过，可以进入综合讨论。")
+                else:
+                    reasons: list[str] = []
+                    if isinstance(path_entry, dict) and str(path_entry.get("overall", "")).lower() != "complete":
+                        reasons.append("至少一条验证路径尚未闭环")
+                    if gate_status_value and gate_status_value != "pass":
+                        reasons.append(f"证据判定状态为 {gate_status_value}")
+                    if missing:
+                        reasons.append(f"仍缺少 {len(missing)} 项关键产物")
+                    lines.append(
+                        "本假设当前尚未完全闭环："
+                        + ("；".join(reasons) if reasons else "仍需补充执行与证据。")
+                    )
+                    recovery_action = str(gate_entry.get("recovery_action", "")).strip() if isinstance(gate_entry, dict) else ""
+                    if recovery_action:
+                        lines.append(f"建议恢复动作：{recovery_action}")
+                matrix_reason = str(matrix_entry.get("reason", "")).strip() if isinstance(matrix_entry, dict) else ""
+                if matrix_reason:
+                    lines.append(f"闭环说明：{matrix_reason}")
                 if step_map:
                     lines.append("<ul>")
                     for step_name, payload in step_map.items():
@@ -2733,6 +2879,8 @@ class ReportAssembler:
                         "id": hyp_id,
                         "title": hyp_title,
                         "missing": missing,
+                        "matrix_status": matrix_status,
+                        "matrix_reason": matrix_reason,
                         "details": details,
                         "quant_metrics": quant_metrics,
                         "gate_status": str(gate_entry.get("gate_status", "")).lower() if isinstance(gate_entry, dict) else "",
@@ -2772,6 +2920,11 @@ class ReportAssembler:
         lines.append(self._render_cross_hypothesis_discussion(hypothesis_outcomes))
         lines.append("")
 
+        depth_progress_block = self._render_depth_progression(session_root)
+        if depth_progress_block:
+            lines.append(depth_progress_block.replace("## 多轮递进摘要\n", "## 多轮递进摘要\n"))
+            lines.append("")
+
         # Section 5: conclusion and recommendations
         lines.append("## 结论与建议")
         lines.append(self._render_conclusion_recommendations(hypothesis_outcomes))
@@ -2782,6 +2935,7 @@ class ReportAssembler:
         failure_block = self._render_validation_failures(session_root)
         quality_block = self._render_quality_warnings(session_root)
         completion_block = self._render_completion_validation(session_root)
+        closure_block = self._render_phase_closure_summary(session_root)
         llm_degrade_block = self._render_llm_degradation(session_root)
         adjudication_block = self._render_path_adjudication(session_root)
         matrix_block = self._render_hypothesis_matrix(session_root)
@@ -2794,6 +2948,9 @@ class ReportAssembler:
             lines.append("")
         if completion_block:
             lines.append(completion_block.replace("## 完成态校验\n", ""))
+            lines.append("")
+        if closure_block:
+            lines.append(closure_block.replace("## 步骤级闭环摘要\n", ""))
             lines.append("")
         if llm_degrade_block:
             lines.append(llm_degrade_block.replace("## 模型可用性与降级记录\n", ""))

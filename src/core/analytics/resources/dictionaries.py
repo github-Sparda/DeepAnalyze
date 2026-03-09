@@ -187,7 +187,16 @@ def default_hypothesis_profile_registry() -> dict[str, dict[str, Any]]:
             "claim": "多特征组合具备诊断预测力",
             "primary_method_family": "feature_modeling",
             "secondary_method_family": "cross_validation",
-            "visual_artifacts": ["result/model_eval.json", "result/cv_results.json", "result/feature_selection.json"],
+            "visual_artifacts": [
+                "result/model_eval.json",
+                "result/cv_results.json",
+                "result/feature_selection.json",
+                "result/model_performance_comparison.csv",
+                "plots/roc_curve.png",
+                "plots/pr_curve.png",
+                "result/feature_importance_rf.json",
+                "plots/feature_importance_plot_rf.png",
+            ],
             "aliases": ["预测", "分类", "模型", "auc", "accuracy", "predict", "classification"],
         },
         "correlation": {
@@ -196,7 +205,7 @@ def default_hypothesis_profile_registry() -> dict[str, dict[str, Any]]:
             "claim": "变量间存在结构化相关网络",
             "primary_method_family": "pearson_network",
             "secondary_method_family": "rank_or_sparse_network",
-            "visual_artifacts": ["plots/heatmap.png", "plots/network.png"],
+            "visual_artifacts": ["plots/heatmap.png", "plots/clustermap.png", "plots/network.png", "plots/tsne_umap_plot.png"],
             "aliases": ["相关", "网络", "协同", "corr", "correlation", "network"],
         },
         "embedding": {

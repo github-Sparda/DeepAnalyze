@@ -133,12 +133,24 @@ Key variables:
 当启用编排分析后，新增关键产物：
 
 - `meta/completion_validation.json`：完成态校验结果（是否允许确定性结论）
+- `meta/closure_status/*.json`：关键阶段步骤级闭环状态（success / recovered / recoverable_failed / failed / skipped）
+- `meta/recovery_trace/*.json`：关键阶段恢复轨迹
 - `meta/plan_validation/file_summary_fallback.json`：文件摘要节点降级记录（可选）
 - `meta/plan_validation/report_llm_fallback.json`：报告装配降级记录（可选）
 - `meta/iteration_lineage.json`：递归迭代链路与触发原因
+- `meta/research_digest.json`：递归前/最终阶段的短摘要，用于第二轮规划
+- `meta/depth_focus_selection.json`：第二轮优先级选择结果（closure_followup / escalated_research）
+- `meta/depth_delta.json`：第二轮相对第一轮是否带来实质深度增益
 - `result/path_adjudication.json`：A/B 冲突后 Path-C 自动裁决记录
 - `result/ml_repro_bundle_index.json`：预测类假设复现包索引
 - `meta/analysis_quality_score.json`：新增 `closure_source` 字段表示闭环率判定口径
+- `result/validation_failures.json`：按阶段聚合的阻塞失败项，用于报告与审计
+- `result/differential_features_table.csv`：差异性假设的高优先级特征明细表（含 p/q 值、效应量、排序字段）
+- `result/model_performance_comparison.csv`：预测假设的模型与基线对照指标
+- `result/feature_importance_rf.json`：随机森林路径的特征重要性明细
+- `plots/roc_curve.png` / `plots/pr_curve.png`：预测路径的真实评估曲线
+- `plots/clustermap.png` / `plots/tsne_umap_plot.png`：相关/低维结构路径的辅助图表
+- `result/hypothesis_matrix.json`：最终统一假设状态矩阵（基础证据、路径闭环、gate 判定合并口径）
 
 预测类复现包目录示例：
 
@@ -170,3 +182,11 @@ python scripts/run_serum_orchestrated_analysis.py --max-depth 2 --output-dir out
 - `--strict-llm-check`：启动时 LLM 连通性检查失败即退出；默认关闭，默认会继续进入可降级执行模式。
 - `--strict-fallback-mode`：启用强兜底质量门槛（默认开启）；当 LLM 不可用且门槛未通过时，优先跳过低可信步骤/报告，而非生成弱质量结果。
 - `--no-strict-fallback-mode`：关闭强兜底门槛，允许更宽松的兜底行为（不推荐生产使用）。
+
+多轮递进说明：
+
+- `--max-depth 1`：仅执行首轮分析。
+- `--max-depth > 1`：第二轮不会盲目扩写，而会优先读取 `research_digest` 和 `depth_focus_selection`：
+  - 若首轮仍有高价值未闭环假设，则进入 `closure_followup`
+  - 若首轮已有稳定发现，则可进入 `escalated_research`
+  - 若没有明确增益空间，则停止递归并在 `depth_delta.json` 中说明“无实质深度增益”

@@ -83,10 +83,24 @@ from src.core.analytics.resources import (
     validate_hypothesis_evidence_pack,
 )
 from .state import OrchestrationState
+from .closure import (
+    build_phase_blockers,
+    closure_completion_summary,
+    evaluate_phase_closure,
+    load_phase_closure_map,
+    persist_phase_closure,
+)
+from .depth_research import (
+    build_depth_delta,
+    build_research_digest,
+    render_research_digest_markdown,
+    select_depth_focus,
+)
 from .document_manager import DocumentManager
 from .hypothesis_engine import (
     _build_auto_analysis_payload,
     _build_coverage_report,
+    _build_final_hypothesis_matrix,
     _build_hypothesis_contrast,
     _build_hypothesis_evidence,
     _build_hypothesis_matrix,
@@ -412,7 +426,12 @@ def _build_path_execution_status(
             continue
         paths = row.get("paths", []) if isinstance(row.get("paths"), list) else []
         total = len(paths)
-        success = sum(1 for p in paths if isinstance(p, dict) and str(p.get("status", "")).lower() in {"ok", "success"})
+        success = sum(
+            1
+            for p in paths
+            if isinstance(p, dict)
+            and str(p.get("status", "")).lower() in {"ok", "success", "validated", "complete"}
+        )
         partial = sum(1 for p in paths if isinstance(p, dict) and str(p.get("status", "")).lower() == "partial")
         failed = sum(1 for p in paths if isinstance(p, dict) and str(p.get("status", "")).lower() in {"fail", "failed"})
         missing: list[str] = []
@@ -423,7 +442,14 @@ def _build_path_execution_status(
                 text = str(item).strip()
                 if text and text not in missing:
                     missing.append(text)
-        overall = "complete" if total >= 2 and success >= 2 and str(row.get("status", "")).lower() in {"validated", "ok", "success"} else "incomplete"
+        overall = (
+            "complete"
+            if total >= 2
+            and success >= 2
+            and failed == 0
+            and str(row.get("status", "")).lower() in {"validated", "ok", "success", "complete"}
+            else "incomplete"
+        )
         status_rows.append(
             {
                 "hypothesis_id": row.get("hypothesis_id", ""),
@@ -880,7 +906,8 @@ def _normalize_plan_json(plan_json: dict[str, Any], plan_md: str) -> dict[str, A
                 hypothesis_text,
             )
         normalized.append(
-            {
+            _bind_runtime_realizable_paths(
+                {
                 "id": hyp_id,
                 "title": title,
                 "hypothesis": hypothesis_text,
@@ -901,7 +928,8 @@ def _normalize_plan_json(plan_json: dict[str, Any], plan_md: str) -> dict[str, A
                 "steps": steps,
                 "artifacts": artifacts,
                 "invalid_expected_artifacts": invalid_artifacts,
-            }
+                }
+            )
         )
     return {"hypotheses": normalized}
 
@@ -927,6 +955,165 @@ def _infer_method_family(
     primary = str(profile.get("primary_method_family", "primary")).strip().lower() or "primary"
     secondary = str(profile.get("secondary_method_family", "secondary")).strip().lower() or "secondary"
     return primary if index == 0 else secondary
+
+
+def _runtime_bound_validation_templates(profile_key: str) -> tuple[list[str], list[dict[str, Any]]]:
+    key = str(profile_key or "").strip().lower()
+    if key == "difference":
+        return (
+            [
+                "stats_results.json",
+                "multiple_testing.json",
+                "stats_summary.json",
+                "top_features.json",
+                "differential_features_table.csv",
+                "volcano_plot.png",
+            ],
+            [
+                {
+                    "path_id": "path_a",
+                    "method_family": "nonparametric_or_fdr",
+                    "steps": [
+                        "执行组间统计检验并进行多重检验校正",
+                        "汇总显著特征并绘制火山图",
+                    ],
+                    "expected_artifacts": ["volcano_plot.png"],
+                },
+                {
+                    "path_id": "path_b",
+                    "method_family": "parametric_test",
+                    "steps": [
+                        "整理显著特征表，汇总 p/q 值与效应量",
+                        "输出差异特征明细表以支持后续验证",
+                    ],
+                    "expected_artifacts": ["differential_features_table.csv"],
+                },
+            ],
+        )
+    if key == "predictive":
+        return (
+            [
+                "feature_selection.json",
+                "feature_selection_rationale.json",
+                "model_results.json",
+                "model_eval.json",
+                "cv_results.json",
+                "roc_curve.png",
+                "pr_curve.png",
+                "model_performance_comparison.csv",
+                "model_results_rf.json",
+                "model_eval_rf.json",
+                "feature_importance_rf.json",
+                "feature_importance_plot_rf.png",
+            ],
+            [
+                {
+                    "path_id": "path_a",
+                    "method_family": "feature_modeling",
+                    "steps": [
+                        "训练逻辑回归分类器并输出 holdout 与交叉验证性能",
+                        "生成 ROC 与 PR 曲线，评估分类区分能力",
+                    ],
+                    "expected_artifacts": ["roc_curve.png", "pr_curve.png", "model_performance_comparison.csv"],
+                },
+                {
+                    "path_id": "path_b",
+                    "method_family": "cross_validation",
+                    "steps": [
+                        "训练随机森林分类器并计算特征重要性",
+                        "输出特征重要性结果，用于验证不同建模路径下的重要特征是否一致",
+                    ],
+                    "expected_artifacts": ["feature_importance_rf.json", "feature_importance_plot_rf.png"],
+                },
+            ],
+        )
+    if key == "correlation":
+        return (
+            [
+                "correlation.json",
+                "network.png",
+                "clustermap.png",
+                "tsne_umap_plot.png",
+            ],
+            [
+                {
+                    "path_id": "path_a",
+                    "method_family": "pearson_network",
+                    "steps": [
+                        "构建相关矩阵并绘制聚类热图",
+                        "检查强相关对与聚类结构是否稳定",
+                    ],
+                    "expected_artifacts": ["clustermap.png"],
+                },
+                {
+                    "path_id": "path_b",
+                    "method_family": "tsne_or_umap_cluster",
+                    "steps": [
+                        "执行低维嵌入并观察样本空间结构",
+                        "结合网络结果判断相关结构是否具备群体分离趋势",
+                    ],
+                    "expected_artifacts": ["tsne_umap_plot.png"],
+                },
+            ],
+        )
+    if key == "embedding":
+        return (
+            [
+                "dimensionality.json",
+                "dimensionality_tsne.json",
+                "clustering.json",
+                "scatter.png",
+                "embedding_pca.png",
+                "embedding_tsne.png",
+            ],
+            [
+                {
+                    "path_id": "path_a",
+                    "method_family": "pca_cluster",
+                    "steps": [
+                        "执行 PCA 降维并绘制二维嵌入图",
+                        "结合散点分布观察样本是否存在初步分离趋势",
+                    ],
+                    "expected_artifacts": ["embedding_pca.png", "scatter.png"],
+                },
+                {
+                    "path_id": "path_b",
+                    "method_family": "tsne_or_umap_cluster",
+                    "steps": [
+                        "执行 t-SNE 降维并输出聚类标签",
+                        "结合非线性嵌入结果检查潜在亚群结构",
+                    ],
+                    "expected_artifacts": ["embedding_tsne.png", "clustering.json"],
+                },
+            ],
+        )
+    return [], []
+
+
+def _bind_runtime_realizable_paths(hypothesis: dict[str, Any]) -> dict[str, Any]:
+    item = dict(hypothesis) if isinstance(hypothesis, dict) else {}
+    title = str(item.get("title", "")).strip()
+    hypothesis_text = str(item.get("hypothesis", "")).strip()
+    profile_key = str(item.get("hypothesis_type", "")).strip()
+    if not profile_key:
+        profile = resolve_hypothesis_profile(Path("."), title=title, hypothesis_text=hypothesis_text)
+        profile_key = str(profile.get("key", "")).strip()
+    expected, paths = _runtime_bound_validation_templates(profile_key)
+    if not expected or not paths:
+        return item
+    item["hypothesis_type"] = profile_key
+    item["expected_artifacts"], invalid = _sanitize_expected_artifacts(expected)
+    item["invalid_expected_artifacts"] = invalid
+    item["validation_paths"] = paths
+    item["validation_plan_steps"] = [
+        str(step).strip()
+        for path in paths
+        for step in path.get("steps", [])
+        if str(step).strip()
+    ]
+    item["steps"] = list(item["validation_plan_steps"])
+    item["artifacts"] = list(item["expected_artifacts"])
+    return item
 
 
 def _default_validation_paths(
@@ -969,7 +1156,8 @@ def _strict_markdown_hypothesis_fallback(plan_md: str) -> dict[str, Any]:
         steps = [str(x).strip() for x in step_map.get(hid, []) if str(x).strip()]
         artifacts, invalid = _sanitize_expected_artifacts(artifact_map.get(hid, []))
         hypotheses.append(
-            {
+            _bind_runtime_realizable_paths(
+                {
                 "id": hid,
                 "title": title,
                 "hypothesis": hypothesis_text.strip(),
@@ -993,7 +1181,8 @@ def _strict_markdown_hypothesis_fallback(plan_md: str) -> dict[str, Any]:
                 ),
                 "steps": steps,
                 "artifacts": artifacts,
-            }
+                }
+            )
         )
     return {"hypotheses": hypotheses}
 
@@ -1929,6 +2118,7 @@ def _build_completion_validation(
     artifact_validation: dict[str, Any] | None = None,
     pipeline_gate_failures: list[dict[str, Any]] | None = None,
     pipeline_gate_waivers: list[dict[str, Any]] | None = None,
+    closure_status: dict[str, Any] | None = None,
     expect_report: bool = False,
 ) -> dict[str, Any]:
     gate_payload = gate_payload if isinstance(gate_payload, dict) else {}
@@ -1940,6 +2130,7 @@ def _build_completion_validation(
     pipeline_gate_waivers = (
         pipeline_gate_waivers if isinstance(pipeline_gate_waivers, list) else []
     )
+    closure_status = closure_status if isinstance(closure_status, dict) else load_phase_closure_map(session_dir)
 
     checks: dict[str, Any] = {}
     blocking_reasons: list[str] = []
@@ -2013,6 +2204,22 @@ def _build_completion_validation(
     if validation_failures_path.exists():
         blocking_reasons.append("validation_failure_recorded")
         actions.append("处理 validation_failures.json 指定失败阶段并执行最小重跑。")
+
+    checks["phase_closure_available"] = bool(closure_status)
+    if closure_status:
+        closure_summary = closure_completion_summary(closure_status)
+        checks["phase_closure_complete"] = bool(closure_summary.get("complete", False))
+        checks["phase_closure_required_missing"] = closure_summary.get("required_missing", [])
+        checks["phase_closure_incomplete_required"] = closure_summary.get("incomplete_required", [])
+        checks["phase_closure_blocking_required"] = closure_summary.get("blocking_required", [])
+        if not checks["phase_closure_complete"]:
+            blocking_reasons.append("step_closure_incomplete")
+            actions.append("按步骤级闭环状态补跑/修复阻塞阶段后，再进行最终完成态判定。")
+    else:
+        checks["phase_closure_complete"] = True
+        checks["phase_closure_required_missing"] = []
+        checks["phase_closure_incomplete_required"] = []
+        checks["phase_closure_blocking_required"] = []
 
     if expect_report:
         report_dir = session_dir / "report"
@@ -2143,6 +2350,7 @@ def _generic_artifact_aliases(target: str) -> list[str]:
         "heatmap_cluster.png": ["heatmap.png", "cluster.png"],
         "heatmap.png": ["heatmap_cluster.png", "cluster.png"],
         "cluster.png": ["heatmap_cluster.png", "heatmap.png"],
+        "clustermap.png": ["cluster.png", "heatmap_cluster.png", "heatmap.png"],
     }
     return list(family_aliases.get(target, []))
 
@@ -2180,6 +2388,8 @@ def _artifact_capability_tags(location: str, target: str) -> set[str]:
     if stem in {"volcano_plot.png", "manhattan_plot.png"}:
         tags.update({"plot:differential", "goal:key_feature_screening"})
     if stem in {"heatmap_cluster.png", "heatmap.png", "cluster.png"}:
+        tags.update({"plot:cluster_heatmap_family", "goal:correlation_structure"})
+    if stem == "clustermap.png":
         tags.update({"plot:cluster_heatmap_family", "goal:correlation_structure"})
     if stem == "stats_results.json":
         tags.update({"result:stats_results", "goal:key_feature_screening"})
@@ -2915,6 +3125,7 @@ def _run_node(name: str, func, config: dict[str, Any]):
         start = time.time()
         error = None
         output: dict[str, Any] = {}
+        session_dir = Path(state.get("session_dir", ""))
         before_artifacts = _artifact_paths_snapshot(state.get("session_dir", ""))
         try:
             output = func(state)
@@ -2956,6 +3167,58 @@ def _run_node(name: str, func, config: dict[str, Any]):
             inputs=sorted(list(state.keys())),
             artifacts=new_artifacts,
         )
+        merged_state = dict(state)
+        merged_state.update(output)
+        closure = evaluate_phase_closure(name, session_dir, merged_state, error=error or "")
+        if closure:
+            persist_phase_closure(session_dir, closure)
+            closure_map = dict(state.get("closure_status", {}) or {})
+            closure_map[name] = closure
+            output["closure_status"] = closure_map
+            recovery_trace = list(state.get("recovery_trace", []) or [])
+            if closure.get("status") in {"recoverable_failed", "failed", "skipped", "recovered"}:
+                recovery_trace.append(
+                    {
+                        "phase": name,
+                        "status": closure.get("status"),
+                        "failure_type": closure.get("failure_type", ""),
+                        "failed_checks": closure.get("failed_checks", []),
+                        "recovery_action": closure.get("recovery_action", ""),
+                        "blocking": closure.get("blocking", False),
+                        "timestamp": closure.get("timestamp", int(start)),
+                    }
+                )
+            output["recovery_trace"] = recovery_trace
+            output["phase_blockers"] = build_phase_blockers(closure_map)
+            validation_failures = {
+                "failures": [
+                    {
+                        "phase": phase_name,
+                        "status": str(payload.get("status", "")),
+                        "failure_type": str(payload.get("failure_type", "")),
+                        "failed_checks": payload.get("failed_checks", []),
+                        "recovery_action": str(payload.get("recovery_action", "")),
+                    }
+                    for phase_name, payload in closure_map.items()
+                    if isinstance(payload, dict)
+                    and str(payload.get("status", "")).strip() in {"recoverable_failed", "failed", "skipped"}
+                ]
+            }
+            if validation_failures["failures"]:
+                write_json(session_dir / "result" / "validation_failures.json", validation_failures)
+            retry_budgets = dict(state.get("retry_budgets", {}) or {})
+            retry_budgets[name] = {
+                "remaining": closure.get("retry_budget_remaining", 0),
+                "recoverable": closure.get("recoverable", False),
+                "blocking": closure.get("blocking", False),
+            }
+            output["retry_budgets"] = retry_budgets
+            phase_retry_counts = dict(state.get("phase_retry_counts", {}) or {})
+            if closure.get("status") == "recoverable_failed":
+                phase_retry_counts[name] = int(phase_retry_counts.get(name, 0) or 0) + 1
+            else:
+                phase_retry_counts.setdefault(name, int(phase_retry_counts.get(name, 0) or 0))
+            output["phase_retry_counts"] = phase_retry_counts
         return output
 
     return wrapper
@@ -3083,6 +3346,32 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
         if not goal_hint:
             goal_hint = (state.get("config", {}).get("docs/analysis_goal", "") or "").strip()
         history = list(state.get("docs_analysis_history", []) or [])
+        research_digest = state.get("research_digest", {}) if isinstance(state.get("research_digest", {}), dict) else {}
+        if int(state.get("depth", 1) or 1) > 1 and research_digest:
+            history.append(
+                "Research digest for prioritized follow-up:\n"
+                + render_research_digest_markdown(research_digest)
+            )
+        depth_focus_selection = (
+            state.get("depth_focus_selection", {})
+            if isinstance(state.get("depth_focus_selection", {}), dict)
+            else {}
+        )
+        if int(state.get("depth", 1) or 1) > 1 and depth_focus_selection.get("selected"):
+            mode = str(depth_focus_selection.get("mode", "stop")).strip() or "stop"
+            lines = [
+                f"Second-round planning mode: {mode}",
+                "You must explicitly state whether this round is closure_followup or escalated_research.",
+                "Each hypothesis/plan item must cite its source from prior round evidence.",
+            ]
+            for item in depth_focus_selection.get("selected", [])[:4]:
+                if not isinstance(item, dict):
+                    continue
+                lines.append(
+                    f"- source={item.get('hypothesis_id')} title={item.get('title')} why={item.get('why')} "
+                    f"gate={item.get('gate_status')} path={item.get('path_overall')} consistency={item.get('consistency')}"
+                )
+            history.append("\n".join(lines))
         followups = list(state.get("followup_hypotheses", []) or [])
         if followups:
             history.append("Follow-up hypotheses:\n" + "\n".join(f"- {h}" for h in followups))
@@ -3282,6 +3571,7 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
             "plan_json": plan_json,
             "hypotheses": cleaned_hypotheses,
             "plan_id": plan_id,
+            "plan_blocked": not bool(plan_json.get("hypotheses")),
         }
         if llm_events:
             output["llm_degradation_events"] = llm_events
@@ -3301,9 +3591,26 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
         llm_events = list(state.get("llm_degradation_events", []) or [])
         strict_fallback_mode = bool(state.get("config", {}).get("strict_fallback_mode", True))
         llm_unavailable_during_codegen = False
+        hypotheses = plan_json.get("hypotheses", []) if isinstance(plan_json, dict) else []
+        if strict_fallback_mode and (state.get("plan_blocked") or not hypotheses):
+            skip_payload = {
+                "skipped": True,
+                "reason": "plan_blocked_or_empty",
+                "plan_blocked": bool(state.get("plan_blocked")),
+            }
+            skip_path = ensure_dir(session_dir / "meta" / "plan_validation") / "codegen_skipped.json"
+            write_json(skip_path, skip_payload)
+            record_artifact(session_dir, skip_path, "meta", "parallel_generation")
+            return {
+                "code_steps": [],
+                "exec_results": [],
+                "execution_entries": [],
+                "errors": list(state.get("errors", [])) + ["codegen_skipped:plan_blocked_or_empty"],
+                "llm_degradation_events": llm_events,
+                "codegen_skipped": True,
+            }
 
         steps: list[dict[str, Any]] = []
-        hypotheses = plan_json.get("hypotheses", []) if isinstance(plan_json, dict) else []
         for hypothesis in hypotheses:
             for idx, step in enumerate(hypothesis.get("steps", []) or []):
                 steps.append(
@@ -4073,6 +4380,20 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
         write_json(session_dir / "result" / "hypothesis_evidence_pack_validation.json", validation)
         if ml_repro_bundle:
             write_json(session_dir / "result" / "ml_repro_bundle_index.json", ml_repro_bundle)
+        current_plan_json = state.get("plan_json", {}) if isinstance(state.get("plan_json", {}), dict) else {}
+        if not current_plan_json.get("hypotheses"):
+            current_plan_json = _load_json_if_exists(session_dir / "plan" / "analysis_plan.json")
+        current_hypothesis_payload = _load_json_if_exists(session_dir / "result" / "hypothesis_results.json")
+        current_multipath_payload = _load_json_if_exists(session_dir / "result" / "hypothesis_multipath.json")
+        current_path_execution_payload = _load_json_if_exists(session_dir / "result" / "path_execution_status.json")
+        final_matrix = _build_final_hypothesis_matrix(
+            current_plan_json,
+            current_hypothesis_payload,
+            current_multipath_payload,
+            current_path_execution_payload,
+            gate_report,
+        )
+        write_json(session_dir / "result" / "hypothesis_matrix.json", final_matrix)
         plan_id = state.get("plan_id", "")
         if plan_id:
             registry = ArtifactRegistry(session_dir)
@@ -4093,6 +4414,12 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
                 "result",
                 session_dir / "result" / "hypothesis_evidence_pack_validation.json",
                 {"phase": "evidence_curation"},
+            )
+            registry.register(
+                plan_id,
+                "result",
+                session_dir / "result" / "hypothesis_matrix.json",
+                {"phase": "evidence_curation", "source": "final_unified_status"},
             )
             if ml_repro_bundle:
                 registry.register(
@@ -4281,8 +4608,19 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
         return output
 
     def decide_recurse(state: OrchestrationState) -> OrchestrationState:
-        max_depth = int(state.get("max_depth", 0))
+        session_dir = Path(state.get("session_dir", ""))
+        digest = build_research_digest(session_dir, state)
+        digest_md = render_research_digest_markdown(digest)
+        write_json(session_dir / "meta" / "research_digest.json", digest)
+        write_text(session_dir / "meta" / "research_digest.md", digest_md)
         depth = int(state.get("depth", 1))
+        write_json(session_dir / "meta" / f"research_digest_depth{depth}.json", digest)
+        focus = select_depth_focus(
+            digest,
+            max_candidates=int(state.get("config", {}).get("depth_focus_max_candidates", 3) or 3),
+        )
+        write_json(session_dir / "meta" / "depth_focus_selection.json", focus)
+        max_depth = int(state.get("max_depth", 0))
         depth_decision = str(state.get("depth_decision", "")).strip().lower()
         iteration_count = int(state.get("iteration_count", 1))
         max_iterations = int(state.get("config", {}).get("max_iterations", MAX_ITERATIONS))
@@ -4291,6 +4629,8 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
                 "should_recurse": False,
                 "continuation_required": False,
                 "depth_prompt": "已达到最大迭代次数，停止递归以避免死循环。",
+                "research_digest": digest,
+                "depth_focus_selection": focus,
             }
         gate_payload = state.get("hypothesis_gate_report", {})
         gate_rows = gate_payload.get("hypotheses", []) if isinstance(gate_payload, dict) else []
@@ -4321,6 +4661,13 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
             or has_pipeline_failures
             or has_artifact_validation_errors
         )
+        prioritized_followups = [
+            f"{item.get('hypothesis_id')}: {item.get('title')} [{item.get('mode')}]"
+            for item in focus.get("selected", [])
+            if isinstance(item, dict)
+        ]
+        if not prioritized_followups:
+            prioritized_followups = list(state.get("followup_hypotheses", []))
 
         controller = DepthRecursionController(
             max_depth,
@@ -4328,12 +4675,12 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
         )
         decision = controller.evaluate(
             depth,
-            state.get("followup_hypotheses", []),
+            prioritized_followups,
             state.get("execution_retry_requested", False),
             state.get("execution_retry_exhausted", False),
             depth_decision,
             int(state.get("execution_retry_count", 0)),
-            unresolved_pending=unresolved_pending,
+            unresolved_pending=unresolved_pending and bool(focus.get("selected")),
         )
         decision["recursion_context"] = {
             "depth": depth,
@@ -4343,8 +4690,13 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
             "has_pipeline_failures": has_pipeline_failures,
             "has_artifact_validation_errors": has_artifact_validation_errors,
             "unresolved_pending": unresolved_pending,
-            "followups": state.get("followup_hypotheses", []),
+            "followups": prioritized_followups,
+            "focus_mode": focus.get("mode", "stop"),
+            "focus_selection": focus,
         }
+        decision["followup_hypotheses"] = prioritized_followups
+        decision["research_digest"] = digest
+        decision["depth_focus_selection"] = focus
         return decision
 
     def advance_depth(state: OrchestrationState) -> OrchestrationState:
@@ -4352,11 +4704,17 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
         iteration_count = int(state.get("iteration_count", 1))
         lineage = list(state.get("iteration_lineage", []))
         ctx = state.get("recursion_context", {})
+        focus_selection = state.get("depth_focus_selection", {}) if isinstance(state.get("depth_focus_selection", {}), dict) else {}
+        selected_followups = (
+            [f"{item.get('hypothesis_id')}: {item.get('title')}" for item in focus_selection.get("selected", []) if isinstance(item, dict)]
+            if focus_selection.get("selected")
+            else (ctx.get("followups", []) if isinstance(ctx, dict) else [])
+        )
         lineage.append(
             {
                 "depth": depth,
                 "iteration": iteration_count,
-                "followups": (ctx.get("followups", []) if isinstance(ctx, dict) else []),
+                "followups": selected_followups,
                 "unresolved_pending": bool((ctx or {}).get("unresolved_pending", False)) if isinstance(ctx, dict) else False,
                 "signals": {
                     "incomplete_hypothesis": bool((ctx or {}).get("has_incomplete_hypothesis", False)) if isinstance(ctx, dict) else False,
@@ -4364,10 +4722,16 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
                     "pipeline_failures": bool((ctx or {}).get("has_pipeline_failures", False)) if isinstance(ctx, dict) else False,
                     "artifact_errors": bool((ctx or {}).get("has_artifact_validation_errors", False)) if isinstance(ctx, dict) else False,
                 },
+                "mode": (ctx.get("focus_mode", "") if isinstance(ctx, dict) else "") or focus_selection.get("mode", "stop"),
                 "decision": "recurse",
             }
         )
-        return {"depth": depth + 1, "iteration_count": iteration_count + 1, "iteration_lineage": lineage}
+        return {
+            "depth": depth + 1,
+            "iteration_count": iteration_count + 1,
+            "iteration_lineage": lineage,
+            "followup_hypotheses": selected_followups,
+        }
 
     def report_outline(state: OrchestrationState) -> OrchestrationState:
         analysis_text = state.get("docs_analysis_results", "")
@@ -4494,6 +4858,7 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
             artifact_validation=state.get("artifact_validation", {}),
             pipeline_gate_failures=state.get("pipeline_gate_failures", []),
             pipeline_gate_waivers=state.get("pipeline_gate_waivers", []),
+            closure_status=state.get("closure_status", {}),
         )
         write_json(session_dir / "meta" / "completion_validation.json", completion_validation)
         if not completion_validation.get("complete", False):
@@ -4671,6 +5036,18 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
             ensure_dir(Path(state.get("session_dir", "")) / "meta") / "llm_degradation_events.json",
             {"events": llm_events, "summary": llm_event_summary},
         )
+        current_digest = build_research_digest(session_dir, state)
+        write_json(session_dir / "meta" / "research_digest.json", current_digest)
+        write_text(session_dir / "meta" / "research_digest.md", render_research_digest_markdown(current_digest))
+        write_json(session_dir / "meta" / f"research_digest_depth{int(state.get('depth', 1) or 1)}.json", current_digest)
+        previous_digest = (
+            _load_json_if_exists(session_dir / "meta" / f"research_digest_depth{int(state.get('depth', 1) or 1) - 1}.json")
+            if int(state.get("depth", 1) or 1) > 1
+            else {}
+        )
+        if previous_digest:
+            depth_delta = build_depth_delta(previous_digest, current_digest, state.get("depth_focus_selection", {}))
+            write_json(session_dir / "meta" / "depth_delta.json", depth_delta)
         doc_manager = DocumentManager(Path(state.get("session_dir", "")))
         document_manifest = doc_manager.manifest()
         assembler = ReportAssembler(language=language)
@@ -4744,6 +5121,29 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
             audit["ml_repro_bundle"] = state.get("ml_repro_bundle", {})
         audit["custom_lines"] = state.get("custom_line_records", [])
         audit["custom_line_summary"] = state.get("custom_line_summary", {})
+        current_digest = build_research_digest(session_dir, state)
+        write_json(session_dir / "meta" / "research_digest.json", current_digest)
+        write_text(session_dir / "meta" / "research_digest.md", render_research_digest_markdown(current_digest))
+        write_json(session_dir / "meta" / f"research_digest_depth{int(state.get('depth', 1) or 1)}.json", current_digest)
+        prev_depth = int(state.get("depth", 1) or 1) - 1
+        previous_digest = _load_json_if_exists(session_dir / "meta" / f"research_digest_depth{prev_depth}.json") if prev_depth >= 1 else {}
+        depth_delta = (
+            build_depth_delta(previous_digest, current_digest, state.get("depth_focus_selection", {}))
+            if previous_digest
+            else {
+                "previous_depth": None,
+                "current_depth": int(state.get("depth", 1) or 1),
+                "material_gain": False,
+                "summary": "当前为首轮分析，无上一轮可比较。",
+                "selected_mode": (state.get("depth_focus_selection", {}) or {}).get("mode", ""),
+                "selected_targets": [
+                    row.get("hypothesis_id")
+                    for row in ((state.get("depth_focus_selection", {}) or {}).get("selected", []) if isinstance(state.get("depth_focus_selection", {}), dict) else [])
+                    if isinstance(row, dict)
+                ],
+            }
+        )
+        write_json(session_dir / "meta" / "depth_delta.json", depth_delta)
         summary["run_audit"] = audit
         summary["pipeline_fallbacks"] = audit["pipeline_fallbacks"]
         summary["pipeline_gate_waivers"] = audit["pipeline_gate_waivers"]
@@ -4752,6 +5152,9 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
         summary["custom_line_summary"] = audit["custom_line_summary"]
         summary["path_adjudication"] = state.get("path_adjudication", {})
         summary["ml_repro_bundle"] = state.get("ml_repro_bundle", {})
+        summary["research_digest"] = current_digest
+        summary["depth_focus_selection"] = state.get("depth_focus_selection", {})
+        summary["depth_delta"] = depth_delta
         iteration_lineage = list(state.get("iteration_lineage", []))
         if not iteration_lineage:
             iteration_lineage.append(
@@ -4778,11 +5181,18 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
             artifact_validation=state.get("artifact_validation", {}),
             pipeline_gate_failures=state.get("pipeline_gate_failures", []),
             pipeline_gate_waivers=state.get("pipeline_gate_waivers", []),
+            closure_status=state.get("closure_status", {}),
             expect_report=True,
         )
         audit["analysis_quality_score"] = quality_score
         audit["quality_consistency"] = quality_consistency
         audit["hypothesis_set_consistency"] = hypothesis_set_consistency
+        audit["closure_status"] = state.get("closure_status", {}) or load_phase_closure_map(session_dir)
+        audit["phase_blockers"] = state.get("phase_blockers", {}) or build_phase_blockers(audit["closure_status"])
+        audit["recovery_trace"] = state.get("recovery_trace", [])
+        audit["research_digest"] = current_digest
+        audit["depth_focus_selection"] = state.get("depth_focus_selection", {})
+        audit["depth_delta"] = depth_delta
         audit["completion_validation"] = completion_validation
         write_json(session_dir / "meta" / "run_audit.json", audit)
         write_json(session_dir / "meta" / "analysis_quality_score.json", quality_score)
@@ -4816,6 +5226,12 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
         summary["analysis_quality_score"] = quality_score
         summary["quality_consistency"] = quality_consistency
         summary["hypothesis_set_consistency"] = hypothesis_set_consistency
+        summary["closure_status"] = audit["closure_status"]
+        summary["phase_blockers"] = audit["phase_blockers"]
+        summary["recovery_trace"] = audit["recovery_trace"]
+        summary["research_digest"] = audit["research_digest"]
+        summary["depth_focus_selection"] = audit["depth_focus_selection"]
+        summary["depth_delta"] = audit["depth_delta"]
         summary["completion_validation"] = completion_validation
         summary["iteration_lineage"] = iteration_lineage
         summary["evidence_trace"] = evidence_trace
@@ -4872,9 +5288,42 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
     )
     graph.add_edge("code_repair", "analyze_results")
     graph.add_edge("analyze_results", "evidence_curation")
-    graph.add_edge("evidence_curation", "pipeline_guard")
+
+    def _evidence_next(s: OrchestrationState) -> str:
+        closure = (
+            (s.get("closure_status", {}) or {}).get("evidence_curation", {})
+            if isinstance(s.get("closure_status", {}), dict)
+            else {}
+        )
+        status = str((closure or {}).get("status", "")).strip().lower()
+        retry_count = int(((s.get("phase_retry_counts", {}) or {}).get("evidence_curation", 0)) or 0)
+        if status == "recoverable_failed" and retry_count <= 1:
+            return "repair"
+        return "continue"
+
+    graph.add_conditional_edges(
+        "evidence_curation",
+        _evidence_next,
+        {"repair": "analyze_results", "continue": "pipeline_guard"},
+    )
     graph.add_edge("pipeline_guard", "generate_visualizations")
-    graph.add_edge("generate_visualizations", "artifact_validator")
+    def _visual_next(s: OrchestrationState) -> str:
+        closure = (
+            (s.get("closure_status", {}) or {}).get("generate_visualizations", {})
+            if isinstance(s.get("closure_status", {}), dict)
+            else {}
+        )
+        status = str((closure or {}).get("status", "")).strip().lower()
+        retry_count = int(((s.get("phase_retry_counts", {}) or {}).get("generate_visualizations", 0)) or 0)
+        if status == "recoverable_failed" and retry_count <= 1:
+            return "repair"
+        return "continue"
+
+    graph.add_conditional_edges(
+        "generate_visualizations",
+        _visual_next,
+        {"repair": "generate_visualizations", "continue": "artifact_validator"},
+    )
     graph.add_edge("artifact_validator", "refine_hypotheses")
     graph.add_edge("refine_hypotheses", "decide_recurse")
     graph.add_conditional_edges(

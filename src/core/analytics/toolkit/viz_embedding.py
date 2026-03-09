@@ -57,7 +57,11 @@ def run(
     apply_theme(theme or {})
     fig, ax = plt.subplots(figsize=(5, 4))
     if labels and len(labels) == len(df):
-        ax.scatter(df["x"], df["y"], c=labels, s=12, cmap="viridis")
+        label_series = pd.Series(labels).astype(str)
+        categories = pd.Categorical(label_series)
+        scatter = ax.scatter(df["x"], df["y"], c=categories.codes, s=12, cmap="viridis")
+        handles, _ = scatter.legend_elements()
+        ax.legend(handles, [str(x) for x in categories.categories], title="Group", loc="best")
     else:
         ax.scatter(df["x"], df["y"], s=12)
     ax.set_title("Embedding Scatter")
