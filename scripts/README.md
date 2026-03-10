@@ -112,6 +112,7 @@ Key variables:
 - `DEEPANALYZE_WEBSOCKET_PORT`
 - `DEEPANALYZE_USE_ORCHESTRATOR`
 - `DEEPANALYZE_MAX_DEPTH`
+- `DEEPANALYZE_FORCE_ROUNDS`
 - `DEEPANALYZE_REPORT_FORMAT`
 - `DEEPANALYZE_REPORT_LANGUAGE`
 - `DEEPANALYZE_REPORT_EXPORT_MODE`
@@ -139,7 +140,7 @@ Key variables:
 - `meta/plan_validation/report_llm_fallback.json`：报告装配降级记录（可选）
 - `meta/iteration_lineage.json`：递归迭代链路与触发原因
 - `meta/research_digest.json`：递归前/最终阶段的短摘要，用于第二轮规划
-- `meta/depth_focus_selection.json`：第二轮优先级选择结果（closure_followup / escalated_research）
+- `meta/depth_focus_selection.json`：第二轮优先级选择结果（closure_followup / escalated_research / forced_round / stop）
 - `meta/depth_delta.json`：第二轮相对第一轮是否带来实质深度增益
 - `result/path_adjudication.json`：A/B 冲突后 Path-C 自动裁决记录
 - `result/ml_repro_bundle_index.json`：预测类假设复现包索引

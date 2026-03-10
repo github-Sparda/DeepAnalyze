@@ -1585,6 +1585,12 @@ class ReportAssembler:
         payload = self._load_json(path)
         if not isinstance(payload, dict) or not payload:
             return ""
+        lineage_payload = self._load_json(session_root / "meta" / "iteration_lineage.json")
+        lineage_rows = []
+        if isinstance(lineage_payload, dict):
+            rows = lineage_payload.get("iterations", [])
+            if isinstance(rows, list):
+                lineage_rows = [row for row in rows if isinstance(row, dict)]
         lines = ["## 多轮递进摘要"]
         summary = str(payload.get("summary", "")).strip()
         if summary:
@@ -1599,6 +1605,17 @@ class ReportAssembler:
         selected_targets = payload.get("selected_targets", []) if isinstance(payload.get("selected_targets"), list) else []
         if selected_targets:
             lines.append(f"- 本轮聚焦对象: {', '.join([str(x) for x in selected_targets])}")
+        forced_rows = [row for row in lineage_rows if bool(row.get("forced_round", False))]
+        if forced_rows:
+            for row in forced_rows:
+                from_depth = int(row.get("depth", 0) or 0)
+                to_depth = from_depth + 1 if from_depth > 0 else "下一轮"
+                followups = row.get("followups", []) if isinstance(row.get("followups"), list) else []
+                followup_text = f"；触发提示：{'；'.join([str(item) for item in followups[:2]])}" if followups else ""
+                lines.append(
+                    f"- 第 {from_depth} 轮 -> 第 {to_depth} 轮: 强制递进。"
+                    f"原因：尚未达到 `force_rounds` 要求{followup_text}"
+                )
         if "stable_count_delta" in payload:
             lines.append(f"- 稳定结论变化: {payload.get('stable_count_delta')}")
         if "unresolved_count_delta" in payload:

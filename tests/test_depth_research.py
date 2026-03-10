@@ -237,10 +237,23 @@ def test_report_renders_depth_progression(tmp_path: Path) -> None:
             "material_gain": True,
         },
     )
+    _write_json(
+        tmp_path / "meta" / "iteration_lineage.json",
+        {
+            "iterations": [
+                {
+                    "depth": 1,
+                    "forced_round": True,
+                    "followups": ["FORCED_ROUND_2: 基于首轮证据执行第 2 轮复核。"],
+                }
+            ]
+        },
+    )
     text = ReportAssembler(language="zh")._render_depth_progression(tmp_path)
     assert "多轮递进摘要" in text
     assert "depth 1 -> depth 2" in text
     assert "H2" in text
+    assert "强制递进" in text
 
 
 def test_recursion_controller_stops_when_no_followup_value() -> None:
@@ -254,6 +267,25 @@ def test_recursion_controller_stops_when_no_followup_value() -> None:
         unresolved_pending=False,
     )
     assert decision["should_recurse"] is False
+
+
+def test_recursion_controller_force_rounds_overrides_stop_before_required_round() -> None:
+    decision = DepthRecursionController(max_depth=2, force_rounds=2, retry_limit=1).evaluate(
+        depth=1,
+        followups=[],
+        execution_retry_requested=False,
+        execution_retry_exhausted=False,
+        user_decision="",
+        execution_retry_count=0,
+        unresolved_pending=False,
+    )
+    assert decision["should_recurse"] is True
+    assert decision["forced_round"] is True
+
+
+def test_recursion_controller_force_rounds_is_clamped_by_max_depth() -> None:
+    controller = DepthRecursionController(max_depth=2, force_rounds=5, retry_limit=1)
+    assert controller.force_rounds == 2
 
 
 def test_recursive_followup_binding_rewrites_speculative_paths_to_runtime_contract(tmp_path: Path) -> None:
@@ -297,6 +329,31 @@ def test_recursive_followup_binding_rewrites_speculative_paths_to_runtime_contra
     binding = normalized["followup_contract_binding"]["bindings"][0]
     assert binding["binding_source"] == "prior_plan_hypothesis_type"
     assert "Robustness_Summary.csv" in binding["rejected_expected_artifacts"]
+
+
+def test_align_plan_json_to_runtime_hypotheses_rewrites_first_round_identity() -> None:
+    plan_json = {
+        "hypotheses": [
+            {"id": "H1", "title": "差异显著性假设", "hypothesis_type": "difference"},
+            {"id": "H2", "title": "空间聚类假设", "hypothesis_type": "embedding"},
+            {"id": "H3", "title": "诊断效能假设", "hypothesis_type": "predictive"},
+        ]
+    }
+    hypothesis_payload = {
+        "hypotheses": [
+            {"hypothesis": "H1: 分组差异检验", "hypothesis_type": "difference", "expected_artifacts": ["stats_results.json"]},
+            {"hypothesis": "H2: 预测性能验证", "hypothesis_type": "predictive", "expected_artifacts": ["model_eval.json"]},
+            {"hypothesis": "H3: 相关结构验证", "hypothesis_type": "correlation", "expected_artifacts": ["correlation.json"]},
+        ]
+    }
+    aligned, meta = orchestration_graph._align_plan_json_to_runtime_hypotheses(plan_json, hypothesis_payload)
+    rows = {row["id"]: row for row in aligned["hypotheses"]}
+    assert meta["changed"] is True
+    assert rows["H1"]["title"] == "分组差异检验"
+    assert rows["H2"]["title"] == "预测性能验证"
+    assert rows["H2"]["hypothesis_type"] == "predictive"
+    assert rows["H3"]["title"] == "相关结构验证"
+    assert rows["H3"]["hypothesis_type"] == "correlation"
 
 
 def test_recursive_followup_binding_marks_unsupported_profile_as_research_only(tmp_path: Path) -> None:

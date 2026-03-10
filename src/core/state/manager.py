@@ -143,6 +143,7 @@ class StateManager:
                 "plan_id": "",
                 "depth": 0,
                 "max_depth": 1,
+                "force_rounds": 1,
                 "depth_prompt": "",
                 "depth_decision": "",
                 "should_recurse": False,

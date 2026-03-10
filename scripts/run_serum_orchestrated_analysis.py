@@ -31,6 +31,7 @@ from src.api.config import (
     REPORT_FORMAT,
     REPORT_LANGUAGE,
     MAX_RECURSION_DEPTH,
+    FORCE_ROUNDS,
     API_BASE,
 )
 from src.core.orchestration.runner import run_orchestrated_docs_analysis
@@ -69,6 +70,7 @@ def main() -> None:
     )
     parser.add_argument("--output-dir", default="outputs/serum_orchestrated", help="Output directory")
     parser.add_argument("--max-depth", type=int, default=None, help="Max recursion depth")
+    parser.add_argument("--force-rounds", type=int, default=None, help="Force at least N analysis rounds (clamped to max-depth)")
     parser.add_argument("--report-format", default=REPORT_FORMAT, help="Report format")
     parser.add_argument("--report-language", default=REPORT_LANGUAGE, help="Report language")
     parser.add_argument("--report-export-mode", default=REPORT_EXPORT_MODE, help="Report export mode")
@@ -118,6 +120,11 @@ def main() -> None:
     os.environ["DEEPANALYZE_USE_ORCHESTRATOR"] = "1"
 
     max_depth = args.max_depth if args.max_depth is not None else MAX_RECURSION_DEPTH
+    force_rounds = args.force_rounds if args.force_rounds is not None else FORCE_ROUNDS
+    if force_rounds < 1:
+        force_rounds = 1
+    if force_rounds > max_depth:
+        force_rounds = max_depth
 
     output_dir = Path(args.output_dir).expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -161,6 +168,7 @@ def main() -> None:
 
     config = {
         "max_depth": max_depth,
+        "force_rounds": force_rounds,
         "report_format": args.report_format,
         "report_language": args.report_language,
         "report_export_mode": args.report_export_mode,
@@ -192,6 +200,7 @@ def main() -> None:
         "report": str(latest_report) if latest_report else "",
         "output_dir": str(output_dir),
         "max_depth": max_depth,
+        "force_rounds": force_rounds,
     }
     _write_json(output_dir / "run_summary.json", summary)
 

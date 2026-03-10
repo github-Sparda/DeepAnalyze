@@ -22,6 +22,7 @@ DEFAULT_MODEL=gpt-4                            # 默认模型
 # 编排系统开关
 DEEPANALYZE_USE_ORCHESTRATOR=0                 # 0=禁用完整AI流程, 1=启用
 DEEPANALYZE_MAX_DEPTH=1                        # 最大递归深度 (0-3)
+DEEPANALYZE_FORCE_ROUNDS=1                     # 强制至少执行 N 轮（不超过 MAX_DEPTH）
 
 # 执行控制
 DEEPANALYZE_CODEGEN_CONCURRENCY=2              # 代码生成并发数

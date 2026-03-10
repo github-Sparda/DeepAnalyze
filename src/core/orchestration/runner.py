@@ -12,7 +12,7 @@ from .graph import create_graph
 from .llm import LLMClient
 from .state import OrchestrationState
 from .io_utils import init_data_sessions_active, write_run_metadata, hash_file
-from src.api.config import REPRO_METADATA_ENABLED, TRACE_ENABLED
+from src.api.config import REPRO_METADATA_ENABLED, TRACE_ENABLED, FORCE_ROUNDS
 
 
 def run_orchestrated_docs_analysis(
@@ -29,6 +29,12 @@ def run_orchestrated_docs_analysis(
         max_depth = 3
     if max_depth < 0:
         max_depth = 0
+    force_rounds = int(config.get("force_rounds", FORCE_ROUNDS))
+    if force_rounds < 1:
+        force_rounds = 1
+    if force_rounds > max_depth:
+        force_rounds = max_depth
+    config = {**config, "max_depth": max_depth, "force_rounds": force_rounds}
 
     run_id = uuid.uuid4().hex[:12]
     trace_id = uuid.uuid4().hex[:12] if TRACE_ENABLED else ""
@@ -69,6 +75,7 @@ def run_orchestrated_docs_analysis(
         "data_sessions_active_dirs": {k: str(v) for k, v in data_sessions_active_dirs.items()},
         "depth": initial_depth,
         "max_depth": max_depth,
+        "force_rounds": force_rounds,
         "config": config,
         "report": latest_report,
         "report_versions": [str(p) for p in existing_reports],

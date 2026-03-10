@@ -4,9 +4,10 @@ from typing import Any
 
 
 class DepthRecursionController:
-    def __init__(self, max_depth: int, retry_limit: int = 1) -> None:
+    def __init__(self, max_depth: int, retry_limit: int = 1, force_rounds: int = 1) -> None:
         self.max_depth = max_depth
         self.retry_limit = retry_limit
+        self.force_rounds = 0 if max_depth <= 0 else max(1, min(force_rounds, max_depth))
 
     def evaluate(
         self,
@@ -30,13 +31,21 @@ class DepthRecursionController:
             )
             return decision
 
+        if depth < self.force_rounds:
+            return {
+                "should_recurse": True,
+                "continuation_required": False,
+                "depth_prompt": f"Forced recursion enabled: continue until depth {self.force_rounds}.",
+                "forced_round": True,
+            }
+
         if depth < self.max_depth:
             if unresolved_pending:
-                return {"should_recurse": True, "continuation_required": False, "depth_prompt": ""}
+                return {"should_recurse": True, "continuation_required": False, "depth_prompt": "", "forced_round": False}
             if followups:
-                return {"should_recurse": True, "continuation_required": False, "depth_prompt": ""}
+                return {"should_recurse": True, "continuation_required": False, "depth_prompt": "", "forced_round": False}
             if execution_retry_exhausted and execution_retry_count < self.retry_limit:
-                return {"should_recurse": True, "continuation_required": False, "depth_prompt": ""}
+                return {"should_recurse": True, "continuation_required": False, "depth_prompt": "", "forced_round": False}
             return decision
 
         if self.max_depth == 0:
@@ -64,5 +73,7 @@ class DepthRecursionController:
                 "should_recurse": False,
                 "continuation_required": True,
                 "depth_prompt": prompt,
+                "forced_round": False,
             }
+        decision["forced_round"] = False
         return decision

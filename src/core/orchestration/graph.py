@@ -1117,6 +1117,93 @@ def _runtime_bound_validation_templates(profile_key: str) -> tuple[list[str], li
     return [], []
 
 
+def _canonical_hypothesis_identity(profile_key: str) -> tuple[str, str]:
+    key = str(profile_key or "").strip().lower()
+    mapping = {
+        "difference": ("分组差异检验", "验证 Normal 与 EP 组在血清指标上是否存在显著差异。"),
+        "predictive": ("预测性能验证", "验证血清特征子集能否构建稳定、可复现的 EP 诊断分类模型。"),
+        "correlation": ("相关结构验证", "验证血清指标之间是否存在稳定的相关结构、强相关边与模块。"),
+        "embedding": ("低维结构验证", "验证样本在低维嵌入空间中是否表现出稳定分离或聚类结构。"),
+    }
+    return mapping.get(key, ("假设验证", "验证当前假设是否得到执行与证据支持。"))
+
+
+def _parse_result_hypothesis_identity(row: dict[str, Any], default_index: int) -> dict[str, Any]:
+    raw = str(row.get("hypothesis", "")).strip()
+    match = re.search(r"\b(H\d+)\b", raw.upper())
+    hid = match.group(1) if match else f"H{default_index}"
+    title = raw.split(":", 1)[1].strip() if ":" in raw else raw
+    hypothesis_type = str(row.get("hypothesis_type", "")).strip().lower()
+    expected_artifacts = (
+        [str(x).strip() for x in row.get("expected_artifacts", []) if str(x).strip()]
+        if isinstance(row.get("expected_artifacts"), list)
+        else []
+    )
+    return {
+        "id": hid,
+        "title": title,
+        "hypothesis_type": hypothesis_type,
+        "expected_artifacts": expected_artifacts,
+    }
+
+
+def _align_plan_json_to_runtime_hypotheses(
+    plan_json: dict[str, Any],
+    hypothesis_payload: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    plan_rows = plan_json.get("hypotheses", []) if isinstance(plan_json, dict) else []
+    result_rows = hypothesis_payload.get("hypotheses", []) if isinstance(hypothesis_payload, dict) else []
+    if not isinstance(result_rows, list) or not result_rows:
+        return plan_json, {"changed": False, "reason": "missing_hypothesis_results", "changes": []}
+
+    plan_by_id = {
+        str(row.get("id", f"H{idx+1}")).strip().upper(): row
+        for idx, row in enumerate(plan_rows if isinstance(plan_rows, list) else [])
+        if isinstance(row, dict)
+    }
+    aligned_rows: list[dict[str, Any]] = []
+    changes: list[dict[str, Any]] = []
+    for idx, row in enumerate(result_rows, 1):
+        if not isinstance(row, dict):
+            continue
+        identity = _parse_result_hypothesis_identity(row, idx)
+        hid = identity["id"]
+        profile_key = str(identity.get("hypothesis_type", "")).strip().lower()
+        canonical_title, canonical_hypothesis = _canonical_hypothesis_identity(profile_key)
+        runtime_contract = _bind_runtime_realizable_paths(
+            {
+                "id": hid,
+                "title": canonical_title,
+                "hypothesis": canonical_hypothesis,
+                "hypothesis_type": profile_key,
+                "expected_artifacts": identity.get("expected_artifacts", []),
+                "validation_paths": [],
+            }
+        )
+        prior_row = plan_by_id.get(hid, {})
+        if isinstance(prior_row, dict):
+            runtime_contract["_original_planner_title"] = str(prior_row.get("title", "")).strip()
+            runtime_contract["_original_planner_hypothesis"] = str(prior_row.get("hypothesis", "")).strip()
+        aligned_rows.append(runtime_contract)
+        before = {
+            "title": str(prior_row.get("title", "")).strip() if isinstance(prior_row, dict) else "",
+            "hypothesis_type": str(prior_row.get("hypothesis_type", "")).strip() if isinstance(prior_row, dict) else "",
+        }
+        after = {
+            "title": runtime_contract.get("title", ""),
+            "hypothesis_type": runtime_contract.get("hypothesis_type", ""),
+        }
+        if before != after:
+            changes.append({"hypothesis_id": hid, "before": before, "after": after})
+    aligned_payload = dict(plan_json) if isinstance(plan_json, dict) else {}
+    aligned_payload["hypotheses"] = aligned_rows
+    return aligned_payload, {
+        "changed": bool(changes),
+        "reason": "aligned_to_runtime_hypothesis_results" if changes else "already_aligned",
+        "changes": changes,
+    }
+
+
 def _runtime_supported_profile_keys() -> set[str]:
     registry = default_hypothesis_profile_registry()
     return {
@@ -4222,6 +4309,22 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
                             session_dir / "plan" / "analysis_plan.md",
                             _render_plan_markdown_from_json(effective_plan_json),
                         )
+                    aligned_plan_json, alignment_meta = _align_plan_json_to_runtime_hypotheses(
+                        effective_plan_json,
+                        hypothesis_payload,
+                    )
+                    if alignment_meta.get("changed"):
+                        write_json(
+                            session_dir / "meta" / "plan_identity_original.json",
+                            {"plan_json": effective_plan_json},
+                        )
+                    effective_plan_json = aligned_plan_json
+                    write_json(session_dir / "meta" / "plan_identity_alignment.json", alignment_meta)
+                    write_json(session_dir / "plan" / "analysis_plan.json", effective_plan_json)
+                    write_text(
+                        session_dir / "plan" / "analysis_plan.md",
+                        _render_plan_markdown_from_json(effective_plan_json),
+                    )
                     write_json(
                         session_dir / "result" / "expected_artifact_validation.json",
                         _build_expected_artifact_validation_payload(effective_plan_json),
@@ -4930,6 +5033,7 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
         controller = DepthRecursionController(
             max_depth,
             retry_limit=int(config.get("execution_failure_max_retries", EXECUTION_MAX_RETRIES)),
+            force_rounds=int(state.get("config", {}).get("force_rounds", 1) or 1),
         )
         decision = controller.evaluate(
             depth,
@@ -4940,6 +5044,19 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
             int(state.get("execution_retry_count", 0)),
             unresolved_pending=unresolved_pending and bool(focus.get("selected")),
         )
+        if decision.get("forced_round") and not prioritized_followups:
+            prioritized_followups = [
+                f"FORCED_ROUND_{depth + 1}: 基于首轮已落盘证据执行受控的第 {depth + 1} 轮复核与补充计划。"
+            ]
+        if decision.get("forced_round"):
+            focus = {
+                **focus,
+                "mode": "forced_round",
+                "forced_round": True,
+                "selected": focus.get("selected", []),
+                "reason": "forced_rounds_requirement",
+            }
+            write_json(session_dir / "meta" / "depth_focus_selection.json", focus)
         decision["recursion_context"] = {
             "depth": depth,
             "iteration_count": iteration_count,
@@ -4951,6 +5068,7 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
             "followups": prioritized_followups,
             "focus_mode": focus.get("mode", "stop"),
             "focus_selection": focus,
+            "forced_round": bool(decision.get("forced_round", False)),
         }
         decision["followup_hypotheses"] = prioritized_followups
         decision["research_digest"] = digest
@@ -4978,9 +5096,10 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
                     "incomplete_hypothesis": bool((ctx or {}).get("has_incomplete_hypothesis", False)) if isinstance(ctx, dict) else False,
                     "conflict": bool((ctx or {}).get("has_conflict", False)) if isinstance(ctx, dict) else False,
                     "pipeline_failures": bool((ctx or {}).get("has_pipeline_failures", False)) if isinstance(ctx, dict) else False,
-                    "artifact_errors": bool((ctx or {}).get("has_artifact_validation_errors", False)) if isinstance(ctx, dict) else False,
+            "artifact_errors": bool((ctx or {}).get("has_artifact_validation_errors", False)) if isinstance(ctx, dict) else False,
                 },
                 "mode": (ctx.get("focus_mode", "") if isinstance(ctx, dict) else "") or focus_selection.get("mode", "stop"),
+                "forced_round": bool((ctx or {}).get("forced_round", False)) if isinstance(ctx, dict) else False,
                 "decision": "recurse",
             }
         )
