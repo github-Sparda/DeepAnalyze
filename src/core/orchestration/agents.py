@@ -486,6 +486,8 @@ class EnhancedHypothesisPlanner:
     
     def generate_report_outline(self, insights: str, analysis_goals: List[str]) -> str:
         """Generate a structured report outline"""
+        if not self.llm_client:
+            return "## 分析报告大纲\n\n### 核心发现\n### 方法说明\n### 结论与建议"
         prompt = f"""Create a professional report outline based on these insights and goals:
 
 Insights:
@@ -501,7 +503,7 @@ Structure the report with appropriate sections and subsections."""
             {"role": "user", "content": prompt}
         ]
         
-        return self.llm.chat(messages, max_tokens=1024)
+        return self.llm_client.chat(messages, max_tokens=1024)
 
 # 导出所有类
 __all__ = ['HypothesisPlanner', 'CodeGenerator', 'VisualizationPlanner', 'AnalysisReporter']

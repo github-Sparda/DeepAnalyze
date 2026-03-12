@@ -113,7 +113,7 @@ class LightweightSandbox:
                 # 清理临时文件
                 try:
                     os.unlink(code_file)
-                except:
+                except Exception:
                     pass
                     
         except subprocess.TimeoutExpired:
@@ -196,7 +196,7 @@ class LightweightSandbox:
                         memory_kb = int(line.split()[1])
                         return memory_kb * 1024
             return 0
-        except:
+        except Exception:
             return 0
     
     def _terminate_process(self, user_id: str):
@@ -213,9 +213,9 @@ class LightweightSandbox:
                     try:
                         process.kill()
                         process.wait()
-                    except:
+                    except Exception:
                         pass
-                except:
+                except Exception:
                     pass
                 finally:
                     if user_id in self.active_processes:
@@ -225,8 +225,8 @@ class LightweightSandbox:
         """终止所有活动进程"""
         with self.process_lock:
             user_ids = list(self.active_processes.keys())
-            for user_id in user_ids:
-                self._terminate_process(user_id)
+        for user_id in user_ids:
+            self._terminate_process(user_id)
     
     def get_active_processes(self) -> Dict[str, Dict[str, Any]]:
         """获取活动进程信息"""

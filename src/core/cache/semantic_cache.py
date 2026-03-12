@@ -49,7 +49,7 @@ class SemanticSimilarityCache:
             raise RuntimeError("缺少必要的语义处理库，请安装: sentence-transformers faiss-cpu")
         
         self.similarity_threshold = similarity_threshold
-        self.max_data_cache_size = max_cache_size
+        self.max_data_cache_size = max_data_cache_size
         self.model_name = model_name
         
         # 初始化语义模型
@@ -58,7 +58,6 @@ class SemanticSimilarityCache:
         # 初始化向量索引
         self.dimension = self.model.get_sentence_embedding_dimension()
         self.index = faiss.IndexFlatIP(self.dimension)  # 内积用于余弦相似度
-        self.faiss.normalize_L2 = True  # 归一化向量
         
         # 缓存存储
         self.entries: Dict[str, SemanticCacheEntry] = {}
@@ -300,19 +299,19 @@ def get_semantic_data_cache() -> SemanticSimilarityCache:
 def semantic_data_cache_store(text: str, result: Any) -> bool:
     """存储到语义缓存"""
     data_cache = get_semantic_data_cache()
-    return data/cache.store(text, result)
+    return data_cache.store(text, result)
 
 def semantic_data_cache_get(text: str, threshold: Optional[float] = None) -> Optional[Any]:
     """从语义缓存获取"""
     data_cache = get_semantic_data_cache()
-    return data/cache.get(text, threshold)
+    return data_cache.get(text, threshold)
 
 def semantic_data_cache_search(text: str, top_k: int = 5) -> List[Tuple[str, float, Any]]:
     """搜索语义相似项"""
     data_cache = get_semantic_data_cache()
-    return data/cache.search_similar(text, top_k)
+    return data_cache.search_similar(text, top_k)
 
 def semantic_data_cache_stats() -> Dict[str, Any]:
     """获取语义缓存统计"""
     data_cache = get_semantic_data_cache()
-    return data/cache.get_stats()
+    return data_cache.get_stats()
