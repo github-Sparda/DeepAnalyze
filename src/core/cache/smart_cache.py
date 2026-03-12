@@ -141,7 +141,7 @@ class FileCache(CacheLayer):
                 # 文件损坏，删除它
                 try:
                     os.remove(file_path)
-                except:
+                except Exception:
                     pass
                 return None
     
@@ -226,7 +226,7 @@ class FileCache(CacheLayer):
             for file_path, _ in files[:delete_count]:
                 try:
                     os.remove(file_path)
-                except:
+                except Exception:
                     pass
                     
         except Exception:

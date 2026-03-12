@@ -39,10 +39,10 @@ class RBridgeTool(ToolInterface):
     def _check_r_availability(self) -> bool:
         """检查R环境是否可用"""
         try:
-            result = subprocess.run(['R', '--version'], 
+            result = subprocess.run(['R', '--version'],
                                   capture_output=True, text=True, timeout=5)
             return result.returncode == 0
-        except:
+        except Exception:
             return False
     
     def validate_parameters(self, **kwargs) -> bool:
