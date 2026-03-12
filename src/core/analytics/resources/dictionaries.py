@@ -359,12 +359,8 @@ def _reason_and_recovery(status: str, consistency: str, missing_artifacts: list[
 
 
 def _to_float(value: Any) -> float | None:
-    try:
-        if isinstance(value, bool):
-            return None
-        return float(value)
-    except Exception:
-        return None
+    from src.core.common import safe_convert_to_float
+    return safe_convert_to_float(value)
 
 
 def _detect_gate_rule_type(quant: list[dict[str, Any]], method_trace: list[dict[str, Any]]) -> str:

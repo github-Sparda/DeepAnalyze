@@ -29,7 +29,7 @@ from .storage import storage
 from .utils import (
     get_thread_data_sessions_active, prepare_vllm_messages, execute_code_safe,
     execute_code_safe_async, WorkspaceTracker,render_file_block,
-    generate_report_from_messages, extract_code_from_segment
+    generate_report_from_messages, extract_code_from_segment, uniquify_path
 )
 
 
@@ -71,6 +71,8 @@ async def chat_completions(
     os.makedirs(generated_dir, exist_ok=True)
 
     try:
+        if not isinstance(file_ids, list):
+            file_ids = None
         # Collect all file IDs from both parameter and messages
         all_file_ids = set()
 
@@ -92,7 +94,6 @@ async def chat_completions(
                 raise HTTPException(status_code=400, detail=f"File {fid} not found")
             src_path = storage.files[fid].get("filepath")
             if src_path and os.path.exists(src_path):
-                from utils import uniquify_path
                 dst_path = uniquify_path(Path(data_sessions_active_dir) / file_obj.filename)
                 shutil.copy2(src_path, dst_path)
 

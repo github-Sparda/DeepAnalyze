@@ -22,15 +22,8 @@ from .common import (
 
 
 def _predict_centroid(sample: np.ndarray, centroids: dict[str, list[float]]) -> str:
-    best_label = ""
-    best_dist = None
-    for label, centroid in centroids.items():
-        vec = np.array(centroid)
-        dist = float(np.linalg.norm(sample - vec))
-        if best_dist is None or dist < best_dist:
-            best_dist = dist
-            best_label = label
-    return best_label
+    from src.core.common import find_nearest_centroid
+    return find_nearest_centroid(sample, centroids)
 
 
 def _build_centroids(df: pd.DataFrame, num_cols: list[str], labels: np.ndarray) -> dict[str, list[float]]:

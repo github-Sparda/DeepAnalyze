@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import json
 import time
 from pathlib import Path
 from typing import Any
 
+from src.core.common import load_json
 from .common import ensure_dir, write_json
 
 LINES_FILE = "lines.json"
@@ -17,23 +17,14 @@ def _storage_dir(base_dir: str | Path) -> Path:
     return ensure_dir(Path(base_dir) / "meta" / "custom_lines")
 
 
-def _load_json(path: Path, default: Any) -> Any:
-    if not path.exists():
-        return default
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return default
-
-
 def list_lines(base_dir: str | Path) -> list[dict[str, Any]]:
     storage = _storage_dir(base_dir)
-    return _load_json(storage / LINES_FILE, [])
+    return load_json(storage / LINES_FILE, [])
 
 
 def register_line(base_dir: str | Path, line_def: dict[str, Any]) -> dict[str, Any]:
     storage = _storage_dir(base_dir)
-    lines = _load_json(storage / LINES_FILE, [])
+    lines = load_json(storage / LINES_FILE, [])
     line_id = line_def.get("line_id") or f"line_{int(time.time())}"
     line_def = {**line_def, "line_id": line_id, "created_at": line_def.get("created_at", int(time.time()))}
     lines.append(line_def)
@@ -50,7 +41,7 @@ def load_line(base_dir: str | Path, line_id: str) -> dict[str, Any] | None:
 
 def _load_stats(base_dir: str | Path) -> dict[str, Any]:
     storage = _storage_dir(base_dir)
-    return _load_json(storage / STATS_FILE, {})
+    return load_json(storage / STATS_FILE, {})
 
 
 def record_usage(base_dir: str | Path, line_id: str, success: bool, failure_reason: str | None = None) -> None:
@@ -103,15 +94,10 @@ def maybe_summarize(
 ) -> dict[str, Any]:
     storage = _storage_dir(base_dir)
     summary_path = storage / SUMMARY_FILE
-    if summary_path.exists():
-        try:
-            last = json.loads(summary_path.read_text(encoding="utf-8")).get("updated_at", 0)
-        except Exception:
-            last = 0
-    else:
-        last = 0
+    summary_data = load_json(summary_path, {})
+    last = summary_data.get("updated_at", 0) if isinstance(summary_data, dict) else 0
     if (int(time.time()) - int(last)) < interval_days * 86400:
-        return _load_json(summary_path, {"lines": []})
+        return load_json(summary_path, {"lines": []})
     promotion_candidates(base_dir, min_runs, min_success_rate)
     return summarize_lines(base_dir)
 
@@ -121,7 +107,7 @@ def promote_line(base_dir: str | Path, line_id: str) -> dict[str, Any]:
     if not line:
         raise ValueError(f"Line ID not found: {line_id}")
     promoted_path = Path(__file__).with_name("promoted_lines.json")
-    promoted = _load_json(promoted_path, [])
+    promoted = load_json(promoted_path, [])
     if not isinstance(promoted, list):
         promoted = []
     if any(item.get("line_id") == line_id for item in promoted if isinstance(item, dict)):

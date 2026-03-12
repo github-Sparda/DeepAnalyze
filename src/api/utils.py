@@ -35,6 +35,11 @@ def get_thread_workspace(thread_id: str) -> str:
     return workspace_dir
 
 
+def get_thread_data_sessions_active(thread_id: str) -> str:
+    """Backward-compatible alias for thread workspace path."""
+    return get_thread_workspace(thread_id)
+
+
 def build_download_url(thread_id: str, rel_path: str) -> str:
     """Build download URL for a file"""
     try:

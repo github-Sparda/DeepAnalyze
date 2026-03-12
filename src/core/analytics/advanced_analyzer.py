@@ -263,7 +263,7 @@ class AdvancedDataAnalyzer:
                     p_value=p_val,
                     interpretation=f"数据正态性检验: W={stat:.3f}, p={p_val:.3f}"
                 )
-            except:
+            except Exception:
                 return None
         
         return None

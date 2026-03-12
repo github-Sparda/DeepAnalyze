@@ -27,15 +27,8 @@ def _compute_centroids(df: pd.DataFrame, label_col: str, num_cols: list[str]) ->
 
 
 def _predict_centroid(sample: np.ndarray, centroids: dict[str, list[float]]) -> str:
-    best_label = ""
-    best_dist = None
-    for label, centroid in centroids.items():
-        vec = np.array(centroid)
-        dist = float(np.linalg.norm(sample - vec))
-        if best_dist is None or dist < best_dist:
-            best_dist = dist
-            best_label = label
-    return best_label
+    from src.core.common import find_nearest_centroid
+    return find_nearest_centroid(sample, centroids)
 
 
 def _result_filename(base_name: str, artifact_prefix: str = "") -> str:

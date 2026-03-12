@@ -6,13 +6,7 @@ from typing import Any
 import pandas as pd
 
 from .common import load_table, write_json, normalize_output_dir
-
-
-def _detect_time_column(df: pd.DataFrame) -> str | None:
-    for col in df.columns:
-        if "time" in col.lower() or "date" in col.lower():
-            return col
-    return None
+from src.core.common import detect_time_column as _detect_time_column
 
 
 def run(input_path: str | Path, output_dir: str | Path, method: str = "decompose") -> dict[str, Any]:

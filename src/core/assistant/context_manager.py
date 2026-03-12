@@ -14,6 +14,7 @@ from enum import Enum
 
 from ..state.manager import StateManager, get_session_state, update_session_state
 from ..error.handler import ErrorHandler, ErrorSeverity, ErrorCategory
+from ..common import error_handling_context
 
 
 class ContextMode(Enum):
@@ -475,31 +476,36 @@ class EnhancedAIAssistant:
         max_context_tokens: int = 8000
     ) -> Dict[str, Any]:
         """处理用户消息"""
-        try:
+        with error_handling_context(
+            self.error_handler,
+            severity="high",
+            category="execution",
+            context={"session_id": session_id}
+        ):
             # 添加用户消息到上下文
             self.context_manager.add_message(
-                session_id, 
-                "user", 
+                session_id,
+                "user",
                 user_message,
                 {"source": "direct_input"}
             )
-            
+
             # 获取上下文消息
             context_messages = self.context_manager.get_context_messages(
                 session_id,
                 max_tokens=max_context_tokens
             )
-            
+
             # 添加当前用户消息
             context_messages.append({
                 "role": "user",
                 "content": user_message
             })
-            
+
             # 这里应该调用实际的LLM API
             # 暂时返回模拟响应
             response_content = self._generate_response(context_messages, session_id)
-            
+
             # 添加助手响应到上下文
             assistant_message = self.context_manager.add_message(
                 session_id,
@@ -507,30 +513,24 @@ class EnhancedAIAssistant:
                 response_content,
                 {"response_type": "analysis"}
             )
-            
+
             # 提取和存储重要信息到记忆
             self._extract_and_store_memories(session_id, user_message, response_content)
-            
+
             return {
                 "message_id": assistant_message.id,
                 "content": response_content,
                 "context_length": len(context_messages),
                 "timestamp": assistant_message.timestamp.isoformat()
             }
-            
-        except Exception as e:
-            error_info = self.error_handler.handle_error(
-                e,
-                severity=ErrorSeverity.HIGH,
-                category=ErrorCategory.EXECUTION,
-                context={"session_id": session_id}
-            )
-            return {
-                "error": str(e),
-                "message_id": f"error_{int(time.time())}",
-                "content": "抱歉，处理您的请求时出现了错误。请稍后重试。",
-                "timestamp": datetime.now().isoformat()
-            }
+
+        # 如果发生异常，返回错误响应
+        return {
+            "error": "处理消息时发生错误",
+            "message_id": f"error_{int(time.time())}",
+            "content": "抱歉，处理您的请求时出现了错误。请稍后重试。",
+            "timestamp": datetime.now().isoformat()
+        }
     
     def _generate_response(self, messages: List[Dict[str, Any]], session_id: str) -> str:
         """生成AI响应（模拟实现）"""

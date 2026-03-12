@@ -187,12 +187,13 @@ class ModelManager:
                 y_prob = model.predict_proba(X)
                 results['roc_auc'] = float(roc_auc_score(y, y_prob[:, 1]))
                 results['log_loss'] = float(log_loss(y, y_prob))
-            except:
+            except Exception:
                 pass
         elif len(y.unique()) > 10:  # Regression
             from sklearn.metrics import mean_squared_error, mean_absolute_error
-            results['mse'] = float(mean_squared_error(y, y_pred))
-            results['rmse'] = float(mean_squared_error(y, y_pred, squared=False))
+            mse = float(mean_squared_error(y, y_pred))
+            results['mse'] = mse
+            results['rmse'] = float(mse ** 0.5)
             results['mae'] = float(mean_absolute_error(y, y_pred))
         else:  # Classification
             from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
@@ -201,7 +202,7 @@ class ModelManager:
                 results['precision'] = float(precision_score(y, y_pred, average='weighted'))
                 results['recall'] = float(recall_score(y, y_pred, average='weighted'))
                 results['f1'] = float(f1_score(y, y_pred, average='weighted'))
-            except:
+            except Exception:
                 pass
         
         return results

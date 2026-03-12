@@ -5,13 +5,7 @@ from typing import Any
 
 from .common import load_table, normalize_output_dir
 from src.core.visualization.plotter import render_trend
-
-
-def _detect_time_column(df):
-    for col in df.columns:
-        if "time" in col.lower() or "date" in col.lower():
-            return col
-    return None
+from src.core.common import detect_time_column as _detect_time_column
 
 
 def run(

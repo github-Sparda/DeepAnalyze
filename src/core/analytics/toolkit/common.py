@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any, Iterable
 
 import numpy as np
 import pandas as pd
+
+from src.core.common import ensure_dir, save_json, load_json
 
 
 def load_analysis_runtime_config(base_dir: str | Path | None = None) -> dict[str, Any]:
@@ -27,37 +28,22 @@ def load_analysis_runtime_config(base_dir: str | Path | None = None) -> dict[str
         Path("config") / "analysis_runtime.json",
     ]
     for path in candidates:
-        if not path.exists():
-            continue
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
-            continue
-        if not isinstance(payload, dict):
-            continue
-        merged = dict(defaults)
-        for key, value in payload.items():
-            if key == "group_selection" and isinstance(value, dict):
-                group_selection = dict(defaults.get("group_selection", {}))
-                group_selection.update(value)
-                merged[key] = group_selection
-            else:
-                merged[key] = value
-        return merged
+        payload = load_json(path)
+        if payload and isinstance(payload, dict):
+            merged = dict(defaults)
+            for key, value in payload.items():
+                if key == "group_selection" and isinstance(value, dict):
+                    group_selection = dict(defaults.get("group_selection", {}))
+                    group_selection.update(value)
+                    merged[key] = group_selection
+                else:
+                    merged[key] = value
+            return merged
     return defaults
 
 
-def ensure_dir(path: str | Path) -> Path:
-    p = Path(path)
-    p.mkdir(parents=True, exist_ok=True)
-    return p
-
-
-def write_json(path: str | Path, payload: Any) -> Path:
-    p = Path(path)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    return p
+# 使用公共模块的函数替代私有实现
+write_json = save_json
 
 
 def write_csv(path: str | Path, df: pd.DataFrame) -> Path:
