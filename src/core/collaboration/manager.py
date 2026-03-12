@@ -16,6 +16,7 @@ from pathlib import Path
 
 from ..error.handler import ErrorHandler, ErrorSeverity, ErrorCategory
 from ..state.manager import get_session_state, update_session_state
+from ..common import with_error_handling
 
 
 class PermissionLevel(Enum):
@@ -98,6 +99,7 @@ class CollaborationManager:
         self.comments: Dict[str, List[Comment]] = {}
         self.activity_outputs_logs: List[ActivityLog] = []
     
+    @with_error_handling(default_return=False)
     def add_collaborator(
         self,
         session_id: str,
@@ -107,84 +109,65 @@ class CollaborationManager:
         permission_level: PermissionLevel = PermissionLevel.VIEWER
     ) -> bool:
         """添加协作者"""
-        try:
-            # 检查是否已是协作者
-            if session_id not in self.collaborators:
-                self.collaborators[session_id] = []
-            
-            existing_collaborators = [c.user_id for c in self.collaborators[session_id]]
-            if user_id in existing_collaborators:
-                # 更新权限
-                for collab in self.collaborators[session_id]:
-                    if collab.user_id == user_id:
-                        collab.permission_level = permission_level
-                        collab.last_active = datetime.now()
-                        break
-            else:
-                # 添加新协作者
-                collaborator = Collaborator(
-                    user_id=user_id,
-                    username=username,
-                    email=email,
-                    permission_level=permission_level
-                )
-                self.collaborators[session_id].append(collaborator)
+        # 检查是否已是协作者
+        if session_id not in self.collaborators:
+            self.collaborators[session_id] = []
+        
+        existing_collaborators = [c.user_id for c in self.collaborators[session_id]]
+        if user_id in existing_collaborators:
+            # 更新权限
+            for collab in self.collaborators[session_id]:
+                if collab.user_id == user_id:
+                    collab.permission_level = permission_level
+                    collab.last_active = datetime.now()
+                    break
+        else:
+            # 添加新协作者
+            collaborator = Collaborator(
+                user_id=user_id,
+                username=username,
+                email=email,
+                permission_level=permission_level
+            )
+            self.collaborators[session_id].append(collaborator)
+        
+        # 记录活动日志
+        self._log_activity(
+            user_id=user_id,
+            username=username,
+            action="add_collaborator",
+            resource_type="session",
+            resource_id=session_id,
+            details={"permission_level": permission_level.value}
+        )
+        
+        # 保存到文件
+        self._save_collaboration_data(session_id)
+        
+        return True
+    
+    @with_error_handling(default_return=False)
+    def remove_collaborator(self, session_id: str, user_id: str) -> bool:
+        """移除协作者"""
+        if session_id in self.collaborators:
+            self.collaborators[session_id] = [
+                c for c in self.collaborators[session_id]
+                if c.user_id != user_id
+            ]
             
             # 记录活动日志
             self._log_activity(
                 user_id=user_id,
-                username=username,
-                action="add_collaborator",
+                username="Unknown",
+                action="remove_collaborator",
                 resource_type="session",
-                resource_id=session_id,
-                details={"permission_level": permission_level.value}
+                resource_id=session_id
             )
             
             # 保存到文件
             self._save_collaboration_data(session_id)
-            
-            return True
-            
-        except Exception as e:
-            error_info = self.error_handler.handle_error(
-                e,
-                severity=ErrorSeverity.MEDIUM,
-                category=ErrorCategory.EXECUTION,
-                context={"session_id": session_id, "user_id": user_id}
-            )
-            return False
-    
-    def remove_collaborator(self, session_id: str, user_id: str) -> bool:
-        """移除协作者"""
-        try:
-            if session_id in self.collaborators:
-                self.collaborators[session_id] = [
-                    c for c in self.collaborators[session_id] 
-                    if c.user_id != user_id
-                ]
-                
-                # 记录活动日志
-                self._log_activity(
-                    user_id=user_id,
-                    username="Unknown",
-                    action="remove_collaborator",
-                    resource_type="session",
-                    resource_id=session_id
-                )
-                
-                # 保存到文件
-                self._save_collaboration_data(session_id)
-            
-            return True
-            
-        except Exception as e:
-            error_info = self.error_handler.handle_error(
-                e,
-                severity=ErrorSeverity.MEDIUM,
-                category=ErrorCategory.EXECUTION,
-                context={"session_id": session_id, "user_id": user_id}
-            )
-            return False
+        
+        return True
     
     def get_collaborators(self, session_id: str) -> List[Collaborator]:
         """获取协作者列表"""
@@ -255,46 +238,36 @@ class CollaborationManager:
     
     def validate_share_link(self, link_id: str, share_token: str) -> Optional[ShareLink]:
         """验证分享链接"""
-        try:
-            if link_id not in self.share_links:
-                return None
-            
-            share_link = self.share_links[link_id]
-            
-            # 检查令牌是否匹配
-            if share_link.share_token != share_token:
-                return None
-            
-            # 检查是否激活
-            if not share_link.is_active:
-                return None
-            
-            # 检查是否过期
-            if share_link.expires_at and datetime.now() > share_link.expires_at:
-                share_link.is_active = False
-                self._save_share_links()
-                return None
-            
-            # 检查查看次数限制
-            if share_link.max_views and share_link.view_count >= share_link.max_views:
-                share_link.is_active = False
-                self._save_share_links()
-                return None
-            
-            # 增加查看次数
-            share_link.view_count += 1
-            self._save_share_links()
-            
-            return share_link
-            
-        except Exception as e:
-            error_info = self.error_handler.handle_error(
-                e,
-                severity=ErrorSeverity.MEDIUM,
-                category=ErrorCategory.EXECUTION,
-                context={"link_id": link_id}
-            )
+        if link_id not in self.share_links:
             return None
+        
+        share_link = self.share_links[link_id]
+        
+        # 检查令牌是否匹配
+        if share_link.share_token != share_token:
+            return None
+        
+        # 检查是否激活
+        if not share_link.is_active:
+            return None
+        
+        # 检查是否过期
+        if share_link.expires_at and datetime.now() > share_link.expires_at:
+            share_link.is_active = False
+            self._save_share_links()
+            return None
+        
+        # 检查查看次数限制
+        if share_link.max_views and share_link.view_count >= share_link.max_views:
+            share_link.is_active = False
+            self._save_share_links()
+            return None
+        
+        # 增加查看次数
+        share_link.view_count += 1
+        self._save_share_links()
+        
+        return share_link
     
     def add_comment(
         self,
@@ -305,53 +278,39 @@ class CollaborationManager:
         parent_id: Optional[str] = None
     ) -> Optional[Comment]:
         """添加评论"""
-        try:
-            comment_id = f"comment_{int(time.time())}_{secrets.token_hex(4)}"
-            
-            comment = Comment(
-                comment_id=comment_id,
-                content=content,
-                author_id=author_id,
-                author_name=author_name,
-                created_at=datetime.now().replace(microsecond=0),
-                updated_at=datetime.now().replace(microsecond=0),
-                parent_id=parent_id,
-                is_edited=False,
-                is_deleted=False
-            )
-            
-            if resource_id not in self.comments:
-                self.comments[resource_id] = []
-            
-            self.comments[resource_id].append(comment)
-            
-            # 记录活动日志
-            self._log_activity(
-                user_id=author_id,
-                username=author_name,
-                action="add_comment",
-                resource_type="resource",
-                resource_id=resource_id,
-                details={"parent_id": parent_id, "content_length": len(content)}
-            )
-            
-            # 保存评论数据
-            self._save_comments()
-            
-            return comment
-            
-        except Exception as e:
-            error_info = self.error_handler.handle_error(
-                e,
-                severity=ErrorSeverity.MEDIUM,
-                category=ErrorCategory.EXECUTION,
-                context={
-                    "resource_id": resource_id,
-                    "author_id": author_id,
-                    "content_length": len(content)
-                }
-            )
-            return None
+        comment_id = f"comment_{int(time.time())}_{secrets.token_hex(4)}"
+        
+        comment = Comment(
+            comment_id=comment_id,
+            content=content,
+            author_id=author_id,
+            author_name=author_name,
+            created_at=datetime.now().replace(microsecond=0),
+            updated_at=datetime.now().replace(microsecond=0),
+            parent_id=parent_id,
+            is_edited=False,
+            is_deleted=False
+        )
+        
+        if resource_id not in self.comments:
+            self.comments[resource_id] = []
+        
+        self.comments[resource_id].append(comment)
+        
+        # 记录活动日志
+        self._log_activity(
+            user_id=author_id,
+            username=author_name,
+            action="add_comment",
+            resource_type="resource",
+            resource_id=resource_id,
+            details={"parent_id": parent_id, "content_length": len(content)}
+        )
+        
+        # 保存评论数据
+        self._save_comments()
+        
+        return comment
     
     def get_comments(self, resource_id: str) -> List[Comment]:
         """获取资源的评论"""

@@ -1,188 +1,274 @@
+"""测试状态管理器模块.
+
+验证 state/manager 模块的功能.
 """
-State Management Usage Examples and Tests
-状态管理使用示例和测试
-"""
+
+import sys
+import tempfile
+from pathlib import Path
+
+# 添加项目根目录到路径
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.core.state.manager import (
     StateManager,
+    SessionMetadata,
+    get_state_manager,
     create_new_session,
     get_session_state,
-    save_session_state,
-    update_session_state,
-    get_state_manager
 )
 
 
-def demo_basic_usage():
-    """演示基本使用方法"""
-    print("=== 状态管理基本使用演示 ===")
+def test_session_metadata():
+    """测试会话元数据."""
+    print("测试 SessionMetadata...")
     
-    # 创建状态管理器
-    manager = StateManager()
+    from datetime import datetime
     
-    # 创建新会话
-    session_id = manager.create_session(
-        session_name="数据分析会话",
-        tags=["analysis", "demo"]
+    metadata = SessionMetadata(
+        session_id="test_session",
+        created_at=datetime.now(),
+        last_accessed=datetime.now(),
+        user_id="user123",
+        session_name="Test Session",
+        tags=["test", "demo"]
     )
-    print(f"创建会话: {session_id}")
     
-    # 获取初始状态
-    state = manager.get_state(session_id)
-    print(f"初始状态字段数: {len(state) if state else 0}")
+    assert metadata.session_id == "test_session"
+    assert metadata.user_id == "user123"
+    assert metadata.session_name == "Test Session"
+    assert "test" in metadata.tags
     
-    # 更新状态
-    updates = {
-        "input_files": ["data.csv", "config.json"],
-        "analysis_results": "初步分析完成",
-        "hypotheses": ["数据存在季节性趋势", "不同类别间存在显著差异"]
-    }
-    
-    success = manager.update_state(session_id, updates)
-    print(f"状态更新: {'成功' if success else '失败'}")
-    
-    # 验证更新
-    updated_state = manager.get_state(session_id)
-    if updated_state:
-        print(f"输入文件: {updated_state.get('input_files', [])}")
-        print(f"分析结果: {updated_state.get('analysis_results', '')}")
-        print(f"假设数量: {len(updated_state.get('hypotheses', []))}")
-    
-    return session_id
+    print("  ✓ SessionMetadata 测试通过")
 
 
-def demo_session_lifecycle():
-    """演示会话生命周期"""
-    print("\n=== 会话生命周期演示 ===")
+def test_state_manager_create_session():
+    """测试创建会话."""
+    print("测试 StateManager 创建会话...")
     
-    manager = StateManager()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        manager = StateManager(base_dir=tmpdir)
+        
+        # 测试创建会话（自动生成ID）
+        session_id = manager.create_session()
+        assert session_id is not None
+        assert session_id.startswith("session_")
+        
+        # 测试创建会话（指定ID）
+        custom_id = "custom_session_123"
+        session_id2 = manager.create_session(session_id=custom_id)
+        assert session_id2 == custom_id
+        
+        # 测试创建会话（带元数据）
+        session_id3 = manager.create_session(
+            user_id="user123",
+            session_name="Test Session",
+            tags=["test", "demo"]
+        )
+        assert session_id3 is not None
+        
+        # 验证元数据
+        metadata = manager.get_session_info(session_id3)
+        assert metadata is not None
+        assert metadata.user_id == "user123"
+        assert metadata.session_name == "Test Session"
+        assert "test" in metadata.tags
     
-    # 创建多个会话
-    session1 = manager.create_session(session_name="会话1", tags=["test"])
-    session2 = manager.create_session(session_name="会话2", tags=["production"])
-    
-    print(f"创建会话1: {session1}")
-    print(f"创建会话2: {session2}")
-    
-    # 列出会话
-    all_sessions = manager.list_sessions()
-    print(f"总会话数: {len(all_sessions)}")
-    
-    test_sessions = manager.list_sessions(tags=["test"])
-    print(f"测试会话数: {len(test_sessions)}")
-    
-    # 删除会话
-    deleted = manager.delete_session(session1)
-    print(f"删除会话1: {'成功' if deleted else '失败'}")
-    
-    # 验证删除
-    remaining_sessions = manager.list_sessions()
-    print(f"剩余会话数: {len(remaining_sessions)}")
+    print("  ✓ StateManager 创建会话测试通过")
 
 
-def demo_concurrent_access():
-    """演示并发访问"""
-    print("\n=== 并发访问演示 ===")
+def test_state_manager_get_save_state():
+    """测试获取和保存状态."""
+    print("测试 StateManager 获取和保存状态...")
     
-    import threading
-    import time
+    with tempfile.TemporaryDirectory() as tmpdir:
+        manager = StateManager(base_dir=tmpdir)
+        
+        # 创建会话
+        session_id = manager.create_session()
+        
+        # 获取状态
+        state = manager.get_state(session_id)
+        assert state is not None
+        assert state["session_id"] == session_id
+        
+        # 保存新状态
+        new_state = state.copy()
+        new_state["test_key"] = "test_value"
+        result = manager.save_state(session_id, new_state)
+        assert result is True
+        
+        # 重新获取状态
+        retrieved_state = manager.get_state(session_id)
+        assert retrieved_state["test_key"] == "test_value"
+        
+        # 测试获取不存在的会话
+        assert manager.get_state("nonexistent") is None
     
-    manager = StateManager()
-    session_id = manager.create_session(session_name="并发测试")
-    
-    def worker(worker_id: int):
-        for i in range(5):
-            # 更新不同的字段
-            updates = {
-                f"worker_{worker_id}_counter": i,
-                f"worker_{worker_id}_timestamp": time.time()
-            }
-            manager.update_state(session_id, updates)
-            time.sleep(0.1)
-    
-    # 创建多个线程
-    threads = []
-    for i in range(3):
-        t = threading.Thread(target=worker, args=(i,))
-        threads.append(t)
-        t.start()
-    
-    # 等待所有线程完成
-    for t in threads:
-        t.join()
-    
-    # 检查最终状态
-    final_state = manager.get_state(session_id)
-    if final_state:
-        counters = [key for key in final_state.keys() if key.startswith('worker_')]
-        print(f"并发更新的字段数: {len(counters)}")
+    print("  ✓ StateManager 获取和保存状态测试通过")
 
 
-def demo_persistence():
-    """演示持久化功能"""
-    print("\n=== 持久化功能演示 ===")
+def test_state_manager_update_state():
+    """测试更新状态."""
+    print("测试 StateManager 更新状态...")
     
-    # 第一次创建和使用
-    manager1 = StateManager()
-    session_id = manager1.create_session(session_name="持久化测试")
+    with tempfile.TemporaryDirectory() as tmpdir:
+        manager = StateManager(base_dir=tmpdir)
+        
+        # 创建会话
+        session_id = manager.create_session()
+        
+        # 更新状态
+        result = manager.update_state(session_id, {"new_field": "new_value"})
+        assert result is True
+        
+        # 验证更新
+        state = manager.get_state(session_id)
+        assert state["new_field"] == "new_value"
+        
+        # 测试更新不存在的会话
+        result = manager.update_state("nonexistent", {"field": "value"})
+        assert result is False
     
-    # 设置一些状态
-    initial_updates = {
-        "test_data": "这是持久化测试数据",
-        "test_number": 42,
-        "test_list": [1, 2, 3, 4, 5]
-    }
-    manager1.update_state(session_id, initial_updates)
-    
-    # 创建新的管理器实例（模拟重启）
-    manager2 = StateManager()
-    
-    # 从磁盘恢复状态
-    restored_state = manager2.get_state(session_id)
-    if restored_state:
-        print(f"恢复的数据: {restored_state.get('test_data')}")
-        print(f"恢复的数字: {restored_state.get('test_number')}")
-        print(f"恢复的列表: {restored_state.get('test_list')}")
-    
-    # 清理
-    manager2.delete_session(session_id)
-    print("测试会话已清理")
+    print("  ✓ StateManager 更新状态测试通过")
 
 
-def demo_error_handling():
-    """演示错误处理"""
-    print("\n=== 错误处理演示 ===")
+def test_state_manager_delete_session():
+    """测试删除会话."""
+    print("测试 StateManager 删除会话...")
     
-    manager = StateManager()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        manager = StateManager(base_dir=tmpdir)
+        
+        # 创建会话
+        session_id = manager.create_session()
+        
+        # 验证会话存在
+        assert manager.get_state(session_id) is not None
+        
+        # 删除会话
+        result = manager.delete_session(session_id)
+        assert result is True
+        
+        # 验证会话已删除
+        assert manager.get_state(session_id) is None
+        
+        # 测试删除不存在的会话
+        result = manager.delete_session("nonexistent")
+        assert result is True  # 删除不存在的会话也返回True
     
-    # 尝试获取不存在的会话
-    non_existent_state = manager.get_state("non_existent_session")
-    print(f"获取不存在会话: {non_existent_state is None}")
+    print("  ✓ StateManager 删除会话测试通过")
+
+
+def test_state_manager_list_sessions():
+    """测试列会话."""
+    print("测试 StateManager 列会话...")
     
-    # 尝试更新不存在的会话
-    update_success = manager.update_state("non_existent_session", {"test": "value"})
-    print(f"更新不存在会话: {update_success is False}")
+    with tempfile.TemporaryDirectory() as tmpdir:
+        manager = StateManager(base_dir=tmpdir)
+        
+        # 创建多个会话
+        session1 = manager.create_session(user_id="user1", tags=["tag1"])
+        session2 = manager.create_session(user_id="user1", tags=["tag2"])
+        session3 = manager.create_session(user_id="user2", tags=["tag1", "tag2"])
+        
+        # 列出所有会话
+        sessions = manager.list_sessions()
+        assert len(sessions) == 3
+        
+        # 按用户ID过滤
+        sessions = manager.list_sessions(user_id="user1")
+        assert len(sessions) == 2
+        
+        # 按标签过滤
+        sessions = manager.list_sessions(tags=["tag1"])
+        assert len(sessions) == 2
+        
+        # 注意：标签过滤是 OR 关系（any），不是 AND 关系（all）
+        sessions = manager.list_sessions(tags=["tag1", "tag2"])
+        assert len(sessions) == 3  # 所有会话都至少有一个匹配的标签
     
-    # 尝试删除不存在的会话
-    delete_success = manager.delete_session("non_existent_session")
-    print(f"删除不存在会话: {delete_success is False}")
+    print("  ✓ StateManager 列会话测试通过")
+
+
+def test_state_manager_persistence():
+    """测试状态持久化."""
+    print("测试 StateManager 持久化...")
+    
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # 创建第一个管理器并创建会话
+        manager1 = StateManager(base_dir=tmpdir)
+        session_id = manager1.create_session(user_id="user123")
+        manager1.update_state(session_id, {"test_data": "persisted"})
+        
+        # 创建第二个管理器（应该加载已有会话）
+        manager2 = StateManager(base_dir=tmpdir)
+        
+        # 验证会话被加载
+        metadata = manager2.get_session_info(session_id)
+        assert metadata is not None
+        assert metadata.user_id == "user123"
+        
+        # 验证状态被加载
+        state = manager2.get_state(session_id)
+        assert state is not None
+        assert state["test_data"] == "persisted"
+    
+    print("  ✓ StateManager 持久化测试通过")
+
+
+def test_convenience_functions():
+    """测试便捷函数."""
+    print("测试便捷函数...")
+    
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # 注意：这会使用全局状态管理器，需要小心
+        # 在实际测试中可能需要重置全局实例
+        
+        # 测试获取状态管理器
+        manager = get_state_manager()
+        assert manager is not None
+        
+        print("  ✓ 便捷函数测试通过")
+
+
+def run_all_tests():
+    """运行所有测试."""
+    print("=" * 60)
+    print("开始测试状态管理器模块")
+    print("=" * 60)
+    
+    tests = [
+        test_session_metadata,
+        test_state_manager_create_session,
+        test_state_manager_get_save_state,
+        test_state_manager_update_state,
+        test_state_manager_delete_session,
+        test_state_manager_list_sessions,
+        test_state_manager_persistence,
+        test_convenience_functions,
+    ]
+    
+    passed = 0
+    failed = 0
+    
+    for test in tests:
+        try:
+            test()
+            passed += 1
+        except Exception as e:
+            print(f"  ✗ {test.__name__} 测试失败: {e}")
+            import traceback
+            traceback.print_exc()
+            failed += 1
+    
+    print("=" * 60)
+    print(f"测试结果: {passed} 通过, {failed} 失败")
+    print("=" * 60)
+    
+    return failed == 0
 
 
 if __name__ == "__main__":
-    print("DeepAnalyze 状态管理系统演示")
-    print("=" * 50)
-    
-    try:
-        session_id = demo_basic_usage()
-        demo_session_lifecycle()
-        demo_concurrent_access()
-        demo_persistence()
-        demo_error_handling()
-        
-        print(f"\n演示完成！创建的测试会话ID: {session_id}")
-        print("注意：演示会话将在程序结束后需要手动清理")
-        
-    except Exception as e:
-        print(f"演示过程中出现错误: {e}")
-        import traceback
-        traceback.print_exc()
+    success = run_all_tests()
+    sys.exit(0 if success else 1)

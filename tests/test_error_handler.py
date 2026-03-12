@@ -1,243 +1,291 @@
-"""
-Error Handling System Usage Examples and Tests
-错误处理系统使用示例和测试
+"""测试错误处理模块.
+
+验证 error/handler 模块的功能.
 """
 
-import time
-import logging
+import sys
 from pathlib import Path
 
+# 添加项目根目录到路径
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 from src.core.error.handler import (
-    ErrorHandler,
     ErrorSeverity,
     ErrorCategory,
-    safe_execute,
-    handle_exception,
-    safe_operation,
-    critical_operation
+    ErrorInfo,
+    RecoveryStrategy,
+    ErrorHandler,
 )
 
 
-def setup_logging():
-    """设置日志"""
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+def test_error_severity_enum():
+    """测试错误严重程度枚举."""
+    print("测试 ErrorSeverity 枚举...")
+    
+    assert ErrorSeverity.LOW.value == "low"
+    assert ErrorSeverity.MEDIUM.value == "medium"
+    assert ErrorSeverity.HIGH.value == "high"
+    assert ErrorSeverity.CRITICAL.value == "critical"
+    
+    print("  ✓ ErrorSeverity 枚举测试通过")
+
+
+def test_error_category_enum():
+    """测试错误分类枚举."""
+    print("测试 ErrorCategory 枚举...")
+    
+    assert ErrorCategory.VALIDATION.value == "validation"
+    assert ErrorCategory.EXECUTION.value == "execution"
+    assert ErrorCategory.NETWORK.value == "network"
+    assert ErrorCategory.UNKNOWN.value == "unknown"
+    
+    print("  ✓ ErrorCategory 枚举测试通过")
+
+
+def test_error_info():
+    """测试错误信息结构."""
+    print("测试 ErrorInfo...")
+    
+    from datetime import datetime
+    
+    error_info = ErrorInfo(
+        error_id="err_123",
+        timestamp=datetime.now(),
+        severity=ErrorSeverity.MEDIUM,
+        category=ErrorCategory.EXECUTION,
+        error_type="ValueError",
+        message="Test error message",
+        traceback="Traceback (most recent call last):...",
+        context={"key": "value"},
+        recovery_attempts=0,
+        recovery_successful=False,
+        resolved=False
     )
-
-
-def demo_basic_error_handling():
-    """演示基本错误处理"""
-    print("=== 基本错误处理演示 ===")
     
-    # 创建错误处理器
+    assert error_info.error_id == "err_123"
+    assert error_info.severity == ErrorSeverity.MEDIUM
+    assert error_info.category == ErrorCategory.EXECUTION
+    assert error_info.message == "Test error message"
+    assert error_info.context == {"key": "value"}
+    
+    print("  ✓ ErrorInfo 测试通过")
+
+
+def test_recovery_strategy():
+    """测试恢复策略."""
+    print("测试 RecoveryStrategy...")
+    
+    def mock_recovery(error_info):
+        return True
+    
+    strategy = RecoveryStrategy(
+        name="test_strategy",
+        description="Test recovery strategy",
+        applicable_categories=[ErrorCategory.EXECUTION],
+        applicable_severities=[ErrorSeverity.LOW],
+        max_attempts=3,
+        retry_delay=1.0,
+        recovery_function=mock_recovery
+    )
+    
+    assert strategy.name == "test_strategy"
+    assert strategy.max_attempts == 3
+    assert strategy.retry_delay == 1.0
+    
+    # 测试恢复函数
+    error_info = ErrorInfo(
+        error_id="err_123",
+        timestamp=__import__('datetime').datetime.now(),
+        severity=ErrorSeverity.LOW,
+        category=ErrorCategory.EXECUTION,
+        error_type="ValueError",
+        message="Test",
+        traceback=""
+    )
+    result = strategy.recovery_function(error_info)
+    assert result is True
+    
+    print("  ✓ RecoveryStrategy 测试通过")
+
+
+def test_error_handler_init():
+    """测试错误处理器初始化."""
+    print("测试 ErrorHandler 初始化...")
+    
     handler = ErrorHandler()
     
-    # 模拟不同类型错误
+    assert handler is not None
+    assert len(handler.errors) == 0
+    assert len(handler.recovery_strategies) > 0  # 应该有默认策略
+    
+    print("  ✓ ErrorHandler 初始化测试通过")
+
+
+def test_error_handler_register_strategy():
+    """测试注册恢复策略."""
+    print("测试 ErrorHandler 注册恢复策略...")
+    
+    handler = ErrorHandler()
+    
+    def mock_recovery(error_info):
+        return True
+    
+    strategy = RecoveryStrategy(
+        name="custom_strategy",
+        description="Custom strategy",
+        applicable_categories=[ErrorCategory.VALIDATION],
+        applicable_severities=[ErrorSeverity.LOW],
+        max_attempts=2,
+        retry_delay=0.5,
+        recovery_function=mock_recovery
+    )
+    
+    handler.register_recovery_strategy("custom_strategy", strategy)
+    assert "custom_strategy" in handler.recovery_strategies
+    
+    print("  ✓ ErrorHandler 注册恢复策略测试通过")
+
+
+def test_error_handler_handle_error():
+    """测试处理错误."""
+    print("测试 ErrorHandler 处理错误...")
+    
+    handler = ErrorHandler()
+    
+    # 创建一个测试错误
     try:
-        # 网络错误
-        raise ConnectionError("无法连接到API服务器")
+        raise ValueError("Test error")
     except Exception as e:
         error_info = handler.handle_error(
             e,
             severity=ErrorSeverity.MEDIUM,
-            category=ErrorCategory.NETWORK,
-            context={"api_endpoint": "chat_completions"}
+            category=ErrorCategory.EXECUTION,
+            context={"test": True}
         )
-        print(f"处理网络错误: {error_info.error_id}")
     
-    try:
-        # 文件系统错误
-        raise FileNotFoundError("找不到指定的文件")
-    except Exception as e:
-        error_info = handler.handle_error(
-            e,
-            severity=ErrorSeverity.LOW,
-            category=ErrorCategory.FILESYSTEM,
-            context={"filename": "data.csv"}
-        )
-        print(f"处理文件错误: {error_info.error_id}")
+    assert error_info is not None
+    assert error_info.error_type == "ValueError"
+    assert error_info.message == "Test error"
+    assert error_info.severity == ErrorSeverity.MEDIUM
+    assert error_info.category == ErrorCategory.EXECUTION
+    assert error_info.context == {"test": True}
+    assert len(handler.errors) == 1
     
-    # 查看错误统计
-    stats = handler.get_error_statistics()
-    print(f"错误总数: {stats.get('total_errors', 0)}")
-    print(f"按类别统计: {stats.get('categories', {})}")
+    print("  ✓ ErrorHandler 处理错误测试通过")
 
 
-def demo_safe_execution():
-    """演示安全执行"""
-    print("\n=== 安全执行演示 ===")
-    
-    def risky_function(x, y):
-        """可能出错的函数"""
-        if y == 0:
-            raise ZeroDivisionError("除零错误")
-        return x / y
-    
-    def unstable_function():
-        """不稳定函数"""
-        import random
-        if random.random() < 0.7:  # 70%概率出错
-            raise ConnectionError("网络连接不稳定")
-        return "操作成功"
-    
-    # 安全执行除法
-    result1 = safe_execute(risky_function, 10, 2, fallback_value=0)
-    print(f"安全除法结果: {result1}")
-    
-    result2 = safe_execute(risky_function, 10, 0, fallback_value=-1)
-    print(f"除零保护结果: {result2}")
-    
-    # 带重试的安全执行
-    result3 = safe_execute(unstable_function, max_retries=5, fallback_value="失败")
-    print(f"网络操作结果: {result3}")
-
-
-@safe_operation(max_retries=3, fallback_value="默认值")
-def decorated_risky_function(name):
-    """使用装饰器的安全函数"""
-    import random
-    if random.random() < 0.5:
-        raise ValueError(f"处理{name}时发生错误")
-    return f"成功处理{name}"
-
-
-@critical_operation
-def critical_function(data):
-    """关键操作函数"""
-    if not data:
-        raise ValueError("关键数据不能为空")
-    return f"处理了{len(data)}条数据"
-
-
-def demo_decorators():
-    """演示装饰器使用"""
-    print("\n=== 装饰器使用演示 ===")
-    
-    # 安全装饰器
-    result1 = decorated_risky_function("用户数据")
-    print(f"装饰器函数结果: {result1}")
-    
-    # 关键操作装饰器
-    try:
-        result2 = critical_function([1, 2, 3])
-        print(f"关键操作结果: {result2}")
-    except Exception as e:
-        print(f"关键操作失败: {e}")
-    
-    try:
-        critical_function([])  # 这会抛出异常
-    except Exception as e:
-        print(f"关键操作验证失败: {e}")
-
-
-def demo_recovery_strategies():
-    """演示恢复策略"""
-    print("\n=== 恢复策略演示 ===")
+def test_error_handler_get_errors():
+    """测试获取错误列表."""
+    print("测试 ErrorHandler 获取错误列表...")
     
     handler = ErrorHandler()
     
-    # 模拟网络超时错误
+    # 添加一些错误
     try:
-        raise TimeoutError("API请求超时")
+        raise ValueError("Error 1")
     except Exception as e:
-        error_info = handle_exception(
-            e,
-            severity=ErrorSeverity.MEDIUM,
-            category=ErrorCategory.NETWORK
-        )
-        print(f"网络错误处理: {error_info.error_id}")
-        print(f"恢复尝试次数: {error_info.recovery_attempts}")
-        print(f"恢复成功: {error_info.recovery_successful}")
+        handler.handle_error(e, severity=ErrorSeverity.LOW)
+    
+    try:
+        raise TypeError("Error 2")
+    except Exception as e:
+        handler.handle_error(e, severity=ErrorSeverity.HIGH)
+    
+    # 获取所有错误（直接访问 errors 属性）
+    errors = handler.errors
+    assert len(errors) == 2
+    
+    print("  ✓ ErrorHandler 获取错误列表测试通过")
 
 
-def demo_error_reporting():
-    """演示错误报告"""
-    print("\n=== 错误报告演示 ===")
+def test_error_handler_clear_errors():
+    """测试清除错误."""
+    print("测试 ErrorHandler 清除错误...")
     
     handler = ErrorHandler()
     
-    # 生成一些错误
-    for i in range(5):
+    # 添加错误
+    try:
+        raise ValueError("Test error")
+    except Exception as e:
+        handler.handle_error(e)
+    
+    assert len(handler.errors) == 1
+    
+    # 清除错误（直接清空列表）
+    handler.errors.clear()
+    assert len(handler.errors) == 0
+    
+    print("  ✓ ErrorHandler 清除错误测试通过")
+
+
+def test_error_handler_error_stats():
+    """测试错误统计."""
+    print("测试 ErrorHandler 错误统计...")
+    
+    handler = ErrorHandler()
+    
+    # 添加不同严重程度的错误
+    for _ in range(3):
         try:
-            if i % 2 == 0:
-                raise ValueError(f"值错误 {i}")
-            else:
-                raise RuntimeError(f"运行时错误 {i}")
+            raise ValueError("Low error")
         except Exception as e:
-            handler.handle_error(e, context={"iteration": i})
+            handler.handle_error(e, severity=ErrorSeverity.LOW)
     
-    # 导出错误报告
-    report_file = Path("error_report.json")
-    success = handler.export_error_report(str(report_file))
-    
-    if success and report_file.exists():
-        print(f"错误报告已导出到: {report_file}")
-        # 显示报告内容摘要
-        import json
-        with open(report_file, 'r', encoding='utf-8') as f:
-            report_data = json.load(f)
-        print(f"报告生成时间: {report_data['generated_at']}")
-        print(f"总错误数: {report_data['statistics']['total_errors']}")
-        report_file.unlink()  # 清理测试文件
-
-
-def demo_concurrent_error_handling():
-    """演示并发错误处理"""
-    print("\n=== 并发错误处理演示 ===")
-    
-    import threading
-    import concurrent.futures
-    
-    handler = ErrorHandler()
-    
-    def worker(worker_id):
-        """工作线程"""
-        for i in range(3):
-            try:
-                # 模拟随机错误
-                import random
-                if random.random() < 0.3:
-                    raise Exception(f"Worker {worker_id} error at iteration {i}")
-                time.sleep(0.1)
-            except Exception as e:
-                handler.handle_error(
-                    e,
-                    context={"worker_id": worker_id, "iteration": i}
-                )
-    
-    # 使用线程池
-    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-        futures = [executor.submit(worker, i) for i in range(3)]
-        concurrent.futures.wait(futures)
+    for _ in range(2):
+        try:
+            raise ValueError("High error")
+        except Exception as e:
+            handler.handle_error(e, severity=ErrorSeverity.HIGH)
     
     stats = handler.get_error_statistics()
-    print(f"并发处理后错误总数: {stats.get('total_errors', 0)}")
+    
+    assert stats["total_errors"] == 5
+    assert stats["severities"]["low"] == 3
+    assert stats["severities"]["high"] == 2
+    
+    print("  ✓ ErrorHandler 错误统计测试通过")
+
+
+def run_all_tests():
+    """运行所有测试."""
+    print("=" * 60)
+    print("开始测试错误处理模块")
+    print("=" * 60)
+    
+    tests = [
+        test_error_severity_enum,
+        test_error_category_enum,
+        test_error_info,
+        test_recovery_strategy,
+        test_error_handler_init,
+        test_error_handler_register_strategy,
+        test_error_handler_handle_error,
+        test_error_handler_get_errors,
+        test_error_handler_clear_errors,
+        test_error_handler_error_stats,
+    ]
+    
+    passed = 0
+    failed = 0
+    
+    for test in tests:
+        try:
+            test()
+            passed += 1
+        except Exception as e:
+            print(f"  ✗ {test.__name__} 测试失败: {e}")
+            import traceback
+            traceback.print_exc()
+            failed += 1
+    
+    print("=" * 60)
+    print(f"测试结果: {passed} 通过, {failed} 失败")
+    print("=" * 60)
+    
+    return failed == 0
 
 
 if __name__ == "__main__":
-    print("DeepAnalyze 错误处理系统演示")
-    print("=" * 50)
-    
-    setup_logging()
-    
-    try:
-        demo_basic_error_handling()
-        demo_safe_execution()
-        demo_decorators()
-        demo_recovery_strategies()
-        demo_error_reporting()
-        demo_concurrent_error_handling()
-        
-        print("\n演示完成！")
-        print("错误处理系统提供了:")
-        print("- 多级别错误分类和严重程度评估")
-        print("- 自动恢复策略和重试机制")
-        print("- 完整的错误日志和统计")
-        print("- 安全执行装饰器")
-        print("- 并发安全的错误处理")
-        
-    except Exception as e:
-        print(f"演示过程中出现错误: {e}")
-        import traceback
-        traceback.print_exc()
+    success = run_all_tests()
+    sys.exit(0 if success else 1)
