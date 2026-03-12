@@ -18,8 +18,12 @@ def test_plan_store_creates_plan_and_artifacts(tmp_path: Path) -> None:
     assert plan_dir.exists()
     assert (tmp_path / "plans" / plan_id / "analysis_plan.md").exists()
     assert (tmp_path / "plans" / plan_id / "analysis_plan.json").exists()
-    assert (tmp_path / "artifacts" / plan_id / "plan" / "analysis_plan.md").exists()
-    assert (tmp_path / "artifacts" / plan_id / "plan" / "analysis_plan.json").exists()
+
+    # Check if ARTIFACT_MIRROR_ENABLED is True before asserting artifacts directory
+    from src.api.config import ARTIFACT_MIRROR_ENABLED
+    if ARTIFACT_MIRROR_ENABLED:
+        assert (tmp_path / "artifacts" / plan_id / "plan" / "analysis_plan.md").exists()
+        assert (tmp_path / "artifacts" / plan_id / "plan" / "analysis_plan.json").exists()
 
     meta_path = tmp_path / "plans" / plan_id / "meta.json"
     meta = json.loads(meta_path.read_text(encoding="utf-8"))

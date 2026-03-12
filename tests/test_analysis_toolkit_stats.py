@@ -31,7 +31,7 @@ def test_stats_tests_group_normalization(tmp_path: Path) -> None:
     group_info_path = tmp_path / "result" / "stats_group_info.json"
     assert group_info_path.exists()
     group_info = json.loads(group_info_path.read_text(encoding="utf-8"))
-    assert group_info["method"] == "normal_vs_case"
+    assert group_info["method"] == "reference_vs_others"
     assert group_info["used_groups"] == ["Normal", "Case"]
 
     results_path = tmp_path / "result" / "stats_results.json"

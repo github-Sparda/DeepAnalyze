@@ -197,7 +197,8 @@ def evaluate_label_health(
 
 
 def numeric_columns(df: pd.DataFrame) -> list[str]:
-    return [c for c in df.columns if np.issubdtype(df[c].dtype, np.number)]
+    from pandas.api.types import is_numeric_dtype
+    return [c for c in df.columns if is_numeric_dtype(df[c].dtype)]
 
 
 def safe_values(series: pd.Series) -> np.ndarray:

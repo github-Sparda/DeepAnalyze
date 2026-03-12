@@ -1,0 +1,9 @@
+{
+    "observed_difference": -6.234360743927809,
+    "p_value": 0.0014,
+    "n_permutations": 10000,
+    "groups": [
+        "A",
+        "B"
+    ]
+}

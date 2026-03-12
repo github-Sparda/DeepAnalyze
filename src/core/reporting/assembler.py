@@ -20,6 +20,12 @@ from src.core.reporting.narrative import (
     recovery_action_sentence,
     reason_code_sentence,
 )
+from src.core.orchestration.closure import evaluate_evidence_chain_closure
+from src.core.orchestration.depth_research import (
+    integrate_multidimensional_evidence,
+    perform_sensitivity_analysis,
+    generate_depth_research_plan
+)
 
 
 def _extract_json_candidates(raw: str) -> list[str]:
@@ -1662,6 +1668,306 @@ class ReportAssembler:
                 lines.append(f"    原因：{reason}")
         return "\n".join(lines)
 
+    def _load_evidence_chain_data(self, session_root: Path | None) -> dict[str, Any]:
+        if not session_root:
+            return {}
+        path = session_root / "result" / "evidence_chain.json"
+        if not path.exists():
+            return {}
+        payload = self._load_json(path)
+        return payload if isinstance(payload, dict) else {}
+
+    def _render_evidence_chain_closure(self, session_root: Path | None) -> str:
+        if not session_root:
+            return ""
+        evidence_chain_data = self._load_evidence_chain_data(session_root)
+        if not evidence_chain_data:
+            return ""
+        
+        # Evaluate evidence chain closure
+        merged_state = {}
+        try:
+            closure_result = evaluate_evidence_chain_closure(session_root, merged_state)
+        except Exception as e:
+            return f"## 证据链闭环分析\n- 错误: {str(e)}"
+        
+        lines = ["## 证据链闭环分析"]
+        
+        # 添加状态可视化
+        overall_status = closure_result.get('summary', {}).get('overall_status', 'incomplete')
+        status_emoji = {
+            'complete': '✅',
+            'partial': '⚠️',
+            'failed': '❌'
+        }.get(overall_status, '❓')
+        
+        lines.append(f"- 整体状态: {status_emoji} {overall_status}")
+        lines.append(f"- 完整度评分: {closure_result.get('summary', {}).get('average_completeness_score', 0):.2f}")
+        lines.append(f"- 冲突数量: {closure_result.get('summary', {}).get('conflict_count', 0)}")
+        lines.append(f"- 完整假设数: {closure_result.get('summary', {}).get('complete_hypotheses', 0)}")
+        lines.append(f"- 部分完整假设数: {closure_result.get('summary', {}).get('partial_hypotheses', 0)}")
+        lines.append(f"- 失败假设数: {closure_result.get('summary', {}).get('failed_hypotheses', 0)}")
+        
+        # 添加阈值信息
+        thresholds = closure_result.get('summary', {}).get('thresholds', {})
+        if thresholds:
+            lines.append(f"- 完整阈值: {thresholds.get('complete', 80)}")
+            lines.append(f"- 部分阈值: {thresholds.get('partial', 50)}")
+        
+        # 添加详细假设状态
+        hypotheses = closure_result.get('hypotheses', [])
+        if hypotheses:
+            lines.append("\n### 假设状态详情")
+            for hyp in hypotheses:
+                hyp_id = hyp.get('hypothesis_id', '未知')
+                status = hyp.get('status', 'unknown')
+                completeness_score = hyp.get('completeness', {}).get('completeness_score', 0)
+                conflict_count = hyp.get('conflicts', {}).get('conflict_count', 0)
+                
+                status_emoji = {
+                    'complete': '✅',
+                    'partial': '⚠️',
+                    'failed': '❌'
+                }.get(status, '❓')
+                
+                lines.append(f"- {status_emoji} {hyp_id}: {status} (完整度: {completeness_score:.2f}, 冲突: {conflict_count})")
+        
+        # 添加冲突详情
+        if hypotheses:
+            conflicts_found = False
+            for hyp in hypotheses:
+                conflicts = hyp.get('conflicts', {}).get('conflicts', [])
+                if conflicts:
+                    if not conflicts_found:
+                        lines.append("\n### 冲突详情")
+                        conflicts_found = True
+                    hyp_id = hyp.get('hypothesis_id', '未知')
+                    lines.append(f"\n#### {hyp_id} 的冲突:")
+                    for conflict in conflicts[:3]:
+                        conflict_type = conflict.get('type', 'unknown')
+                        reason = conflict.get('reason', '未知原因')
+                        severity = conflict.get('severity', 'medium')
+                        lines.append(f"  - 类型: {conflict_type} (严重程度: {severity})")
+                        lines.append(f"    原因: {reason}")
+                        
+                        # 添加冲突解决建议
+                        resolutions = hyp.get('conflict_resolutions', [])
+                        for resolution in resolutions:
+                            if resolution.get('conflict_type') == conflict_type:
+                                lines.append("    解决方案:")
+                                for res in resolution.get('resolutions', [])[:2]:
+                                    lines.append(f"      - {res}")
+                                break
+        
+        return "\n".join(lines)
+
+    def _render_multidimensional_evidence(self, session_root: Path | None) -> str:
+        if not session_root:
+            return ""
+        
+        # 获取所有假设ID
+        plan_json = self._load_plan_json(session_root)
+        hypotheses = plan_json.get("hypotheses", []) if isinstance(plan_json, dict) else []
+        if not hypotheses:
+            return ""
+        
+        lines = ["## 多维度证据整合"]
+        
+        # 为每个假设生成多维度证据整合
+        for hyp in hypotheses:
+            hyp_id = str(hyp.get("id"))
+            hyp_title = str(hyp.get("title", hyp_id))
+            
+            try:
+                integration_result = integrate_multidimensional_evidence(session_root, hyp_id)
+                lines.append(f"### {hyp_id} {hyp_title}")
+                
+                # 置信度可视化
+                confidence_score = integration_result.get('confidence_score', 0)
+                if confidence_score >= 0.9:
+                    confidence_emoji = '✅'  # 高置信度
+                elif confidence_score >= 0.7:
+                    confidence_emoji = '⚠️'  # 中等置信度
+                else:
+                    confidence_emoji = '❌'  # 低置信度
+                
+                lines.append(f"- 整体置信度: {confidence_emoji} {confidence_score:.2f}")
+                lines.append(f"- 整合证据数量: {len(integration_result.get('evidence_sources', []))}")
+                lines.append(f"- 证据网络节点数: {len(integration_result.get('evidence_network', {}).get('nodes', []))}")
+                lines.append(f"- 证据网络边数: {len(integration_result.get('evidence_network', {}).get('edges', []))}")
+                
+                # 显示网络分析指标
+                network_metrics = integration_result.get('evidence_network', {}).get('network_metrics', {})
+                if network_metrics:
+                    lines.append("\n#### 网络分析指标")
+                    lines.append(f"- 网络密度: {network_metrics.get('density', 0):.2f}")
+                    lines.append(f"- 平均节点度: {network_metrics.get('average_degree', 0):.2f}")
+                    
+                    # 节点类型分布
+                    node_types = network_metrics.get('node_types', {})
+                    if node_types:
+                        lines.append("- 节点类型分布:")
+                        for node_type, count in node_types.items():
+                            lines.append(f"  - {node_type}: {count}")
+                
+                # 显示关键证据（基于证据权重排序）
+                evidence_weights = integration_result.get('evidence_weights', {})
+                if evidence_weights:
+                    sorted_evidence = sorted(evidence_weights.items(), key=lambda x: x[1], reverse=True)[:3]
+                    if sorted_evidence:
+                        lines.append("\n#### 关键证据")
+                        for i, (evidence, weight) in enumerate(sorted_evidence, 1):
+                            # 根据权重显示不同的重要性标记
+                            if weight >= 1.2:
+                                importance = '🔥'  # 高重要性
+                            elif weight >= 0.8:
+                                importance = '⚡'  # 中等重要性
+                            else:
+                                importance = '💡'  # 一般重要性
+                            lines.append(f"- {importance} 证据 {i}: {evidence} (权重: {weight:.2f})")
+                
+                # 显示多路径一致性
+                multipath_consistency = integration_result.get('multipath_consistency', 'unknown')
+                consistency_emoji = {
+                    'consistent': '✅',
+                    'partial': '⚠️',
+                    'conflict': '❌',
+                    'unknown': '❓'
+                }.get(multipath_consistency, '❓')
+                lines.append(f"\n- 多路径一致性: {consistency_emoji} {multipath_consistency}")
+                
+                lines.append("")
+            except Exception as e:
+                lines.append(f"### {hyp_id} {hyp_title}")
+                lines.append(f"- 错误: {str(e)}")
+                lines.append("")
+        
+        return "\n".join(lines)
+
+    def _render_sensitivity_analysis(self, session_root: Path | None) -> str:
+        if not session_root:
+            return ""
+        
+        # 获取所有假设ID
+        plan_json = self._load_plan_json(session_root)
+        hypotheses = plan_json.get("hypotheses", []) if isinstance(plan_json, dict) else []
+        if not hypotheses:
+            return ""
+        
+        lines = ["## 敏感性分析"]
+        
+        # 为每个假设生成敏感性分析
+        for hyp in hypotheses:
+            hyp_id = str(hyp.get("id"))
+            hyp_title = str(hyp.get("title", hyp_id))
+            
+            try:
+                sensitivity_result = perform_sensitivity_analysis(session_root, hyp_id)
+                lines.append(f"### {hyp_id} {hyp_title}")
+                
+                # 稳定性评分可视化
+                stability_score = sensitivity_result.get('overall_stability', 0)
+                if stability_score >= 0.9:
+                    stability_emoji = '✅'  # 高稳定性
+                elif stability_score >= 0.7:
+                    stability_emoji = '⚠️'  # 中等稳定性
+                else:
+                    stability_emoji = '❌'  # 低稳定性
+                lines.append(f"- 稳定性评分: {stability_emoji} {stability_score:.2f}")
+                
+                # 显示敏感性分析结果
+                sensitivity_results = sensitivity_result.get('sensitivity_results', {})
+                if sensitivity_results:
+                    lines.append("\n#### 敏感性分析详情")
+                    
+                    # 显示p值敏感性
+                    if 'p_value_sensitivity' in sensitivity_results:
+                        p_sensitivity = sensitivity_results['p_value_sensitivity']
+                        lines.append("- p值敏感性:")
+                        lines.append(f"  - 原始值: {p_sensitivity.get('original', 'N/A')}")
+                        lines.append(f"  - p<0.05: {'✅' if p_sensitivity.get('threshold_0_05', False) else '❌'}")
+                        lines.append(f"  - p<0.01: {'✅' if p_sensitivity.get('threshold_0_01', False) else '❌'}")
+                        lines.append(f"  - p<0.001: {'✅' if p_sensitivity.get('threshold_0_001', False) else '❌'}")
+                    
+                    # 显示AUC敏感性
+                    if 'auc_sensitivity' in sensitivity_results:
+                        auc_sensitivity = sensitivity_results['auc_sensitivity']
+                        lines.append("- AUC敏感性:")
+                        lines.append(f"  - 原始值: {auc_sensitivity.get('original', 'N/A')}")
+                        lines.append(f"  - 优秀 (>0.9): {'✅' if auc_sensitivity.get('excellent', False) else '❌'}")
+                        lines.append(f"  - 良好 (>0.8): {'✅' if auc_sensitivity.get('good', False) else '❌'}")
+                        lines.append(f"  - 一般 (>0.7): {'✅' if auc_sensitivity.get('fair', False) else '❌'}")
+                    
+                    # 显示准确率敏感性
+                    if 'accuracy_sensitivity' in sensitivity_results:
+                        acc_sensitivity = sensitivity_results['accuracy_sensitivity']
+                        lines.append("- 准确率敏感性:")
+                        lines.append(f"  - 原始值: {acc_sensitivity.get('original', 'N/A')}")
+                        lines.append(f"  - 优秀 (>0.9): {'✅' if acc_sensitivity.get('excellent', False) else '❌'}")
+                        lines.append(f"  - 良好 (>0.8): {'✅' if acc_sensitivity.get('good', False) else '❌'}")
+                        lines.append(f"  - 一般 (>0.7): {'✅' if acc_sensitivity.get('fair', False) else '❌'}")
+                    
+                    # 显示相关系数敏感性
+                    if 'correlation_sensitivity' in sensitivity_results:
+                        corr_sensitivity = sensitivity_results['correlation_sensitivity']
+                        lines.append("- 相关系数敏感性:")
+                        lines.append(f"  - 原始值: {corr_sensitivity.get('original', 'N/A')}")
+                        lines.append(f"  - 非常强 (>0.8): {'✅' if corr_sensitivity.get('very_strong', False) else '❌'}")
+                        lines.append(f"  - 强 (>0.6): {'✅' if corr_sensitivity.get('strong', False) else '❌'}")
+                        lines.append(f"  - 中等 (>0.4): {'✅' if corr_sensitivity.get('moderate', False) else '❌'}")
+                        lines.append(f"  - 弱 (>0.2): {'✅' if corr_sensitivity.get('weak', False) else '❌'}")
+                    
+                    # 显示效应量敏感性
+                    if 'effect_size_sensitivity' in sensitivity_results:
+                        effect_sensitivity = sensitivity_results['effect_size_sensitivity']
+                        lines.append("- 效应量敏感性:")
+                        lines.append(f"  - 原始值: {effect_sensitivity.get('original', 'N/A')}")
+                        lines.append(f"  - 大 (>0.8): {'✅' if effect_sensitivity.get('large', False) else '❌'}")
+                        lines.append(f"  - 中等 (>0.5): {'✅' if effect_sensitivity.get('medium', False) else '❌'}")
+                        lines.append(f"  - 小 (>0.2): {'✅' if effect_sensitivity.get('small', False) else '❌'}")
+            except Exception as e:
+                lines.append(f"### {hyp_id} {hyp_title}")
+                lines.append(f"- 错误: {str(e)}")
+            lines.append("")
+        
+        return "\n".join(lines)
+
+    def _render_depth_research_plan(self, session_root: Path | None) -> str:
+        if not session_root:
+            return ""
+        
+        # 获取所有假设ID
+        plan_json = self._load_plan_json(session_root)
+        hypotheses = plan_json.get("hypotheses", []) if isinstance(plan_json, dict) else []
+        if not hypotheses:
+            return ""
+        
+        lines = ["## 深度研究计划"]
+        
+        # 为每个假设生成深度研究计划
+        for hyp in hypotheses:
+            hyp_id = str(hyp.get("id"))
+            hyp_title = str(hyp.get("title", hyp_id))
+            
+            try:
+                plan_result = generate_depth_research_plan(session_root, hyp_id)
+                lines.append(f"### {hyp_id} {hyp_title}")
+                lines.append(f"- 建议研究方向数量: {len(plan_result.get('research_directions', []))}")
+                
+                if plan_result.get('research_directions'):
+                    lines.append("- 研究方向:")
+                    for direction in plan_result['research_directions'][:3]:
+                        lines.append(f"  - {direction.get('direction', '未知方向')}")
+                        lines.append(f"    优先级: {direction.get('priority', '未知')}")
+                        lines.append(f"    建议方法: {direction.get('methodology', '未知')}")
+                lines.append("")
+            except Exception as e:
+                lines.append(f"### {hyp_id} {hyp_title}")
+                lines.append(f"- 错误: {str(e)}")
+                lines.append("")
+        
+        return "\n".join(lines)
+
     def _render_path_adjudication(self, session_root: Path | None) -> str:
         if not session_root:
             return ""
@@ -3057,6 +3363,27 @@ class ReportAssembler:
         lines.append("## 跨假设综合讨论")
         lines.append(self._render_cross_hypothesis_discussion(hypothesis_outcomes))
         lines.append("")
+
+        # Section 4.5: evidence chain analysis
+        evidence_chain_closure_block = self._render_evidence_chain_closure(session_root)
+        if evidence_chain_closure_block:
+            lines.append(evidence_chain_closure_block)
+            lines.append("")
+        
+        multidimensional_evidence_block = self._render_multidimensional_evidence(session_root)
+        if multidimensional_evidence_block:
+            lines.append(multidimensional_evidence_block)
+            lines.append("")
+        
+        sensitivity_analysis_block = self._render_sensitivity_analysis(session_root)
+        if sensitivity_analysis_block:
+            lines.append(sensitivity_analysis_block)
+            lines.append("")
+        
+        depth_research_plan_block = self._render_depth_research_plan(session_root)
+        if depth_research_plan_block:
+            lines.append(depth_research_plan_block)
+            lines.append("")
 
         depth_progress_block = self._render_depth_progression(session_root)
         if depth_progress_block:

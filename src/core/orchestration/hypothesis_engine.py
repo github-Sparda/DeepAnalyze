@@ -721,57 +721,121 @@ def _build_hypothesis_evidence(
                 return "supported"
         return "inconclusive"
 
-    difference_profile = resolve_hypothesis_profile(session_dir, explicit_key="difference")
-    predictive_profile = resolve_hypothesis_profile(session_dir, explicit_key="predictive")
-    correlation_profile = resolve_hypothesis_profile(session_dir, explicit_key="correlation")
-    embedding_profile = resolve_hypothesis_profile(session_dir, explicit_key="embedding")
+    # 加载计划数据，获取实际的假设列表
+    plan_path = session_dir / "plan" / "analysis_plan.json"
+    plan_json = {}
+    if plan_path.exists():
+        try:
+            plan_json = json.loads(plan_path.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    
+    # 获取计划中的假设列表
+    plan_hypotheses = plan_json.get("hypotheses", []) if isinstance(plan_json, dict) else []
+    
+    # 如果计划中没有假设，使用默认的四个假设
+    if not plan_hypotheses:
+        plan_hypotheses = [
+            {"id": "H1", "title": "差异检验", "hypothesis": "组间存在显著差异标志物", "hypothesis_type": "difference"},
+            {"id": "H2", "title": "预测模型", "hypothesis": "多特征组合具备诊断预测力", "hypothesis_type": "predictive"},
+            {"id": "H3", "title": "相关性分析", "hypothesis": "变量间存在结构化相关网络", "hypothesis_type": "correlation"},
+            {"id": "H4", "title": "降维/聚类", "hypothesis": "样本在降维空间中存在可解释结构", "hypothesis_type": "embedding"},
+        ]
 
-    # H1 evidence
-    h1_metrics: dict[str, Any] = {}
-    stats_path = session_dir / "result" / "stats_results.json"
-    top_path = session_dir / "result" / "top_features.json"
-    if stats_path.exists():
-        try:
-            df = pd.read_json(stats_path)
-            h1_metrics["tested_features"] = int(len(df))
-            if "p_value" in df.columns:
-                h1_metrics["significant_p_lt_0_05"] = int((df["p_value"] < 0.05).sum())
-            effect_columns: list[str] = []
-            for col in df.columns:
-                low = str(col).strip().lower()
-                if not low:
-                    continue
-                if not is_numeric_dtype(df[col]):
-                    continue
-                if any(token in low for token in ("effect", "fold", "log2", "diff", "change")):
-                    effect_columns.append(str(col))
-            added = 0
-            for col in effect_columns:
-                series = pd.to_numeric(df[col], errors="coerce").dropna()
-                if series.empty:
-                    continue
-                metric_key = re.sub(r"[^a-z0-9_]+", "_", col.strip().lower()).strip("_")
-                if not metric_key:
-                    continue
-                h1_metrics[f"max_abs_{metric_key}"] = float(series.abs().max())
-                h1_metrics[f"mean_abs_{metric_key}"] = float(series.abs().mean())
-                added += 1
-                if added >= 3:
-                    break
-        except Exception:
-            pass
-    if top_path.exists():
-        try:
-            top = pd.read_json(top_path)
-            if "feature" in top.columns:
-                h1_metrics["top_features"] = [str(x) for x in top["feature"].head(5).tolist()]
-        except Exception:
-            pass
-    evidence_rows.append(
-        {
-            "hypothesis_id": "H1",
-            "claim": str(difference_profile.get("claim", "")).strip() or "组间存在显著差异标志物",
-            "evidence_sources": [
+    # 为每个假设构建证据
+    for hyp in plan_hypotheses:
+        if not isinstance(hyp, dict):
+            continue
+        
+        hypothesis_id = str(hyp.get("id", "")).strip().upper()
+        if not hypothesis_id:
+            continue
+        
+        # 确保假设ID格式正确
+        if not re.fullmatch(r"H\d+", hypothesis_id):
+            continue
+        
+        # 跳过不在允许列表中的假设
+        if allowed_ids and hypothesis_id not in allowed_ids:
+            continue
+        
+        # 获取假设类型
+        hypothesis_type = str(hyp.get("hypothesis_type", "")).strip().lower()
+        if not hypothesis_type:
+            # 根据假设ID推断类型
+            if hypothesis_id == "H1":
+                hypothesis_type = "difference"
+            elif hypothesis_id == "H2":
+                hypothesis_type = "predictive"
+            elif hypothesis_id == "H3":
+                hypothesis_type = "correlation"
+            elif hypothesis_id == "H4":
+                hypothesis_type = "embedding"
+            else:
+                hypothesis_type = "generic"
+        
+        # 获取假设声明
+        claim = str(hyp.get("hypothesis", "")).strip()
+        if not claim:
+            # 使用默认声明
+            if hypothesis_type == "difference":
+                claim = "组间存在显著差异标志物"
+            elif hypothesis_type == "predictive":
+                claim = "多特征组合具备诊断预测力"
+            elif hypothesis_type == "correlation":
+                claim = "变量间存在结构化相关网络"
+            elif hypothesis_type == "embedding":
+                claim = "样本在降维空间中存在可解释结构"
+            else:
+                claim = f"假设 {hypothesis_id}"
+        
+        # 构建证据指标
+        quant_metrics: dict[str, Any] = {}
+        evidence_sources: list[str] = []
+        
+        # 根据假设类型构建不同的证据
+        if hypothesis_type == "difference":
+            # 差异检验证据
+            stats_path = session_dir / "result" / "stats_results.json"
+            top_path = session_dir / "result" / "top_features.json"
+            if stats_path.exists():
+                try:
+                    df = pd.read_json(stats_path)
+                    quant_metrics["tested_features"] = int(len(df))
+                    if "p_value" in df.columns:
+                        quant_metrics["significant_p_lt_0_05"] = int((df["p_value"] < 0.05).sum())
+                    effect_columns: list[str] = []
+                    for col in df.columns:
+                        low = str(col).strip().lower()
+                        if not low:
+                            continue
+                        if not is_numeric_dtype(df[col]):
+                            continue
+                        if any(token in low for token in ("effect", "fold", "log2", "diff", "change")):
+                            effect_columns.append(str(col))
+                    added = 0
+                    for col in effect_columns:
+                        series = pd.to_numeric(df[col], errors="coerce").dropna()
+                        if series.empty:
+                            continue
+                        metric_key = re.sub(r"[^a-z0-9_]+", "_", col.strip().lower()).strip("_")
+                        if not metric_key:
+                            continue
+                        quant_metrics[f"max_abs_{metric_key}"] = float(series.abs().max())
+                        quant_metrics[f"mean_abs_{metric_key}"] = float(series.abs().mean())
+                        added += 1
+                        if added >= 3:
+                            break
+                except Exception:
+                    pass
+            if top_path.exists():
+                try:
+                    top = pd.read_json(top_path)
+                    if "feature" in top.columns:
+                        quant_metrics["top_features"] = [str(x) for x in top["feature"].head(5).tolist()]
+                except Exception:
+                    pass
+            evidence_sources = [
                 p
                 for p in [
                     "result/stats_results.json",
@@ -782,119 +846,150 @@ def _build_hypothesis_evidence(
                     "plots/volcano_plot.png",
                 ]
                 if (session_dir / p).exists()
-            ],
-            "quant_metrics": h1_metrics,
-            "status": _status_for("H1"),
-            "hypothesis_type": "difference",
+            ]
+        
+        elif hypothesis_type == "predictive":
+            # 预测模型证据
+            eval_path = session_dir / "result" / "model_eval.json"
+            cv_path = session_dir / "result" / "cv_results.json"
+            if eval_path.exists():
+                try:
+                    payload = json.loads(eval_path.read_text(encoding="utf-8"))
+                    metrics = payload.get("metrics", {}) if isinstance(payload, dict) else {}
+                    for k in ("majority_accuracy", "centroid_accuracy", "auc", "train_accuracy", "test_accuracy", "pr_auc"):
+                        if metrics.get(k) is not None:
+                            quant_metrics[k] = metrics.get(k)
+                    if metrics.get("roc_auc") is not None and quant_metrics.get("auc") is None:
+                        quant_metrics["auc"] = metrics.get("roc_auc")
+                except Exception:
+                    pass
+            if cv_path.exists():
+                try:
+                    cv = json.loads(cv_path.read_text(encoding="utf-8"))
+                    if isinstance(cv, dict):
+                        if cv.get("mean_accuracy") is not None:
+                            quant_metrics["cv_mean_accuracy"] = cv.get("mean_accuracy")
+                        if cv.get("std_accuracy") is not None:
+                            quant_metrics["cv_std_accuracy"] = cv.get("std_accuracy")
+                        fold_metrics = cv.get("fold_metrics")
+                        if isinstance(fold_metrics, list):
+                            quant_metrics["cv_folds"] = len(fold_metrics)
+                except Exception:
+                    pass
+            evidence_sources = [p for p in ["result/model_eval.json", "result/cv_results.json", "result/feature_selection.json"] if (session_dir / p).exists()]
+        
+        elif hypothesis_type == "correlation":
+            # 相关性分析证据
+            corr_path = session_dir / "result" / "correlation.json"
+            if corr_path.exists():
+                try:
+                    corr = pd.read_json(corr_path)
+                    arr = corr.to_numpy().copy()
+                    import numpy as np
+
+                    np.fill_diagonal(arr, 0)
+                    idx = divmod(np.abs(arr).argmax(), arr.shape[1])
+                    quant_metrics["strongest_pair"] = [str(corr.index[idx[0]]), str(corr.columns[idx[1]])]
+                    quant_metrics["strongest_abs_corr"] = float(abs(arr[idx]))
+                except Exception:
+                    pass
+            evidence_sources = [p for p in ["result/correlation.json", "plots/heatmap.png", "plots/network.png"] if (session_dir / p).exists()]
+        
+        elif hypothesis_type == "embedding":
+            # 降维/聚类证据
+            cluster_path = session_dir / "result" / "clustering.json"
+            dim_path = session_dir / "result" / "dimensionality.json"
+            if dim_path.exists():
+                quant_metrics["has_pca_embedding"] = True
+            if (session_dir / "result" / "dimensionality_tsne.json").exists():
+                quant_metrics["has_tsne_embedding"] = True
+            if cluster_path.exists():
+                try:
+                    cluster = json.loads(cluster_path.read_text(encoding="utf-8"))
+                    labels = cluster.get("labels")
+                    if isinstance(labels, list):
+                        quant_metrics["cluster_label_count"] = len(labels)
+                except Exception:
+                    pass
+            evidence_sources = [p for p in ["result/dimensionality.json", "result/clustering.json", "plots/embedding_pca.png", "plots/embedding_tsne.png"] if (session_dir / p).exists()]
+        
+        # 构建证据行
+        evidence_row = {
+            "hypothesis_id": hypothesis_id,
+            "claim": claim,
+            "evidence_sources": evidence_sources,
+            "quant_metrics": quant_metrics,
+            "status": _status_for(hypothesis_id),
+            "hypothesis_type": hypothesis_type,
         }
-    )
+        
+        evidence_rows.append(evidence_row)
 
-    # H2 evidence
-    h2_metrics: dict[str, Any] = {}
-    eval_path = session_dir / "result" / "model_eval.json"
-    cv_path = session_dir / "result" / "cv_results.json"
-    if eval_path.exists():
-        try:
-            payload = json.loads(eval_path.read_text(encoding="utf-8"))
-            metrics = payload.get("metrics", {}) if isinstance(payload, dict) else {}
-            for k in ("majority_accuracy", "centroid_accuracy", "auc", "train_accuracy", "test_accuracy", "pr_auc"):
-                if metrics.get(k) is not None:
-                    h2_metrics[k] = metrics.get(k)
-            if metrics.get("roc_auc") is not None and h2_metrics.get("auc") is None:
-                h2_metrics["auc"] = metrics.get("roc_auc")
-        except Exception:
-            pass
-    if cv_path.exists():
-        try:
-            cv = json.loads(cv_path.read_text(encoding="utf-8"))
-            if isinstance(cv, dict):
-                if cv.get("mean_accuracy") is not None:
-                    h2_metrics["cv_mean_accuracy"] = cv.get("mean_accuracy")
-                if cv.get("std_accuracy") is not None:
-                    h2_metrics["cv_std_accuracy"] = cv.get("std_accuracy")
-                fold_metrics = cv.get("fold_metrics")
-                if isinstance(fold_metrics, list):
-                    h2_metrics["cv_folds"] = len(fold_metrics)
-        except Exception:
-            pass
-    evidence_rows.append(
-        {
-            "hypothesis_id": "H2",
-            "claim": str(predictive_profile.get("claim", "")).strip() or "多特征组合具备诊断预测力",
-            "evidence_sources": [p for p in ["result/model_eval.json", "result/cv_results.json", "result/feature_selection.json"] if (session_dir / p).exists()],
-            "quant_metrics": h2_metrics,
-            "status": _status_for("H2"),
-            "hypothesis_type": "predictive",
-        }
-    )
-
-    # H3 evidence
-    h3_metrics: dict[str, Any] = {}
-    corr_path = session_dir / "result" / "correlation.json"
-    if corr_path.exists():
-        try:
-            corr = pd.read_json(corr_path)
-            arr = corr.to_numpy().copy()
-            import numpy as np
-
-            np.fill_diagonal(arr, 0)
-            idx = divmod(np.abs(arr).argmax(), arr.shape[1])
-            h3_metrics["strongest_pair"] = [str(corr.index[idx[0]]), str(corr.columns[idx[1]])]
-            h3_metrics["strongest_abs_corr"] = float(abs(arr[idx]))
-        except Exception:
-            pass
-    evidence_rows.append(
-        {
-            "hypothesis_id": "H3",
-            "claim": str(correlation_profile.get("claim", "")).strip() or "变量间存在结构化相关网络",
-            "evidence_sources": [p for p in ["result/correlation.json", "plots/heatmap.png", "plots/network.png"] if (session_dir / p).exists()],
-            "quant_metrics": h3_metrics,
-            "status": _status_for("H3"),
-            "hypothesis_type": "correlation",
-        }
-    )
-
-    # H4 evidence
-    h4_metrics: dict[str, Any] = {}
-    cluster_path = session_dir / "result" / "clustering.json"
-    dim_path = session_dir / "result" / "dimensionality.json"
-    if dim_path.exists():
-        h4_metrics["has_pca_embedding"] = True
-    if (session_dir / "result" / "dimensionality_tsne.json").exists():
-        h4_metrics["has_tsne_embedding"] = True
-    if cluster_path.exists():
-        try:
-            cluster = json.loads(cluster_path.read_text(encoding="utf-8"))
-            labels = cluster.get("labels")
-            if isinstance(labels, list):
-                h4_metrics["cluster_label_count"] = len(labels)
-        except Exception:
-            pass
-    evidence_rows.append(
-        {
-            "hypothesis_id": "H4",
-            "claim": str(embedding_profile.get("claim", "")).strip() or "样本在降维空间中存在可解释结构",
-            "evidence_sources": [p for p in ["result/dimensionality.json", "result/clustering.json", "plots/embedding_pca.png", "plots/embedding_tsne.png"] if (session_dir / p).exists()],
-            "quant_metrics": h4_metrics,
-            "status": _status_for("H4"),
-            "hypothesis_type": "embedding",
-        }
-    )
-
-    if allowed_ids:
-        evidence_rows = [row for row in evidence_rows if str(row.get("hypothesis_id", "")).upper() in allowed_ids]
     return {"hypotheses": evidence_rows}
 
 
 def _build_hypothesis_contrast(evidence_payload: dict[str, Any], session_dir: Path) -> dict[str, Any]:
     rows: list[dict[str, Any]] = []
+    
+    # 加载计划数据，获取实际的假设列表和类型
+    plan_path = session_dir / "plan" / "analysis_plan.json"
+    plan_json = {}
+    if plan_path.exists():
+        try:
+            plan_json = json.loads(plan_path.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    
+    # 构建假设ID到类型的映射
+    hypothesis_type_map: dict[str, str] = {}
+    plan_hypotheses = plan_json.get("hypotheses", []) if isinstance(plan_json, dict) else []
+    for hyp in plan_hypotheses:
+        if isinstance(hyp, dict):
+            hypothesis_id = str(hyp.get("id", "")).strip().upper()
+            if hypothesis_id:
+                hypothesis_type = str(hyp.get("hypothesis_type", "")).strip().lower()
+                if not hypothesis_type:
+                    # 根据假设ID推断类型
+                    if hypothesis_id == "H1":
+                        hypothesis_type = "difference"
+                    elif hypothesis_id == "H2":
+                        hypothesis_type = "predictive"
+                    elif hypothesis_id == "H3":
+                        hypothesis_type = "correlation"
+                    elif hypothesis_id == "H4":
+                        hypothesis_type = "embedding"
+                    else:
+                        hypothesis_type = "generic"
+                hypothesis_type_map[hypothesis_id] = hypothesis_type
+    
     for item in evidence_payload.get("hypotheses", []) if isinstance(evidence_payload, dict) else []:
         hid = str(item.get("hypothesis_id", ""))
+        hypothesis_type = hypothesis_type_map.get(hid.upper(), "")
+        
+        # 如果没有从计划中获取到类型，尝试从证据项中获取
+        if not hypothesis_type:
+            hypothesis_type = str(item.get("hypothesis_type", "")).strip().lower()
+        
+        # 如果仍然没有类型，根据假设ID推断
+        if not hypothesis_type:
+            if hid == "H1":
+                hypothesis_type = "difference"
+            elif hid == "H2":
+                hypothesis_type = "predictive"
+            elif hid == "H3":
+                hypothesis_type = "correlation"
+            elif hid == "H4":
+                hypothesis_type = "embedding"
+            else:
+                hypothesis_type = "generic"
+        
         metrics = item.get("quant_metrics", {}) if isinstance(item.get("quant_metrics"), dict) else {}
         primary = {"path_id": "path_a", "metrics": metrics, "status": "ok" if metrics else "partial"}
         secondary_metrics: dict[str, Any] = {}
         secondary_reason = ""
-        if hid == "H1":
+        
+        # 根据假设类型构建次要证据
+        if hypothesis_type == "difference":
             mt_path = session_dir / "result" / "multiple_testing.json"
             if mt_path.exists():
                 try:
@@ -904,7 +999,8 @@ def _build_hypothesis_contrast(evidence_payload: dict[str, Any], session_dir: Pa
                     secondary_metrics["tested_features"] = int(len(mt_df))
                 except Exception as exc:
                     secondary_reason = f"failed_to_parse_multiple_testing: {exc}"
-        elif hid == "H2":
+        
+        elif hypothesis_type == "predictive":
             cv_path = session_dir / "result" / "cv_results.json"
             if cv_path.exists():
                 try:
@@ -913,9 +1009,13 @@ def _build_hypothesis_contrast(evidence_payload: dict[str, Any], session_dir: Pa
                         secondary_metrics["cv_mean_accuracy"] = cv.get("mean_accuracy")
                     if cv.get("std_accuracy") is not None:
                         secondary_metrics["cv_std_accuracy"] = cv.get("std_accuracy")
+                    fold_metrics = cv.get("fold_metrics")
+                    if isinstance(fold_metrics, list):
+                        secondary_metrics["cv_folds"] = len(fold_metrics)
                 except Exception as exc:
                     secondary_reason = f"failed_to_parse_cv: {exc}"
-        elif hid == "H3":
+        
+        elif hypothesis_type == "correlation":
             corr_path = session_dir / "result" / "correlation.json"
             if corr_path.exists():
                 try:
@@ -928,7 +1028,8 @@ def _build_hypothesis_contrast(evidence_payload: dict[str, Any], session_dir: Pa
                     secondary_metrics["abs_corr_gt_0_5_edges"] = int((np.abs(arr) > 0.5).sum() / 2)
                 except Exception as exc:
                     secondary_reason = f"failed_to_parse_correlation: {exc}"
-        elif hid == "H4":
+        
+        elif hypothesis_type == "embedding":
             if (session_dir / "result" / "dimensionality_tsne.json").exists():
                 secondary_metrics["has_tsne_embedding"] = True
             cl_path = session_dir / "result" / "clustering.json"
@@ -940,48 +1041,65 @@ def _build_hypothesis_contrast(evidence_payload: dict[str, Any], session_dir: Pa
                         secondary_metrics["cluster_count"] = len(set(labels))
                 except Exception as exc:
                     secondary_reason = f"failed_to_parse_clustering: {exc}"
+        
         secondary = {
             "path_id": "path_b",
             "metrics": secondary_metrics,
             "status": "ok" if secondary_metrics else "missing",
             "reason": secondary_reason or ("secondary evidence unavailable" if not secondary_metrics else ""),
         }
+        
+        # 检查一致性
         consistency = "unknown"
         conflict_reason = ""
-        if hid == "H1":
+        
+        if hypothesis_type == "difference":
             a = metrics.get("significant_p_lt_0_05")
             b = secondary_metrics.get("q_lt_0_05")
             if isinstance(a, int) and isinstance(b, int):
                 consistency = "consistent" if (a == 0 and b == 0) or (a > 0 and b > 0) else "conflict"
                 if consistency == "conflict":
                     conflict_reason = f"p-significant={a}, q-significant={b}"
-        elif hid == "H2":
-            a = metrics.get("centroid_accuracy")
+        
+        elif hypothesis_type == "predictive":
+            a = metrics.get("centroid_accuracy") or metrics.get("accuracy") or metrics.get("auc")
             b = secondary_metrics.get("cv_mean_accuracy")
             if isinstance(a, (int, float)) and isinstance(b, (int, float)):
-                consistency = "consistent" if abs(float(a) - float(b)) <= 0.15 else "conflict"
+                # 对于不同类型的指标，使用不同的阈值
+                if "auc" in str(list(metrics.keys())):
+                    # AUC指标差异阈值
+                    consistency = "consistent" if abs(float(a) - float(b)) <= 0.1 else "conflict"
+                else:
+                    # 准确率指标差异阈值
+                    consistency = "consistent" if abs(float(a) - float(b)) <= 0.15 else "conflict"
                 if consistency == "conflict":
-                    conflict_reason = f"centroid_accuracy={a}, cv_mean_accuracy={b}"
-        elif hid == "H3":
+                    a_key = "centroid_accuracy" if "centroid_accuracy" in metrics else "accuracy" if "accuracy" in metrics else "auc"
+                    conflict_reason = f"{a_key}={a}, cv_mean_accuracy={b}"
+        
+        elif hypothesis_type == "correlation":
             a = metrics.get("strongest_abs_corr")
             b = secondary_metrics.get("abs_corr_gt_0_7_edges")
             if isinstance(a, (int, float)) and isinstance(b, int):
                 consistency = "consistent" if (a >= 0.7 and b > 0) or (a < 0.7 and b == 0) else "conflict"
                 if consistency == "conflict":
                     conflict_reason = f"strongest_abs_corr={a}, abs_corr_gt_0_7_edges={b}"
-        elif hid == "H4":
+        
+        elif hypothesis_type == "embedding":
             a = metrics.get("has_pca_embedding")
             b = secondary_metrics.get("has_tsne_embedding")
             if isinstance(a, bool) and isinstance(b, bool):
                 consistency = "consistent" if a and b else "conflict"
                 if consistency == "conflict":
                     conflict_reason = f"has_pca_embedding={a}, has_tsne_embedding={b}"
-
+        
+        # 确定状态
         status = "validated"
         if consistency == "conflict":
             status = "inconclusive"
         elif not secondary_metrics:
             status = "partial"
+        
+        # 确定冲突类别
         conflict_category = ""
         if consistency == "conflict":
             if "failed_to_parse" in conflict_reason:
@@ -990,17 +1108,21 @@ def _build_hypothesis_contrast(evidence_payload: dict[str, Any], session_dir: Pa
                 conflict_category = "data_sparse"
             else:
                 conflict_category = "metric_disagreement"
-        rows.append(
-            {
-                "hypothesis_id": hid,
-                "path_a": primary,
-                "path_b": secondary,
-                "consistency": consistency,
-                "status": status,
-                "conflict_reason": conflict_reason or secondary.get("reason", ""),
-                "conflict_category": conflict_category,
-            }
-        )
+        
+        # 构建对比行
+        contrast_row = {
+            "hypothesis_id": hid,
+            "hypothesis_type": hypothesis_type,
+            "path_a": primary,
+            "path_b": secondary,
+            "consistency": consistency,
+            "status": status,
+            "conflict_reason": conflict_reason or secondary.get("reason", ""),
+            "conflict_category": conflict_category,
+        }
+        
+        rows.append(contrast_row)
+    
     return {"hypotheses": rows}
 
 
