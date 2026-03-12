@@ -16,6 +16,7 @@ import hashlib
 
 from ..error.handler import ErrorHandler, ErrorSeverity, ErrorCategory
 from ..state.manager import get_session_state, update_session_state
+from ..common import ensure_dir, save_json, load_json, error_handling_context
 
 
 class ReportType(Enum):
@@ -142,13 +143,12 @@ class ReportManager:
             template = self.default_templates.get(template_id or "analytical")
             
             # 创建报告目录
-            report_dir = self.data_sessions_active_base / session_id / "reports" / report_id
-            report_dir.mkdir(parents=True, exist_ok=True)
-            
+            report_dir = ensure_dir(self.data_sessions_active_base / session_id / "reports" / report_id)
+
             # 保存报告内容
             content_file = report_dir / "content.md"
             content_file.write_text(content, encoding="utf-8")
-            
+
             # 创建元数据
             report_metadata = ReportMetadata(
                 report_id=report_id,
@@ -165,7 +165,7 @@ class ReportManager:
                 word_count=len(content.split()),
                 page_count=max(1, len(content) // 2000)  # 粗略估算页数
             )
-            
+
             # 保存元数据
             metadata_file = report_dir / "metadata.json"
             metadata_dict = {
@@ -183,7 +183,7 @@ class ReportManager:
                 "word_count": report_metadata.word_count,
                 "page_count": report_metadata.page_count
             }
-            metadata_file.write_text(json.dumps(metadata_dict, ensure_ascii=False, indent=2), encoding="utf-8")
+            save_json(metadata_file, metadata_dict)
             
             # 更新会话状态
             state_updates = {
@@ -194,17 +194,17 @@ class ReportManager:
                 }
             }
             update_session_state(session_id, state_updates)
-            
+
             return report_metadata
-            
-        except Exception as e:
-            error_info = self.error_handler.handle_error(
-                e,
-                severity=ErrorSeverity.HIGH,
-                category=ErrorCategory.FILESYSTEM,
+
+        except Exception:
+            with error_handling_context(
+                self.error_handler,
+                severity="high",
+                category="filesystem",
                 context={"session_id": session_id, "title": title}
-            )
-            raise e
+            ):
+                raise
     
     def get_report(self, session_id: str, report_id: str) -> Optional[Dict[str, Any]]:
         """获取报告"""
@@ -215,10 +215,9 @@ class ReportManager:
             
             # 读取元数据
             metadata_file = report_dir / "metadata.json"
-            if not metadata_file.exists():
+            metadata = load_json(metadata_file)
+            if not metadata:
                 return None
-            
-            metadata = json.loads(metadata_file.read_text(encoding="utf-8"))
             
             # 读取内容
             content_file = report_dir / "content.md"
@@ -453,51 +452,265 @@ class ReportManager:
         return output_path
     
     def _export_to_pdf(self, content: str, metadata: Dict[str, Any], output_path: str) -> str:
-        """导出为PDF（简化版本，实际需要weasyprint）"""
-        # 这里是简化实现，实际项目中需要集成PDF生成库
-        pdf_content = f"""
-# {metadata['title']}
+        """导出为PDF（使用weasyprint）"""
+        try:
+            from weasyprint import HTML
 
-**作者:** {metadata['author']}  
-**创建时间:** {metadata['created_at']}  
-**报告类型:** {metadata['report_type']}
+            # 构建HTML内容
+            html_content = f"""<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>{metadata.get('title', 'Report')}</title>
+    <style>
+        @page {{
+            size: A4;
+            margin: 2.5cm;
+            @top-center {{ content: "{metadata.get('title', 'Report')}"; font-size: 9pt; color: #666; }}
+            @bottom-center {{ content: "Page " counter(page); font-size: 9pt; }}
+        }}
+        body {{
+            font-family: 'Noto Sans SC', 'Microsoft YaHei', sans-serif;
+            line-height: 1.6;
+            color: #333;
+        }}
+        h1 {{
+            color: #2c3e50;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 10px;
+        }}
+        h2 {{
+            color: #34495e;
+            border-bottom: 1px solid #bdc3c7;
+            padding-bottom: 5px;
+            margin-top: 30px;
+        }}
+        h3 {{ color: #7f8c8d; margin-top: 20px; }}
+        table {{
+            border-collapse: collapse;
+            width: 100%;
+            margin: 15px 0;
+        }}
+        th, td {{
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }}
+        th {{ background-color: #f2f2f2; font-weight: bold; }}
+        code {{
+            background-color: #f4f4f4;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+        }}
+        pre {{
+            background-color: #f4f4f4;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }}
+        blockquote {{
+            border-left: 4px solid #3498db;
+            margin: 0;
+            padding-left: 15px;
+            color: #666;
+        }}
+        .metadata {{
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }}
+    </style>
+</head>
+<body>
+    <div class="metadata">
+        <h1>{metadata.get('title', 'Report')}</h1>
+        <p><strong>作者:</strong> {metadata.get('author', 'Unknown')}</p>
+        <p><strong>创建时间:</strong> {metadata.get('created_at', 'N/A')}</p>
+        <p><strong>报告类型:</strong> {metadata.get('report_type', 'N/A')}</p>
+    </div>
+    <hr>
+    {content}
+</body>
+</html>"""
+
+            HTML(string=html_content).write_pdf(output_path)
+            return output_path
+        except ImportError:
+            # weasyprint 未安装，生成一个说明文件
+            fallback_content = f"""# PDF Export Not Available
+
+## 原因
+weasyprint 库未安装。要启用PDF导出功能，请运行：
+```bash
+pip install weasyprint
+```
+
+## 报告内容
+
+# {metadata.get('title', 'Report')}
+
+**作者:** {metadata.get('author', 'Unknown')}  
+**创建时间:** {metadata.get('created_at', 'N/A')}  
+**报告类型:** {metadata.get('report_type', 'N/A')}
 
 ---
 
 {content}
-        """
-        Path(output_path).write_text(pdf_content, encoding="utf-8")
-        return output_path
+"""
+            # 保存为markdown格式，但使用.pdf扩展名以提示用户
+            output_path = str(output_path).replace('.pdf', '.md')
+            Path(output_path).write_text(fallback_content, encoding="utf-8")
+            return output_path
     
     def _export_to_markdown(self, content: str, metadata: Dict[str, Any], output_path: str) -> str:
-        """导出为Markdown"""
-        md_content = f"""# {metadata['title']}
+        """导出为Markdown（带YAML Front Matter）"""
+        import yaml
 
-**作者:** {metadata['author']}  
-**创建时间:** {metadata['created_at']}  
-**报告类型:** {metadata['report_type']}
+        # 构建YAML Front Matter
+        front_matter = {
+            "title": metadata.get('title', 'Untitled'),
+            "author": metadata.get('author', 'Unknown'),
+            "date": metadata.get('created_at', 'N/A'),
+            "report_type": metadata.get('report_type', 'N/A'),
+            "tags": metadata.get('tags', []),
+            "keywords": metadata.get('keywords', []),
+            "version": metadata.get('version', '1.0'),
+        }
+
+        # 构建完整的Markdown内容
+        md_content = f"""---
+{yaml.dump(front_matter, allow_unicode=True, sort_keys=False)}---
+
+# {metadata.get('title', 'Untitled')}
+
+<div class="metadata">
+
+**作者:** {metadata.get('author', 'Unknown')}  
+**创建时间:** {metadata.get('created_at', 'N/A')}  
+**报告类型:** {metadata.get('report_type', 'N/A')}
+
+</div>
 
 ---
 
 {content}
-        """
+
+---
+
+*Generated by DeepAnalyze*
+"""
         Path(output_path).write_text(md_content, encoding="utf-8")
         return output_path
     
     def _export_to_docx(self, content: str, metadata: Dict[str, Any], output_path: str) -> str:
-        """导出为DOCX（简化版本）"""
-        # 实际项目中需要使用python-docx库
-        docx_content = f"""
-{metadata['title']}
+        """导出为DOCX（使用python-docx）"""
+        try:
+            from docx import Document
+            from docx.shared import Inches, Pt, RGBColor
+            from docx.enum.text import WD_ALIGN_PARAGRAPH
+            import re
 
-作者: {metadata['author']}
-创建时间: {metadata['created_at']}
-报告类型: {metadata['report_type']}
+            doc = Document()
+
+            # 添加标题
+            title = doc.add_heading(metadata.get('title', 'Report'), 0)
+            title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+            # 添加元数据
+            doc.add_paragraph(f"作者: {metadata.get('author', 'Unknown')}")
+            doc.add_paragraph(f"创建时间: {metadata.get('created_at', 'N/A')}")
+            doc.add_paragraph(f"报告类型: {metadata.get('report_type', 'N/A')}")
+            doc.add_paragraph()  # 空行
+
+            # 解析Markdown内容并转换为DOCX
+            lines = content.split('\n')
+            i = 0
+            while i < len(lines):
+                line = lines[i]
+
+                # 处理标题
+                if line.startswith('# '):
+                    doc.add_heading(line[2:], level=1)
+                elif line.startswith('## '):
+                    doc.add_heading(line[3:], level=2)
+                elif line.startswith('### '):
+                    doc.add_heading(line[4:], level=3)
+                elif line.startswith('#### '):
+                    doc.add_heading(line[5:], level=4)
+                # 处理列表
+                elif line.startswith('- ') or line.startswith('* '):
+                    doc.add_paragraph(line[2:], style='List Bullet')
+                elif re.match(r'^\d+\.\s', line):
+                    doc.add_paragraph(re.sub(r'^\d+\.\s', '', line), style='List Number')
+                # 处理代码块
+                elif line.startswith('```'):
+                    code_lines = []
+                    i += 1
+                    while i < len(lines) and not lines[i].startswith('```'):
+                        code_lines.append(lines[i])
+                        i += 1
+                    if code_lines:
+                        code_para = doc.add_paragraph()
+                        code_run = code_para.add_run('\n'.join(code_lines))
+                        code_run.font.name = 'Courier New'
+                        code_run.font.size = Pt(9)
+                # 处理普通段落
+                elif line.strip():
+                    # 处理粗体和斜体
+                    para = doc.add_paragraph()
+                    parts = re.split(r'(\*\*.*?\*\*|\*.*?\*)', line)
+                    for part in parts:
+                        if part.startswith('**') and part.endswith('**'):
+                            run = para.add_run(part[2:-2])
+                            run.bold = True
+                        elif part.startswith('*') and part.endswith('*'):
+                            run = para.add_run(part[1:-1])
+                            run.italic = True
+                        else:
+                            para.add_run(part)
+                else:
+                    # 空行
+                    doc.add_paragraph()
+
+                i += 1
+
+            # 添加页脚
+            section = doc.sections[0]
+            footer = section.footer
+            footer_para = footer.paragraphs[0]
+            footer_para.text = f"Generated by DeepAnalyze | {metadata.get('title', 'Report')}"
+
+            doc.save(output_path)
+            return output_path
+
+        except ImportError:
+            # python-docx 未安装，生成一个说明文件
+            fallback_content = f"""# DOCX Export Not Available
+
+## 原因
+python-docx 库未安装。要启用DOCX导出功能，请运行：
+```bash
+pip install python-docx
+```
+
+## 报告内容
+
+# {metadata.get('title', 'Report')}
+
+**作者:** {metadata.get('author', 'Unknown')}  
+**创建时间:** {metadata.get('created_at', 'N/A')}  
+**报告类型:** {metadata.get('report_type', 'N/A')}
+
+---
 
 {content}
-        """
-        Path(output_path).write_text(docx_content, encoding="utf-8")
-        return output_path
+"""
+            # 保存为markdown格式
+            output_path = str(output_path).replace('.docx', '.md')
+            Path(output_path).write_text(fallback_content, encoding="utf-8")
+            return output_path
     
     def _export_to_json(self, content: str, metadata: Dict[str, Any], output_path: str) -> str:
         """导出为JSON"""

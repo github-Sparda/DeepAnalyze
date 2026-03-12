@@ -1,33 +1,26 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any, List, Dict, Tuple, Optional
 
+from src.core.common import load_json_if_exists
 
-def _load_json(path: Path) -> dict[str, Any]:
-    if not path.exists():
-        return {}
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-    return payload if isinstance(payload, dict) else {}
+_load_json = load_json_if_exists
 
 
 def build_research_digest(session_dir: Path, state: dict[str, Any]) -> dict[str, Any]:
     plan_json = state.get("plan_json", {}) if isinstance(state.get("plan_json", {}), dict) else {}
     if not plan_json:
-        plan_json = _load_json(session_dir / "plan" / "analysis_plan.json")
+        plan_json = load_json_if_exists(session_dir / "plan" / "analysis_plan.json")
     gate_payload = state.get("hypothesis_gate_report", {}) if isinstance(state.get("hypothesis_gate_report", {}), dict) else {}
     if not gate_payload:
-        gate_payload = _load_json(session_dir / "result" / "hypothesis_gate_report.json")
+        gate_payload = load_json_if_exists(session_dir / "result" / "hypothesis_gate_report.json")
     evidence_pack = state.get("hypothesis_evidence_pack", {}) if isinstance(state.get("hypothesis_evidence_pack", {}), dict) else {}
     if not evidence_pack:
-        evidence_pack = _load_json(session_dir / "result" / "hypothesis_evidence_pack.json")
-    path_execution = _load_json(session_dir / "result" / "path_execution_status.json")
-    multipath = state.get("hypothesis_multipath", {}) if isinstance(state.get("hypothesis_multipath", {}), dict) else _load_json(session_dir / "result" / "hypothesis_multipath.json")
-    hypothesis_results = _load_json(session_dir / "result" / "hypothesis_results.json")
+        evidence_pack = load_json_if_exists(session_dir / "result" / "hypothesis_evidence_pack.json")
+    path_execution = load_json_if_exists(session_dir / "result" / "path_execution_status.json")
+    multipath = state.get("hypothesis_multipath", {}) if isinstance(state.get("hypothesis_multipath", {}), dict) else load_json_if_exists(session_dir / "result" / "hypothesis_multipath.json")
+    hypothesis_results = load_json_if_exists(session_dir / "result" / "hypothesis_results.json")
     closure_status = state.get("closure_status", {}) if isinstance(state.get("closure_status", {}), dict) else {}
 
     plan_rows = plan_json.get("hypotheses", []) if isinstance(plan_json, dict) else []
@@ -396,27 +389,16 @@ def calculate_evidence_weights(evidence_sources: list, quant_metrics: dict) -> d
     
     # 基于量化指标调整权重
     if isinstance(quant_metrics, dict):
+        from src.core.common.weight_utils import (
+            adjust_weights_by_p_value,
+            adjust_weights_by_auc,
+        )
+
         if "p_value" in quant_metrics:
-            p_value = quant_metrics["p_value"]
-            if p_value < 0.01:
-                for source in weights:
-                    if "stats" in source:
-                        weights[source] *= 1.3
-            elif p_value < 0.05:
-                for source in weights:
-                    if "stats" in source:
-                        weights[source] *= 1.1
-        
+            adjust_weights_by_p_value(weights, quant_metrics["p_value"])
+
         if "auc" in quant_metrics:
-            auc = quant_metrics["auc"]
-            if auc > 0.9:
-                for source in weights:
-                    if "model" in source:
-                        weights[source] *= 1.3
-            elif auc > 0.8:
-                for source in weights:
-                    if "model" in source:
-                        weights[source] *= 1.1
+            adjust_weights_by_auc(weights, quant_metrics["auc"])
         
         # 多模态特定指标权重调整
         if "text_confidence" in quant_metrics:

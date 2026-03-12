@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import time
 from pathlib import Path
 from typing import Any
+
+from src.core.common import ensure_dir, load_json, save_json
 
 
 WORKSPACE_DIRS = {
@@ -19,30 +20,19 @@ WORKSPACE_DIRS = {
 }
 
 
-def ensure_dir(path: str | Path) -> Path:
-    p = Path(path)
-    p.mkdir(parents=True, exist_ok=True)
-    return p
-
-
 def init_data_sessions_active(data_sessions_active_dir: str | Path) -> dict[str, Path]:
     base = Path(data_sessions_active_dir)
-    base.mkdir(parents=True, exist_ok=True)
+    ensure_dir(base)
     dirs = {name: ensure_dir(base / rel) for name, rel in WORKSPACE_DIRS.items()}
     manifest_path = base / "manifest.json"
     if not manifest_path.exists():
-        write_json(manifest_path, [])
+        save_json(manifest_path, [])
     return dirs
 
 
 def _load_manifest(data_sessions_active_dir: str | Path) -> list[dict[str, Any]]:
     manifest_path = Path(data_sessions_active_dir) / "manifest.json"
-    if not manifest_path.exists():
-        return []
-    try:
-        return json.loads(manifest_path.read_text(encoding="utf-8"))
-    except Exception:
-        return []
+    return load_json(manifest_path, [])
 
 
 def record_artifact(
@@ -95,13 +85,7 @@ def record_role_output(
 ) -> Path:
     meta_dir = ensure_dir(Path(data_sessions_active_dir) / WORKSPACE_DIRS["meta"])
     manifest_path = meta_dir / "role_manifest.json"
-    if manifest_path.exists():
-        try:
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        except Exception:
-            manifest = []
-    else:
-        manifest = []
+    manifest = load_json(manifest_path, [])
     entry = {
         "role_id": role_id,
         "status": status,
@@ -134,17 +118,20 @@ def write_run_metadata(data_sessions_active_dir: str | Path, metadata: dict[str,
 
 
 def write_text(path: str | Path, content: str) -> Path:
-    p = Path(path)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(content, encoding="utf-8")
-    return p
+    """保存文本文件,自动创建父目录.
+    
+    注意: 此函数保留以向后兼容,新代码应使用 src.core.common.save_text
+    """
+    from src.core.common import save_text
+    return save_text(path, content)
 
 
 def write_json(path: str | Path, payload: Any) -> Path:
-    p = Path(path)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    return p
+    """保存JSON文件,自动创建父目录.
+    
+    注意: 此函数保留以向后兼容,新代码应使用 src.core.common.save_json
+    """
+    return save_json(path, payload)
 
 
 def artifact_dir(data_sessions_active_dir: str | Path, plan_id: str, role: str) -> Path:

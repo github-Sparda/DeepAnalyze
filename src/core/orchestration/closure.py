@@ -6,6 +6,8 @@ import time
 from pathlib import Path
 from typing import Any, List, Dict, Tuple, Optional
 
+from src.core.common import load_json_if_exists
+
 PHASES_WITH_CLOSURE = {
     "plan_analysis",
     "parallel_generation",
@@ -37,14 +39,8 @@ def ensure_phase_dirs(session_dir: Path) -> tuple[Path, Path]:
     return closure_dir, recovery_dir
 
 
-def _load_json(path: Path) -> dict[str, Any]:
-    if not path.exists():
-        return {}
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-    return payload if isinstance(payload, dict) else {}
+# 使用公共模块的 load_json_if_exists 替代私有实现
+_load_json = load_json_if_exists
 
 
 def _ids_from(payload: dict[str, Any], key: str) -> set[str]:
@@ -252,43 +248,27 @@ def calculate_evidence_weights(evidence_sources: list, quant_metrics: dict, hypo
     
     # 基于量化指标调整权重
     if isinstance(quant_metrics, dict):
+        from src.core.common.weight_utils import (
+            adjust_weights_by_p_value,
+            adjust_weights_by_auc,
+            adjust_weights_by_correlation,
+        )
+
         # 根据假设类型调整权重
         if hypothesis_type == "difference":
             if "p_value" in quant_metrics:
-                p_value = quant_metrics["p_value"]
-                if p_value < 0.01:
-                    for source in weights:
-                        if "stats" in source:
-                            weights[source] *= 1.3
-                elif p_value < 0.05:
-                    for source in weights:
-                        if "stats" in source:
-                            weights[source] *= 1.1
-        
+                adjust_weights_by_p_value(weights, quant_metrics["p_value"])
+
         elif hypothesis_type == "predictive":
             if "auc" in quant_metrics:
-                auc = quant_metrics["auc"]
-                if auc > 0.9:
-                    for source in weights:
-                        if "model" in source:
-                            weights[source] *= 1.3
-                elif auc > 0.8:
-                    for source in weights:
-                        if "model" in source:
-                            weights[source] *= 1.1
-        
+                adjust_weights_by_auc(weights, quant_metrics["auc"])
+
         elif hypothesis_type == "correlation":
             if "strongest_abs_corr" in quant_metrics:
-                corr = quant_metrics["strongest_abs_corr"]
-                if corr > 0.8:
-                    for source in weights:
-                        if "correlation" in source:
-                            weights[source] *= 1.3
-                elif corr > 0.6:
-                    for source in weights:
-                        if "correlation" in source:
-                            weights[source] *= 1.1
-    
+                adjust_weights_by_correlation(
+                    weights, quant_metrics["strongest_abs_corr"]
+                )
+
     return weights
 
 

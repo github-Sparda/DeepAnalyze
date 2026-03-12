@@ -114,87 +114,37 @@ from .hypothesis_engine import (
     _run_deterministic_hypotheses,
 )
 
+# 导入新的 graph_utils 模块
+from .graph_utils import (
+    extract_json_candidates,
+    safe_json_any,
+    safe_json_load,
+    load_json_if_exists,
+    load_analysis_runtime_config,
+    is_llm_unavailable_error,
+    record_llm_degradation,
+    has_llm_unavailable_event,
+    strong_fallback_plan_ok,
+    strong_fallback_report_ok,
+    fallback_followup_hypotheses,
+    fallback_report_outline,
+    fallback_analysis_code,
+)
 
-def _extract_json_candidates(raw: str) -> list[str]:
-    if not raw:
-        return []
-    candidates: list[str] = []
-    fence = re.compile(r"```(?:json)?\s*([\s\S]*?)```", re.IGNORECASE)
-    for match in fence.findall(raw):
-        candidates.append(match.strip())
-    obj_match = re.search(r"(\{[\s\S]*\})", raw)
-    if obj_match:
-        candidates.append(obj_match.group(1))
-    arr_match = re.search(r"(\[[\s\S]*\])", raw)
-    if arr_match:
-        candidates.append(arr_match.group(1))
-    return candidates
-
-
-def _safe_json_any(raw: str) -> Any:
-    try:
-        return json.loads(raw)
-    except Exception:
-        pass
-    for candidate in _extract_json_candidates(raw):
-        try:
-            return json.loads(candidate)
-        except Exception:
-            continue
-    return {}
-
-
-def _safe_json_load(raw: str) -> dict[str, Any]:
-    payload = _safe_json_any(raw)
-    return payload if isinstance(payload, dict) else {}
-
-
-def _load_json_if_exists(path: Path) -> dict[str, Any]:
-    if not path.exists():
-        return {}
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-    return payload if isinstance(payload, dict) else {}
-
-
-def _load_analysis_runtime_config(session_dir: Path | None = None) -> dict[str, Any]:
-    defaults = {
-        "required_result_artifacts": [
-            "analysis_results.md",
-            "stats_results.json",
-            "correlation.json",
-            "feature_selection.json",
-            "hypothesis_evidence.json",
-            "hypothesis_evidence_pack.json",
-            "hypothesis_evidence_pack_validation.json",
-            "hypothesis_contrast.json",
-            "hypothesis_multipath.json",
-            "hypothesis_validation_contract.json",
-            "hypothesis_gate_report.json",
-            "expected_artifact_validation.json",
-            "hypothesis_matrix.json",
-            "coverage_report.json",
-            "visual_binding.json",
-            "model_eval.json",
-            "cv_results.json",
-        ]
-    }
-    candidates: list[Path] = []
-    if isinstance(session_dir, Path):
-        candidates.append(session_dir / "config" / "analysis_runtime.json")
-    candidates.append(Path("config") / "analysis_runtime.json")
-    for path in candidates:
-        if not path.exists():
-            continue
-        payload = _load_json_if_exists(path)
-        if not payload:
-            continue
-        merged = dict(defaults)
-        merged.update(payload)
-        return merged
-    return defaults
+# 为了保持向后兼容，保留原有的函数别名
+_extract_json_candidates = extract_json_candidates
+_safe_json_any = safe_json_any
+_safe_json_load = safe_json_load
+_load_json_if_exists = load_json_if_exists
+_load_analysis_runtime_config = load_analysis_runtime_config
+_is_llm_unavailable_error = is_llm_unavailable_error
+_record_llm_degradation = record_llm_degradation
+_has_llm_unavailable_event = has_llm_unavailable_event
+_strong_fallback_plan_ok = strong_fallback_plan_ok
+_strong_fallback_report_ok = strong_fallback_report_ok
+_fallback_followup_hypotheses = fallback_followup_hypotheses
+_fallback_report_outline = fallback_report_outline
+_fallback_analysis_code = fallback_analysis_code
 
 
 def _build_file_summary_fallback(file_info: str) -> str:
@@ -220,170 +170,6 @@ def _build_file_summary_fallback(file_info: str) -> str:
         size = str(item.get("size", "")).strip() or "unknown"
         lines.append(f"- 文件 {idx}：{name}（大小：{size}）")
     lines.append("- 说明：当前摘要由系统在 LLM 超时/不可用时自动生成，用于保障流程连续执行。")
-    return "\n".join(lines)
-
-
-def _is_llm_unavailable_error(raw: str) -> bool:
-    text = str(raw or "").strip().lower()
-    if not text:
-        return False
-    tokens = [
-        "model_not_found",
-        "rate limit",
-        "429",
-        "service unavailable",
-        "connection error",
-        "connection refused",
-        "timed out",
-        "timeout",
-        "api key",
-        "invalid api key",
-        "authentication",
-    ]
-    return any(token in text for token in tokens)
-
-
-def _record_llm_degradation(
-    state: OrchestrationState,
-    node: str,
-    action: str,
-    reason: str,
-    impact: str,
-) -> list[dict[str, Any]]:
-    events = list(state.get("llm_degradation_events", []) or [])
-    events.append(
-        {
-            "node": node,
-            "action": action,
-            "reason": reason,
-            "impact": impact,
-            "timestamp": int(time.time()),
-        }
-    )
-    return events
-
-
-def _has_llm_unavailable_event(events: list[dict[str, Any]] | None) -> bool:
-    if not isinstance(events, list):
-        return False
-    for event in events:
-        if not isinstance(event, dict):
-            continue
-        if _is_llm_unavailable_error(event.get("reason", "")):
-            return True
-    return False
-
-
-def _strong_fallback_plan_ok(plan_json: dict[str, Any]) -> tuple[bool, str]:
-    if not isinstance(plan_json, dict):
-        return False, "plan_not_object"
-    hypotheses = plan_json.get("hypotheses", [])
-    if not isinstance(hypotheses, list) or len(hypotheses) < 3:
-        return False, "hypothesis_count_lt_3"
-    ids: set[str] = set()
-    for row in hypotheses:
-        if not isinstance(row, dict):
-            return False, "hypothesis_not_object"
-        hid = str(row.get("id", "")).strip().upper()
-        if not re.fullmatch(r"H\d+", hid):
-            return False, "hypothesis_id_invalid"
-        if hid in ids:
-            return False, "hypothesis_id_duplicated"
-        ids.add(hid)
-        if not str(row.get("title", "")).strip():
-            return False, "hypothesis_title_missing"
-        if not str(row.get("hypothesis_type", "")).strip():
-            return False, "hypothesis_type_missing"
-        steps = row.get("steps", [])
-        if not isinstance(steps, list) or not steps:
-            return False, f"{hid}_steps_missing"
-        paths = row.get("validation_paths", [])
-        if not isinstance(paths, list) or len(paths) < 2:
-            return False, f"{hid}_validation_paths_lt_2"
-    return True, "ok"
-
-
-def _strong_fallback_report_ok(
-    completion_validation: dict[str, Any],
-    set_consistency: dict[str, Any],
-    pack_validation: dict[str, Any],
-) -> tuple[bool, list[str]]:
-    reasons: list[str] = []
-    if not bool((completion_validation or {}).get("complete", False)):
-        reasons.append("completion_validation_failed")
-    if not bool((set_consistency or {}).get("satisfied", False)):
-        reasons.append("hypothesis_set_inconsistent")
-    if not bool((pack_validation or {}).get("valid", False)):
-        reasons.append("evidence_pack_invalid")
-    return len(reasons) == 0, reasons
-
-
-def _fallback_followup_hypotheses(session_dir: Path) -> list[str]:
-    gate_payload = _load_json_if_exists(session_dir / "result" / "hypothesis_gate_report.json")
-    rows = gate_payload.get("hypotheses", []) if isinstance(gate_payload, dict) else []
-    followups: list[str] = []
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
-        status = str(row.get("gate_status", "")).strip().lower()
-        if status not in {"partial", "fail"}:
-            continue
-        hid = str(row.get("hypothesis_id", "")).strip() or "UNKNOWN"
-        reason = str(row.get("reason_code", "")).strip() or "证据不足"
-        followups.append(f"{hid} 未闭环（{reason}），建议补充缺失证据并重跑对应路径。")
-    if followups:
-        return followups[:6]
-    multipath_payload = _load_json_if_exists(session_dir / "result" / "hypothesis_multipath.json")
-    rows = multipath_payload.get("hypotheses", []) if isinstance(multipath_payload, dict) else []
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
-        status = str(row.get("status", "")).strip().lower()
-        if status == "inconclusive":
-            hid = str(row.get("hypothesis_id", "")).strip() or "UNKNOWN"
-            followups.append(f"{hid} 路径存在冲突，建议运行第三路径或复核数据切分口径。")
-    return followups[:6]
-
-
-def _fallback_report_outline(state: OrchestrationState) -> str:
-    plan_json = state.get("plan_json", {}) if isinstance(state.get("plan_json", {}), dict) else {}
-    hypotheses = plan_json.get("hypotheses", []) if isinstance(plan_json, dict) else []
-    lines = [
-        "# 报告大纲（LLM 不可用时自动生成）",
-        "",
-        "## 一、研究目标与数据说明",
-        "## 二、方法与执行路径",
-        "## 三、假设验证结果",
-    ]
-    if isinstance(hypotheses, list) and hypotheses:
-        for idx, hyp in enumerate(hypotheses, 1):
-            if not isinstance(hyp, dict):
-                continue
-            hid = str(hyp.get("id", "")).strip() or f"H{idx}"
-            title = str(hyp.get("title", "")).strip() or "未命名假设"
-            lines.append(f"### {hid} {title}")
-            lines.append("- 验证方案")
-            lines.append("- 执行结果")
-            lines.append("- 定量分析")
-            lines.append("- 结论与后续动作")
-    else:
-        lines.extend(
-            [
-                "### 假设验证（待补充）",
-                "- 验证方案",
-                "- 执行结果",
-                "- 定量分析",
-                "- 结论与后续动作",
-            ]
-        )
-    lines.extend(
-        [
-            "",
-            "## 四、跨假设综合讨论",
-            "## 五、结论与建议",
-            "## 六、附件与证据索引",
-        ]
-    )
     return "\n".join(lines)
 
 
@@ -2077,66 +1863,6 @@ def _extract_visualization_goals(plan_json: dict[str, Any] | None) -> list[str]:
                 if isinstance(value, str):
                     goals.append(value)
     return goals
-
-
-def _fallback_analysis_code() -> str:
-    return (
-        "import json\n"
-        "from pathlib import Path\n"
-        "import pandas as pd\n"
-        "import numpy as np\n"
-        "import matplotlib.pyplot as plt\n"
-        "\n"
-        "workspace = Path.cwd()\n"
-        "input_files = list(workspace.glob('*.xlsx')) + list(workspace.glob('*.csv')) + list(workspace.glob('*.tsv'))\n"
-        "if not input_files:\n"
-        "    raise SystemExit('No input data file found in workspace')\n"
-        "data_path = input_files[0]\n"
-        "if data_path.suffix.lower() == '.xlsx':\n"
-        "    df = pd.read_excel(data_path)\n"
-        "elif data_path.suffix.lower() == '.tsv':\n"
-        "    df = pd.read_csv(data_path, sep='\\t')\n"
-        "else:\n"
-        "    df = pd.read_csv(data_path)\n"
-        "\n"
-        "result_dir = workspace / 'result'\n"
-        "charts_dir = workspace / 'charts'\n"
-        "result_dir.mkdir(parents=True, exist_ok=True)\n"
-        "charts_dir.mkdir(parents=True, exist_ok=True)\n"
-        "\n"
-        "summary = {\n"
-        "    'rows': int(df.shape[0]),\n"
-        "    'columns': int(df.shape[1]),\n"
-        "    'columns_list': df.columns.tolist(),\n"
-        "    'missing_total': int(df.isna().sum().sum()),\n"
-        "}\n"
-        "(result_dir / 'summary.json').write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding='utf-8')\n"
-        "\n"
-        "numeric_cols = df.select_dtypes(include='number').columns\n"
-        "if len(numeric_cols) > 0:\n"
-        "    desc = df[numeric_cols].describe().T\n"
-        "    desc.to_csv(result_dir / 'numeric_summary.csv')\n"
-        "    corr = df[numeric_cols].corr()\n"
-        "    corr.to_csv(result_dir / 'correlation.csv')\n"
-        "\n"
-        "group_col = None\n"
-        "for candidate in ['Group', 'group', 'label', 'Label']:\n"
-        "    if candidate in df.columns:\n"
-        "        group_col = candidate\n"
-        "        break\n"
-        "if group_col and len(numeric_cols) > 0:\n"
-        "    grouped = df.groupby(group_col)[numeric_cols].mean()\n"
-        "    grouped.to_csv(result_dir / 'group_means.csv')\n"
-        "\n"
-        "if len(numeric_cols) > 0:\n"
-        "    fig, ax = plt.subplots(figsize=(8, 4))\n"
-        "    col = numeric_cols[0]\n"
-        "    df[col].dropna().hist(ax=ax, bins=30, color='#4C78A8')\n"
-        "    ax.set_title(f'Distribution of {col}')\n"
-        "    fig.tight_layout()\n"
-        "    fig.savefig(charts_dir / 'distribution.png', dpi=200)\n"
-        "    plt.close(fig)\n"
-    )
 
 
 def _telemetry_context(

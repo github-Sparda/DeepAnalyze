@@ -26,35 +26,12 @@ from src.core.orchestration.depth_research import (
     perform_sensitivity_analysis,
     generate_depth_research_plan
 )
-
-
-def _extract_json_candidates(raw: str) -> list[str]:
-    if not raw:
-        return []
-    candidates: list[str] = []
-    fence = re.compile(r"```(?:json)?\s*([\s\S]*?)```", re.IGNORECASE)
-    for match in fence.findall(raw):
-        candidates.append(match.strip())
-    obj_match = re.search(r"(\{[\s\S]*\})", raw)
-    if obj_match:
-        candidates.append(obj_match.group(1))
-    arr_match = re.search(r"(\[[\s\S]*\])", raw)
-    if arr_match:
-        candidates.append(arr_match.group(1))
-    return candidates
+from src.core.common import load_json, save_json, ensure_dir
+from src.core.orchestration.graph_utils import extract_json_candidates, safe_json_any
 
 
 def parse_structured_payload(raw: str) -> Any:
-    try:
-        return json.loads(raw)
-    except Exception:
-        pass
-    for candidate in _extract_json_candidates(raw):
-        try:
-            return json.loads(candidate)
-        except Exception:
-            continue
-    return {}
+    return safe_json_any(raw)
 
 
 def normalize_analysis_payload(payload: Any) -> Dict[str, Any]:
@@ -194,10 +171,7 @@ class ReportAssembler:
         return None
 
     def _load_json(self, path: Path) -> Any:
-        try:
-            return json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
-            return {}
+        return load_json(path)
 
     def _load_feature_dict(self, session_root: Path | None) -> dict[str, dict[str, Any]]:
         if not session_root:
@@ -2202,10 +2176,12 @@ class ReportAssembler:
                 lines = [ln for ln in text.splitlines() if ln.strip()][:max_lines]
                 return "\n".join(lines)
             if suffix in {".json"}:
-                payload = json.loads(path.read_text(encoding="utf-8"))
+                payload = load_json(path)
                 if isinstance(payload, dict):
+                    import json
                     return json.dumps(payload, ensure_ascii=False, indent=2)[:1200]
                 if isinstance(payload, list):
+                    import json
                     return json.dumps(payload[:3], ensure_ascii=False, indent=2)
             if suffix in {".csv"}:
                 df = pd.read_csv(path)
@@ -2341,12 +2317,8 @@ class ReportAssembler:
         return self._prioritize_visuals(selected)
 
     def _to_float(self, value: Any) -> float | None:
-        try:
-            if isinstance(value, bool):
-                return None
-            return float(value)
-        except Exception:
-            return None
+        from src.core.common import safe_convert_to_float
+        return safe_convert_to_float(value)
 
     def _split_readable_paragraph(self, text: str, max_len: int = 180) -> list[str]:
         raw = str(text or "").strip()
@@ -3445,17 +3417,16 @@ class ReportAssembler:
         lines.append(self._render_appendix(document_manifest, used_visuals, used_tables, session_root, binding_map))
         lines.append("")
         if session_root:
-            meta_dir = session_root / "meta"
-            meta_dir.mkdir(parents=True, exist_ok=True)
+            meta_dir = ensure_dir(session_root / "meta")
             full_report = "\n".join(lines)
             substance_audit = self._build_report_substance_audit(hypothesis_outcomes, full_report)
-            (meta_dir / "render_manifest.json").write_text(
-                json.dumps({"resources": render_manifest}, ensure_ascii=False, indent=2),
-                encoding="utf-8",
+            save_json(
+                meta_dir / "render_manifest.json",
+                {"resources": render_manifest}
             )
-            (meta_dir / "report_substance_audit.json").write_text(
-                json.dumps(substance_audit, ensure_ascii=False, indent=2),
-                encoding="utf-8",
+            save_json(
+                meta_dir / "report_substance_audit.json",
+                substance_audit
             )
         lines.append(self._preview_script())
         lines.append("")
