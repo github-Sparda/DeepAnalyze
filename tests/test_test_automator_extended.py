@@ -7,39 +7,39 @@ from typing import Any
 
 import pytest
 
-from tests.run_tests import TestAutomator
+from tests.run_tests import Automator
 
 
-def test_test_automator_initialization():
+def test_automator_initialization():
     """测试测试自动化器初始化"""
-    automator = TestAutomator()
+    automator = Automator()
     assert automator.project_root is not None
     assert automator.test_dir is not None
     assert automator.report_dir is not None
     assert automator.report_dir.exists()
 
 
-def test_test_automator_run_all_tests():
+def test_automator_run_all_tests():
     """测试运行所有测试"""
-    automator = TestAutomator()
+    automator = Automator()
     # 测试运行特定测试而不是所有测试，避免循环测试
     exit_code = automator.run_specific_tests(["tests/test_multimodal_data_fusion.py::test_multimodal_evidence_weights"], verbose=False)
     # 即使没有测试文件，也应该返回成功
     assert exit_code == 0
 
 
-def test_test_automator_run_specific_tests():
+def test_automator_run_specific_tests():
     """测试运行特定测试"""
-    automator = TestAutomator()
+    automator = Automator()
     # 运行特定测试，使用一个不存在的测试文件来测试错误处理
     exit_code = automator.run_specific_tests(["tests/test_nonexistent.py"], verbose=False)
     # 即使没有找到测试文件，也应该返回成功
     assert exit_code == 0
 
 
-def test_test_automator_parse_test_output():
+def test_automator_parse_test_output():
     """测试解析测试输出"""
-    automator = TestAutomator()
+    automator = Automator()
     # 测试解析简单的测试输出
     test_output = """
     tests/test_example.py::test_example PASSED
@@ -56,9 +56,9 @@ def test_test_automator_parse_test_output():
     assert results["skipped"] >= 1
 
 
-def test_test_automator_parse_test_output_only_passed():
+def test_automator_parse_test_output_only_passed():
     """测试解析只有通过的测试输出"""
-    automator = TestAutomator()
+    automator = Automator()
     # 测试解析只有通过的测试输出
     test_output = """
     3 PASSED in 0.08s
@@ -71,9 +71,9 @@ def test_test_automator_parse_test_output_only_passed():
     assert results["skipped"] >= 0
 
 
-def test_test_automator_generate_report():
+def test_automator_generate_report():
     """测试生成测试报告"""
-    automator = TestAutomator()
+    automator = Automator()
     test_results = {
         "total": 5,
         "passed": 4,
@@ -105,9 +105,9 @@ def test_test_automator_generate_report():
             report_file.unlink()
 
 
-def test_test_automator_print_test_summary(capfd):
+def test_automator_print_test_summary(capfd):
     """测试打印测试摘要"""
-    automator = TestAutomator()
+    automator = Automator()
     test_results = {
         "total": 10,
         "passed": 8,
@@ -129,18 +129,18 @@ def test_test_automator_print_test_summary(capfd):
     assert "退出码: 0" in captured.out
 
 
-def test_test_automator_get_test_coverage():
+def test_automator_get_test_coverage():
     """测试获取测试覆盖率"""
-    automator = TestAutomator()
+    automator = Automator()
     # 测试没有覆盖率文件的情况
     coverage_data = automator.get_test_coverage()
     # 覆盖率数据可能返回 None 或者一个字典，我们只检查函数不抛出异常
     assert coverage_data is None or isinstance(coverage_data, dict)
 
 
-def test_test_automator_edge_cases():
+def test_automator_edge_cases():
     """测试测试自动化器的边界情况"""
-    automator = TestAutomator()
+    automator = Automator()
     
     # 测试解析空输出
     empty_output = ""
@@ -158,9 +158,9 @@ def test_test_automator_edge_cases():
     assert results["passed"] == 1
 
 
-def test_test_automator_parallel_execution():
+def test_automator_parallel_execution():
     """测试并行执行测试"""
-    automator = TestAutomator()
+    automator = Automator()
     # 测试并行执行，应该不会抛出异常
     try:
         # 测试并行执行参数，不实际运行测试
@@ -171,9 +171,9 @@ def test_test_automator_parallel_execution():
         assert "未安装 pytest-xdist 插件" in str(e)
 
 
-def test_test_automator_coverage_report():
+def test_automator_coverage_report():
     """测试生成覆盖率报告"""
-    automator = TestAutomator()
+    automator = Automator()
     # 测试生成覆盖率报告，应该不会抛出异常
     try:
         # 只测试覆盖率报告的生成逻辑，不实际运行测试

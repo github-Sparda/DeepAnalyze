@@ -13,7 +13,7 @@ from datetime import datetime
 from pathlib import Path
 
 
-class TestAutomator:
+class Automator:
     """测试自动化类"""
     
     def __init__(self):
@@ -534,7 +534,7 @@ class TestAutomator:
 
 def main():
     """主函数"""
-    automator = TestAutomator()
+    automator = Automator()
     
     # 解析命令行参数
     import argparse
