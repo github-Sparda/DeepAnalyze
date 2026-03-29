@@ -5,26 +5,23 @@
 
 from .tool_interface import ToolRegistry, ToolExecutor
 from .python.data_manipulation import register_python_tools
+from .python.runner_tools import register_runner_tools
 from .sql.query_builder import register_sql_tools
 from .r.r_bridge import register_r_tools
 
 class AnalysisToolManager:
     """分析工具管理器"""
-    
+
     def __init__(self):
         self.registry = ToolRegistry()
         self.executor = ToolExecutor(self.registry)
         self._register_all_tools()
-    
+
     def _register_all_tools(self):
         """注册所有工具"""
-        # 注册Python工具
         register_python_tools(self.registry)
-        
-        # 注册SQL工具
+        register_runner_tools(self.registry)
         register_sql_tools(self.registry)
-        
-        # 注册R工具
         register_r_tools(self.registry)
     
     def get_available_tools(self, tool_type=None):

@@ -726,11 +726,29 @@ pip install python-docx
         return output_path
     
     def _markdown_to_html(self, markdown_text: str) -> str:
-        """简单的Markdown转HTML（简化版本）"""
-        # 这里是极简实现，实际项目中应该使用markdown库
-        html = markdown_text.replace('\n\n', '</p><p>')
-        html = html.replace('# ', '<h1>').replace('\n', '<br>')
-        return f"<p>{html}</p>"
+        """将Markdown文本转换为HTML"""
+        import markdown
+        _MD_EXTENSIONS = [
+            "tables",
+            "fenced_code",
+            "codehilite",
+            "nl2br",
+            "sane_lists",
+        ]
+        _MD_EXTENSION_CONFIGS = {
+            "codehilite": {"css_class": "highlight", "guess_lang": False},
+            "tables": {},
+            "fenced_code": {},
+            "nl2br": {},
+            "sane_lists": {},
+        }
+        html = markdown.markdown(
+            markdown_text,
+            extensions=_MD_EXTENSIONS,
+            extension_configs=_MD_EXTENSION_CONFIGS,
+            output_format="html",
+        )
+        return html
 
 
 # 便捷函数

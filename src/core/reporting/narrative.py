@@ -203,40 +203,38 @@ def metric_narrative(metric: dict[str, Any], style_seed: int = 0) -> str:
     direction = str(metric.get("direction", "")).strip().lower()
     explain = METRIC_EXPLANATION.get(key, {})
     display_name = str(metric.get("display_name") or explain.get("name") or key or "指标")
-    definition = explain.get("definition", "补充当前假设的定量证据")
-    definition_sentence = f"用于{definition}" if not str(definition).startswith("用于") else str(definition)
-    value_text = f"{value}{unit}" if unit else f"{value}"
+    definition = explain.get("definition", "")
     judgement, relation = _eval_threshold(value, threshold)
+
+    v = _to_float(value)
+    value_text = f"{v:.4g}" if v is not None else str(value)
+
+    if v is not None:
+        implication = _metric_implication_sentence(key, v)
+    else:
+        implication = ""
 
     if threshold:
         if judgement == "pass":
-            threshold_sentence = f"与阈值（{threshold}）比较后，本项通过判定（{relation}）。"
+            verdict = f"✓ 通过（{relation}）"
         elif judgement == "fail":
-            threshold_sentence = f"与阈值（{threshold}）比较后，本项未通过判定（{relation}）。"
+            verdict = f"✗ 未达阈值（{relation}）"
         else:
-            threshold_sentence = f"阈值为 {threshold}，但当前值无法完成可靠比较。"
+            verdict = f"? 阈值{threshold}，比较失败"
     else:
-        threshold_sentence = "该指标当前未设置统一判定阈值，因此仅作描述性解释，不直接参与通过/失败判定。"
+        verdict = ""
 
-    if direction == "higher_is_stronger":
-        direction_sentence = "该指标通常数值越高，支持力度越强。"
-    elif direction == "lower_is_stronger":
-        direction_sentence = "该指标通常数值越低，稳定性或支持力度越强。"
-    else:
-        direction_sentence = "该指标的解读方向需结合具体方法与任务场景。"
+    parts = [f"{display_name} = {value_text}"]
+    if unit and unit not in ("ratio", "count", ""):
+        parts[-1] += f" {unit}"
+    if definition:
+        parts.append(definition)
+    if verdict:
+        parts.append(verdict)
+    if implication:
+        parts.append(implication)
 
-    implication = _metric_implication_sentence(key, value)
-    implication_sentence = f"取值解读：{implication}" if implication else ""
-
-    key_bias = sum(ord(ch) for ch in key) if key else 0
-    templates = [
-        f"{display_name}（{key}）{definition_sentence}。当前值为 {value_text}。{threshold_sentence}{direction_sentence}{implication_sentence}",
-        f"从 {display_name}（{key}）看，其含义是{definition}；本次取值 {value_text}。{direction_sentence}{threshold_sentence}{implication_sentence}",
-        f"就 {display_name}（{key}）而言，当前观测值为 {value_text}，该值用于衡量{definition}。{threshold_sentence}{direction_sentence}{implication_sentence}",
-    ]
-    return templates[(style_seed + key_bias) % len(templates)]
-
-
+    return " | ".join(parts)
 def _metric_implication_sentence(metric_key: str, value: Any) -> str:
     v = _to_float(value)
     if v is None:
