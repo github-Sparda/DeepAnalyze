@@ -67,6 +67,13 @@ REPORT_CSS = """
     padding-bottom: 8px;
     display: inline;
 }
+/* H1/H2/H3假设标题上方空半行 - 通过details添加 */
+.report-container details:has(.heading-level-1) {
+    margin-top: 24px;
+}
+.report-container details:has(.heading-level-1):first-of-type {
+    margin-top: 0;
+}
 .report-container .heading-level-2 {
     font-size: 1.2em;
     font-weight: 600;
@@ -86,13 +93,14 @@ REPORT_CSS = """
     display: inline;
 }
 
-/* 折叠箭头 - 左侧放大样式 */
+/* 折叠箭头 - 放大样式 */
 .report-container .collapse-arrow {
-    margin-right: 10px;
+    margin-right: 12px;
     color: #3b82f6;
-    font-size: 1.2em;
+    font-size: 1.8em;
     display: inline-block;
     vertical-align: middle;
+    line-height: 1;
 }
 
 /* summary行内布局 */

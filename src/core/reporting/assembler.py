@@ -3319,7 +3319,7 @@ class ReportAssembler:
                 if isinstance(evidence_entry, dict):
                     sources = evidence_entry.get("evidence_sources", []) or []
                     if sources:
-                        lines.append("#### 证据摘录")
+                        lines.append("##### 证据摘录")
                         for src in sources[:4]:
                             rel = str(src)
                             lines.append(f"<details><summary>来源：<code>{rel}</code></summary>")
