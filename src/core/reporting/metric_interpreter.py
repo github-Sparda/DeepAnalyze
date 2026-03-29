@@ -732,10 +732,9 @@ def wrap_headings_with_details(html_content: str) -> str:
             title = m.group(2)
             inner = m.group(3) if len(m.groups()) > 2 else ''
             collapsed = make_collapsed(title)
-            arrow = '▶' if collapsed else '▼'
             open_attr = '' if collapsed else ' open'
             cls = heading_class.get(tag, 'heading-level-default')
-            return f'<details class="collapsible-section"{open_attr}><summary><span class="collapse-arrow">{arrow}</span><span class="{cls}">{title}</span></summary>{inner}</details>'
+            return f'<details class="collapsible-section"{open_attr}><summary><span class="{cls}">{title}</span></summary>{inner}</details>'
 
         html_content = re.sub(
             pattern,

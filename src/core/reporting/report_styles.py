@@ -58,49 +58,38 @@ REPORT_CSS = """
     margin-bottom: 4px;
 }
 
-.report-container h2 {
+/* ===== heading-level class 样式 (用于span元素) ===== */
+.report-container .heading-level-1 {
     font-size: 1.4em;
-    font-weight: 600;
-    color: #2c5282;
-    border-bottom: 2px solid #e2e8f0;
+    font-weight: 700;
+    color: #1e40af;
+    border-bottom: 3px solid #3b82f6;
     padding-bottom: 8px;
-    margin-top: 32px;
-    margin-bottom: 16px;
-    cursor: pointer;
-    user-select: none;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
+    display: block;
 }
-
-.report-container h2::before {
-    content: "▼";
-    font-size: 0.7em;
-    margin-right: 10px;
-    color: #718096;
-    transition: transform 0.2s;
-}
-
-.report-container h2.collapsed::before {
-    transform: rotate(-90deg);
-}
-
-.report-container h3 {
-    font-size: 1.15em;
+.report-container .heading-level-2 {
+    font-size: 1.2em;
     font-weight: 600;
-    color: #2d3748;
-    margin-top: 24px;
-    margin-bottom: 12px;
-    padding-left: 12px;
-    border-left: 4px solid #4299e1;
+    color: #1e293b;
+    display: block;
 }
-
-.report-container h4 {
+.report-container .heading-level-3 {
+    font-size: 1.1em;
+    font-weight: 600;
+    color: #475569;
+    display: block;
+}
+.report-container .heading-level-4 {
     font-size: 1em;
     font-weight: 600;
-    color: #4a5568;
-    margin-top: 18px;
-    margin-bottom: 8px;
+    color: #334155;
+    display: block;
+}
+
+/* 折叠箭头 */
+.report-container .collapse-arrow {
+    margin-right: 8px;
+    color: #64748b;
 }
 
 /* ===== 折叠功能 ===== */
@@ -361,43 +350,34 @@ REPORT_CSS = """
 
 REPORT_JAVASCRIPT = """
 document.addEventListener('DOMContentLoaded', function() {
-    // 折叠功能：直接使用原生<details>/<summary>，不额外处理点击
-    // 浏览器原生支持展开/折叠，点击summary即可切换
-
-    // 确保所有summary都有良好的样式
-    const summaries = document.querySelectorAll('.report-container summary');
-    summaries.forEach(function(summary) {
-        // 确保有指针样式
-        summary.style.cursor = 'pointer';
-    });
-
-    // 为没有箭头的summary添加默认箭头样式
+    // 使用原生details/summary折叠
     const details = document.querySelectorAll('.report-container details');
     details.forEach(function(detail) {
+        // 添加自定义箭头（如果summary中没有）
         const summary = detail.querySelector('summary');
-        if (summary && !summary.querySelector('.collapse-arrow')) {
-            // 如果summary中没有collapse-arrow，添加一个
-            const arrow = document.createElement('span');
-            arrow.className = 'collapse-arrow';
-            arrow.style.marginRight = '8px';
-            arrow.style.color = '#64748b';
-            summary.insertBefore(arrow, summary.firstChild);
-        }
-
-        // 更新箭头状态
-        const arrow = summary.querySelector('.collapse-arrow');
-        if (arrow) {
-            // 初始状态：展开显示▼，折叠显示▶
-            arrow.textContent = detail.hasAttribute('open') ? '▼' : '▶';
-        }
-
-        // 监听toggle事件更新箭头
-        detail.addEventListener('toggle', function() {
-            const currentArrow = this.querySelector('summary .collapse-arrow');
-            if (currentArrow) {
-                currentArrow.textContent = this.hasAttribute('open') ? '▼' : '▶';
+        if (summary) {
+            let arrow = summary.querySelector('.collapse-arrow');
+            if (!arrow) {
+                arrow = document.createElement('span');
+                arrow.className = 'collapse-arrow';
+                arrow.style.marginRight = '8px';
+                summary.insertBefore(arrow, summary.firstChild);
             }
-        });
+            // 初始箭头
+            arrow.textContent = detail.hasAttribute('open') ? '▼' : '▶';
+
+            // 点击事件
+            summary.addEventListener('click', function(e) {
+                e.preventDefault();
+                if (detail.hasAttribute('open')) {
+                    detail.removeAttribute('open');
+                    arrow.textContent = '▶';
+                } else {
+                    detail.setAttribute('open', '');
+                    arrow.textContent = '▼';
+                }
+            });
+        }
     });
 });
 """
