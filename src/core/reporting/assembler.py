@@ -21,6 +21,8 @@ from src.core.reporting.narrative import (
     reason_code_sentence,
 )
 from src.core.reporting.metric_interpreter import (
+    format_metric_html,
+    format_check_result_html,
     interpret_check_result,
     interpret_metrics_summary,
     NarrativeGenerator,
@@ -2410,11 +2412,12 @@ class ReportAssembler:
         gate_entry = gate_entry or {}
         contrast_entry = contrast_entry or {}
         evidence_sources = evidence_sources or []
-        quant_text = ""
-        if quant_evaluations:
-            quant_text = "关键数值见本节'定量结果（指标与证据）'。"
-        elif quant_metrics:
-            quant_text = "已提取到定量指标，但阈值判定信息不完整。"
+
+        narrative_gen = NarrativeGenerator()
+
+        quant_text = narrative_gen.generate_metric_reference(quant_evaluations) if quant_evaluations else ""
+        if not quant_text and quant_metrics:
+            quant_text = "已提取定量指标，相关数值见下文。"
         gate_status = str(gate_entry.get("gate_status", "")).lower()
         gate_rule_type = str(gate_entry.get("gate_rule_type", "")).strip()
         failed_checks = gate_entry.get("failed_checks", []) if isinstance(gate_entry.get("failed_checks"), list) else []

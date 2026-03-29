@@ -417,33 +417,37 @@ class ReportManager:
     
     def _export_to_html(self, content: str, metadata: Dict[str, Any], output_path: str) -> str:
         """导出为HTML"""
+        from src.core.reporting.report_styles import get_report_styles
+        css, js = get_report_styles()
+
         html_template = f"""
 <!DOCTYPE html>
-<html>
+<html lang="zh-CN">
 <head>
     <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{metadata['title']}</title>
     <style>
-        body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 40px; line-height: 1.6; }}
-        header {{ border-bottom: 2px solid #333; padding-bottom: 20px; margin-bottom: 30px; }}
-        h1 {{ color: #2c3e50; }}
-        h2 {{ color: #34495e; border-bottom: 1px solid #eee; padding-bottom: 10px; }}
-        .metadata {{ background: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0; }}
-        .section {{ margin: 25px 0; }}
+{css}
     </style>
 </head>
 <body>
-    <header>
-        <h1>{metadata['title']}</h1>
-        <div class="metadata">
-            <p><strong>作者:</strong> {metadata['author']}</p>
-            <p><strong>创建时间:</strong> {metadata['created_at']}</p>
-            <p><strong>报告类型:</strong> {metadata['report_type']}</p>
+    <div class="report-container">
+        <header>
+            <h1>{metadata['title']}</h1>
+            <div class="abstract-box">
+                <p><strong>作者:</strong> {metadata['author']}</p>
+                <p><strong>创建时间:</strong> {metadata['created_at']}</p>
+                <p><strong>报告类型:</strong> {metadata['report_type']}</p>
+            </div>
+        </header>
+        <div class="content">
+            {self._markdown_to_html(content)}
         </div>
-    </header>
-    <div class="content">
-        {self._markdown_to_html(content)}
     </div>
+    <script>
+{js}
+    </script>
 </body>
 </html>
         """

@@ -269,7 +269,7 @@ def metric_narrative(metric: dict[str, Any], style_seed: int = 0) -> str:
         parts[-1] += f" {unit}"
 
     llm_interpretation = _try_llm_interpretation(key, value)
-    if llm_interpretation:
+    if llm_interpretation and not llm_interpretation.startswith(f"{key} ="):
         parts.append(llm_interpretation)
     elif definition:
         parts.append(definition)

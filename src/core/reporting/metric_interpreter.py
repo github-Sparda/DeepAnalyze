@@ -97,6 +97,152 @@ METRIC_METADATA: dict[str, dict[str, Any]] = {
 }
 
 
+def format_metric_html(
+    metric_key: str,
+    value: Any,
+    interpretation: str | None = None,
+    status: str | None = None,
+) -> str:
+    """
+    生成带颜色标记的HTML指标显示
+
+    Args:
+        metric_key: 指标英文名
+        value: 指标值
+        interpretation: LLM解读（如有）
+        status: 状态 ('positive', 'negative', 'warning', 'error', 'neutral')
+
+    Returns:
+        HTML格式的指标显示，包含颜色和样式
+    """
+    metadata = METRIC_METADATA.get(metric_key, {})
+    display_name = metadata.get("name", metric_key)
+
+    # 确定颜色状态
+    if status is None:
+        status = _infer_metric_status(metric_key, value)
+
+    # 根据状态选择CSS类
+    css_class_map = {
+        "positive": "metric-positive",
+        "negative": "metric-negative",
+        "warning": "metric-warning",
+        "error": "metric-error",
+        "neutral": "metric-neutral",
+    }
+    css_class = css_class_map.get(status, "metric-neutral")
+
+    # 格式化数值
+    if isinstance(value, float):
+        if abs(value) < 0.001:
+            value_str = f"{value:.2e}"
+        elif abs(value) < 1:
+            value_str = f"{value:.4f}"
+        else:
+            value_str = f"{value:.4g}"
+    else:
+        value_str = str(value)
+
+    # 构建HTML
+    parts = [f'<span class="{css_class}"><strong>{display_name}</strong></span>']
+    parts.append(f'<span class="{css_class}"> = <span class="metric-value">{value_str}</span></span>')
+
+    if interpretation:
+        parts.append(f'<span class="{css_class}">（{interpretation}）</span>')
+
+    return "".join(parts)
+
+
+def _infer_metric_status(metric_key: str, value: Any) -> str:
+    """根据指标类型和取值推断颜色状态"""
+    # 阈值判断类指标
+    threshold_indicators = {
+        "auc": (0.7, 0.8, 0.9),
+        "cv_mean_accuracy": (0.7, 0.8, 0.9),
+        "silhouette": (0.5, 0.7, 0.9),
+        "significant_p_lt_0_05": (5, 20, 40),
+    }
+
+    if metric_key in threshold_indicators:
+        low, mid, high = threshold_indicators[metric_key]
+        if value >= high:
+            return "positive"
+        elif value >= mid:
+            return "neutral"
+        else:
+            return "negative"
+
+    # 通过/失败类
+    if "pass" in metric_key or "passed" in metric_key:
+        return "positive" if value else "negative"
+
+    if "fail" in metric_key or "conflict" in metric_key or "error" in metric_key:
+        return "negative"
+
+    # 数量类
+    if value is not None:
+        if isinstance(value, (int, float)):
+            if value > 0:
+                return "positive"
+
+    return "neutral"
+
+
+def format_check_result_html(item: dict[str, Any], interpretation: str | None = None) -> str:
+    """
+    生成带颜色标记的HTML检查结果显示
+
+    Args:
+        item: 检查结果字典
+        interpretation: LLM解读
+
+    Returns:
+        HTML格式的检查结果
+    """
+    check = item.get("check", "")
+    passed = item.get("passed")
+    metadata = METRIC_METADATA.get(check, {})
+    check_name = metadata.get("name", check)
+
+    if passed:
+        status = "positive"
+        status_text = '<span class="tag tag-pass">通过</span>'
+    else:
+        status = "negative"
+        status_text = '<span class="tag tag-fail">未通过</span>'
+
+    css_class = "metric-positive" if passed else "metric-negative"
+
+    parts = [
+        f'<span class="{css_class}"><strong>{check_name}</strong></span>',
+        f" {status_text}",
+    ]
+
+    if interpretation:
+        parts.append(f'<span class="{css_class}">（{interpretation}）</span>')
+
+    return "".join(parts)
+
+
+def format_conclusion_html(text: str, level: str = "normal") -> str:
+    """
+    生成带颜色标记的HTML结论显示
+
+    Args:
+        text: 结论文本
+        level: 重要程度 ('highlight', 'normal', 'warning')
+
+    Returns:
+        HTML格式的结论
+    """
+    if level == "highlight":
+        return f'<span class="conclusion-highlight">{text}</span>'
+    elif level == "warning":
+        return f'<span class="metric-warning">{text}</span>'
+    else:
+        return text
+
+
 class LLMMetricInterpreter:
     """LLM指标解释器"""
 
