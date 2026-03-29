@@ -721,19 +721,12 @@ def wrap_headings_with_details(html_content: str) -> str:
     def make_collapsed(title_text: str) -> bool:
         return any(kw in title_text for kw in default_collapsed_keywords)
 
-    def heading_to_details(match, tag):
-        title = match.group(1)
-        content = match.group(2) if match.group(2) else ''
-        collapsed = make_collapsed(title)
-        arrow = '▶' if collapsed else '▼'
-        open_attr = '' if collapsed else ' open'
-        return f'<details class="collapsible-section"{open_attr}><summary>{arrow} {title}</summary>{content}</details>'
+    # 标题层级class映射
+    heading_class = {'h2': 'heading-level-1', 'h3': 'heading-level-2', 'h4': 'heading-level-3'}
 
     # 处理 h2, h3, h4
     for tag in ['h2', 'h3', 'h4']:
-        # 匹配标题及其后续内容（直到下一个同级或更高级标题）
         pattern = rf'(<{tag}>([^<]*)</{tag}>)\s*(.*?)(?=(?:<h[234]>)|$)'
-        content = re.DOTALL
 
         def replacer(m):
             title = m.group(2)
@@ -741,10 +734,11 @@ def wrap_headings_with_details(html_content: str) -> str:
             collapsed = make_collapsed(title)
             arrow = '▶' if collapsed else '▼'
             open_attr = '' if collapsed else ' open'
-            return f'<details class="collapsible-section"{open_attr}><summary>{arrow} {title}</summary>{inner}</details>'
+            cls = heading_class.get(tag, 'heading-level-default')
+            return f'<details class="collapsible-section"{open_attr}><summary><span class="collapse-arrow">{arrow}</span><span class="{cls}">{title}</span></summary>{inner}</details>'
 
         html_content = re.sub(
-            rf'(<{tag}>([^<]*)</{tag}>)\s*(.*?)(?=(?:<h[234]>)|$)',
+            pattern,
             replacer,
             html_content,
             flags=re.DOTALL | re.IGNORECASE

@@ -376,21 +376,26 @@ document.addEventListener('DOMContentLoaded', function() {
         summary.style.alignItems = 'center';
         summary.style.gap = '8px';
 
-        // 添加折叠箭头
-        const arrow = document.createElement('span');
-        arrow.className = 'collapse-arrow';
-        arrow.textContent = shouldCollapse ? '▶' : '▼';
-        arrow.style.fontSize = '0.7em';
-        arrow.style.color = '#718096';
-        arrow.style.transition = 'transform 0.2s';
-
-        summary.insertBefore(arrow, summary.firstChild);
+        // 如果已有collapse-arrow则不重复添加
+        const existingArrow = summary.querySelector('.collapse-arrow');
+        if (!existingArrow) {
+            const arrow = document.createElement('span');
+            arrow.className = 'collapse-arrow';
+            arrow.textContent = shouldCollapse ? '▶' : '▼';
+            arrow.style.fontSize = '0.7em';
+            arrow.style.color = '#718096';
+            arrow.style.transition = 'transform 0.2s';
+            summary.insertBefore(arrow, summary.firstChild);
+        }
 
         // 点击时切换箭头方向
         summary.addEventListener('click', function(e) {
             e.preventDefault();
             details.open = !details.open;
-            arrow.textContent = details.open ? '▼' : '▶';
+            const arrow = summary.querySelector('.collapse-arrow');
+            if (arrow) {
+                arrow.textContent = details.open ? '▼' : '▶';
+            }
         });
 
         // 替换原标题
@@ -416,21 +421,55 @@ document.addEventListener('DOMContentLoaded', function() {
     const style = document.createElement('style');
     style.textContent = `
         .collapsible-section {
-            margin: 8px 0;
+            margin: 12px 0;
         }
         .collapsible-section summary {
             user-select: none;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 12px;
+            border-radius: 6px;
+            cursor: pointer;
         }
         .collapsible-section summary::-webkit-details-marker {
             display: none;
         }
-        .collapsible-section > summary:hover {
-            background-color: #f7fafc;
-            border-radius: 4px;
+        .collapsible-section summary:hover {
+            background-color: #f1f5f9;
+        }
+        /* 标题层级样式 */
+        .heading-level-1 {
+            font-size: 1.5em;
+            font-weight: 700;
+            color: #1e40af;
+            border-bottom: 3px solid #3b82f6;
+            padding-bottom: 8px;
+            margin-bottom: 4px;
+        }
+        .heading-level-2 {
+            font-size: 1.25em;
+            font-weight: 600;
+            color: #1e293b;
+            border-left: 4px solid #3b82f6;
+            padding-left: 12px;
+            margin: 4px 0;
+        }
+        .heading-level-3 {
+            font-size: 1.1em;
+            font-weight: 600;
+            color: #475569;
+            padding-left: 16px;
+            margin: 4px 0;
         }
         details.collapsible-section > *:not(summary) {
-            margin-left: 20px;
-            padding: 4px 0;
+            margin-left: 24px;
+            padding: 6px 0;
+        }
+        .collapse-arrow {
+            font-size: 0.7em;
+            color: #64748b;
+            transition: transform 0.2s;
         }
     `;
     document.head.appendChild(style);
