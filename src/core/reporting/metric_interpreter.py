@@ -698,15 +698,14 @@ def wrap_headings_with_details(html_content: str) -> str:
     """
     将HTML中的标题转换为可折叠的details元素
 
-    Args:
-        html_content: HTML内容
-
-    Returns:
-        转换后的HTML
+    使用正确的层级逻辑：
+    - h2 包含内容直到下一个 h2/h1 或结束
+    - h3 包含内容直到下一个 h3/h2/h1 或结束
+    - h4 包含内容直到下一个 h4/h3/h2/h1 或结束
+    - h5 包含内容直到下一个 h5/h4/h3/h2/h1 或结束
     """
     import re
 
-    # 要默认折叠的小节标题关键词
     default_collapsed_keywords = [
         '一致性与冲突',
         '计划产物',
@@ -721,19 +720,31 @@ def wrap_headings_with_details(html_content: str) -> str:
     def make_collapsed(title_text: str) -> bool:
         return any(kw in title_text for kw in default_collapsed_keywords)
 
-    # 标题层级class映射
-    heading_class = {'h2': 'heading-level-1', 'h3': 'heading-level-2', 'h4': 'heading-level-3', 'h5': 'heading-level-4'}
+    heading_class = {
+        'h2': 'heading-level-1',
+        'h3': 'heading-level-2',
+        'h4': 'heading-level-3',
+        'h5': 'heading-level-4'
+    }
 
-    # 处理 h2, h3, h4, h5
-    for tag in ['h2', 'h3', 'h4', 'h5']:
-        pattern = rf'(<{tag}>([^<]*)</{tag}>)\s*(.*?)(?=(?:<h[2345]>)|$)'
+    # 层级定义：key是当前级别，stoppers是遇到时停止的级别
+    # 从低级别到高级别依次处理，这样高级别处理时不会碰到低级标题
+    level_config = [
+        ('h5', 'h[12345]'),  # h5遇到任何更高级别标题就停止
+        ('h4', 'h[1234]'),    # h4遇到h3/h2/h1就停止
+        ('h3', 'h[123]'),     # h3遇到h2/h1就停止
+        ('h2', 'h[12]'),      # h2遇到h1就停止
+    ]
 
-        def replacer(m):
+    for tag, stop_pattern in level_config:
+        pattern = rf'(<{tag}>([^<]*)</{tag}>)\s*(.*?)(?=(?:<{stop_pattern}>)|$)'
+
+        def replacer(m, current_tag=tag):
             title = m.group(2)
             inner = m.group(3) if len(m.groups()) > 2 else ''
             collapsed = make_collapsed(title)
             open_attr = '' if collapsed else ' open'
-            cls = heading_class.get(tag, 'heading-level-default')
+            cls = heading_class.get(current_tag, 'heading-level-default')
             return f'<details class="collapsible-section"{open_attr}><summary><span class="{cls}">{title}</span></summary>{inner}</details>'
 
         html_content = re.sub(
