@@ -97,6 +97,26 @@ METRIC_EXPLANATION: dict[str, dict[str, str]] = {
         "name": "检验特征数",
         "definition": "本次分析中实际检验的特征总数",
     },
+    "train_accuracy": {
+        "name": "训练集准确率",
+        "definition": "模型在训练集上的预测准确率",
+    },
+    "test_accuracy": {
+        "name": "测试集准确率",
+        "definition": "模型在测试集上的预测准确率",
+    },
+    "pr_auc": {
+        "name": "PR曲线下面积 (PR-AUC)",
+        "definition": "Precision-Recall曲线下面积，衡量不平衡数据下的分类性能",
+    },
+    "majority_accuracy": {
+        "name": "多数类基线准确率",
+        "definition": "简单预测多数类的基线准确率",
+    },
+    "cv_mean_accuracy": {
+        "name": "交叉验证平均准确率",
+        "definition": "各折交叉验证准确率的平均值",
+    },
     "max_abs_log2_fold_change": {
         "name": "最大绝对 Log2 Fold Change",
         "definition": "处理组相对对照组最大变化倍数的对数尺度（log2），|log2FC|>1 表示显著变化",
@@ -124,6 +144,38 @@ METRIC_EXPLANATION: dict[str, dict[str, str]] = {
     "top_features": {
         "name": "Top 特征列表",
         "definition": "按统计显著性或效应量排序的前列特征",
+    },
+    "abs_corr_gt_0_5_edges": {
+        "name": "|corr|>0.5 边数",
+        "definition": "相关网络中中等强度相关边的数量（|r|>0.5）",
+    },
+    "abs_corr_gt_0_7_edges": {
+        "name": "|corr|>0.7 边数",
+        "definition": "相关网络中强相关边的数量（|r|>0.7）",
+    },
+    "strongest_pair": {
+        "name": "最强相关变量对",
+        "definition": "相关系数绝对值最大的变量对",
+    },
+    "max_abs_corr": {
+        "name": "最大绝对相关系数",
+        "definition": "网络中所有变量对之间最大的相关系数绝对值",
+    },
+    "max_abs_fold_change": {
+        "name": "最大绝对 Fold Change",
+        "definition": "处理组相对对照组最大倍数变化，FC>2 表示上调，FC<0.5 表示下调",
+    },
+    "mean_abs_fold_change": {
+        "name": "平均绝对 Fold Change",
+        "definition": "所有特征 FC 绝对值的平均，反映整体倍数变化水平",
+    },
+    "max_abs_log2_fold_change": {
+        "name": "最大绝对 Log2 Fold Change",
+        "definition": "处理组相对对照组最大变化倍数的对数尺度，|log2FC|>1 表示显著变化",
+    },
+    "mean_abs_log2_fold_change": {
+        "name": "平均绝对 Log2 Fold Change",
+        "definition": "所有特征 log2FC 绝对值的平均，反映整体变化幅度",
     },
 
 }
@@ -228,7 +280,7 @@ def _eval_threshold(value: Any, threshold: str) -> tuple[str, str]:
     return ("pass" if passed else "fail", relation)
 
 
-def metric_narrative(metric: dict[str, Any], style_seed: int = 0) -> str:
+def metric_narrative(metric: dict[str, Any], style_seed: int = 0, return_html: bool = False) -> str:
     key = str(metric.get("name", "")).strip().lower()
     unit = str(metric.get("unit", "")).strip()
     threshold = str(metric.get("threshold", "")).strip()
@@ -279,7 +331,22 @@ def metric_narrative(metric: dict[str, Any], style_seed: int = 0) -> str:
     if implication:
         parts.append(implication)
 
-    return " | ".join(parts)
+    text = " | ".join(parts)
+
+    if not return_html:
+        return text
+
+    # Determine CSS class based on judgement
+    if judgement == "pass":
+        css_class = "metric-positive"
+    elif judgement == "fail":
+        css_class = "metric-negative"
+    elif v is not None and v > 0:
+        css_class = "metric-positive"
+    else:
+        css_class = "metric-neutral"
+
+    return f'<span class="{css_class}">{text}</span>'
 
 
 def _try_llm_interpretation(metric_key: str, value: Any) -> str:

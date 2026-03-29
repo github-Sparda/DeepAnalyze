@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Tuple
 import pandas as pd
 from src.core.analytics.resources import load_feature_dictionary
 from src.core.reporting.narrative import (
+    METRIC_EXPLANATION,
     detect_metric_conflicts_detailed,
     detect_metric_conflicts,
     failed_check_review_steps,
@@ -2277,7 +2278,8 @@ class ReportAssembler:
             for metric in quant_list[:8]:
                 if not isinstance(metric, dict):
                     continue
-                display = metric.get("display_name") or metric.get("name")
+                key = str(metric.get("name", "")).strip().lower()
+                display = METRIC_EXPLANATION.get(key, {}).get("name", metric.get("display_name") or metric.get("name"))
                 value = metric.get("value")
                 unit = metric.get("unit") or ""
                 threshold = metric.get("threshold") or ""
@@ -3149,12 +3151,12 @@ class ReportAssembler:
                     for idx, metric in enumerate(quant_metric_rows[:12]):
                         if not isinstance(metric, dict):
                             continue
-                        lines.append(f"- {metric_narrative(metric, idx)}")
+                        lines.append(f"- {metric_narrative(metric, idx, return_html=True)}")
                 elif quant_metrics:
                     lines.append("<ul>")
                     for key, value in quant_metrics.items():
                         metric_dict = {"name": key, "value": value}
-                        lines.append(f"<li>{metric_narrative(metric_dict)}</li>")
+                        lines.append(f"<li>{metric_narrative(metric_dict, return_html=True)}</li>")
                     lines.append("</ul>")
                 else:
                     lines.append("- 无可用定量指标。")

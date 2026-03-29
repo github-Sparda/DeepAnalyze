@@ -377,20 +377,33 @@ def interpret_check_result(item: dict[str, Any]) -> str:
 
 def _fallback_check_interpretation(item: dict[str, Any]) -> str:
     """检查结果降级解释"""
+    from src.core.reporting.narrative import METRIC_EXPLANATION
+
     check = str(item.get("check", ""))
     passed = item.get("passed")
-    detail = item.get("detail", {})
+
+    # Look up Chinese name from METRIC_EXPLANATION first
+    check_name = METRIC_EXPLANATION.get(check, {}).get("name", "")
+    if not check_name:
+        # Fallback to METRIC_METADATA
+        check_name = METRIC_METADATA.get(check, {}).get("name", check)
 
     parts = []
     if passed is not None:
         parts.append("通过" if passed else "未通过")
 
-    if isinstance(detail, dict):
-        value = detail.get("value")
-        if value is not None:
-            parts.append(f"值={value}")
+    if isinstance(detail := item.get("detail", {}), dict):
+        if value := detail.get("value"):
+            # Format value nicely
+            if isinstance(value, float):
+                value_str = f"{value:.4g}"
+            elif isinstance(value, list):
+                value_str = f"[{', '.join(str(v) for v in value[:3])}{'...' if len(value) > 3 else ''}]"
+            else:
+                value_str = str(value)
+            parts.append(f"值={value_str}")
 
-    return "；".join(parts) if parts else check
+    return "；".join(parts) if parts else check_name
 
 
 def interpret_metrics_summary(metrics: dict[str, Any], max_length: int = 150) -> str:
@@ -431,14 +444,18 @@ def _fallback_metrics_summary(metrics: dict, max_length: int = 150) -> str:
     if not metrics:
         return "无指标数据"
 
+    from src.core.reporting.narrative import METRIC_EXPLANATION
+
     parts = []
     for k, v in list(metrics.items())[:5]:
+        # Look up Chinese name
+        chinese_name = METRIC_EXPLANATION.get(k, {}).get("name", k)
         if isinstance(v, float):
-            parts.append(f"{k}={v:.3f}")
+            parts.append(f"{chinese_name}={v:.3f}")
         else:
-            parts.append(f"{k}={v}")
+            parts.append(f"{chinese_name}={v}")
 
-    result = "; ".join(parts)
+    result = "；".join(parts)
     return result[:max_length] + ("..." if len(result) > max_length else "")
 
 
@@ -524,7 +541,18 @@ class NarrativeGenerator:
             return ""
 
         try:
+            from src.core.reporting.narrative import METRIC_EXPLANATION
+
+            # Replace English metric names with Chinese names
             items_text = "\n".join([f"- {item}" for item in quant_evaluations[:max_items]])
+            for eng_key, info in METRIC_EXPLANATION.items():
+                chinese_name = info.get("name", eng_key)
+                if chinese_name != eng_key:
+                    # Handle both quoted and unquoted patterns
+                    for pattern in [f'"{eng_key}"', f'"{eng_key.lower()}"', eng_key]:
+                        if pattern in items_text:
+                            items_text = items_text.replace(pattern, chinese_name)
+
             messages = [
                 {"role": "system", "content": """你是一个专业的统计分析报告撰写助手。
 
