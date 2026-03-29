@@ -7,18 +7,20 @@ import numpy as np
 import hashlib
 import time
 import threading
+import logging
 from typing import Any, Optional, Dict, List, Tuple
 from dataclasses import dataclass
 import json
 
-# 导入语义处理相关库
+_logger = logging.getLogger(__name__)
+
 try:
     from sentence_transformers import SentenceTransformer
     import faiss
     SEMANTIC_LIBS_AVAILABLE = True
 except ImportError:
     SEMANTIC_LIBS_AVAILABLE = False
-    print("警告: 语义处理库未安装，语义缓存功能受限")
+    _logger.debug("语义处理库未安装，语义缓存功能受限（可忽略）")
 
 @dataclass
 class SemanticCacheEntry:

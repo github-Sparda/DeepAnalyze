@@ -267,14 +267,31 @@ def metric_narrative(metric: dict[str, Any], style_seed: int = 0) -> str:
     parts = [f"{display_name} = {value_text}"]
     if unit and unit not in ("ratio", "count", ""):
         parts[-1] += f" {unit}"
-    if definition:
+
+    llm_interpretation = _try_llm_interpretation(key, value)
+    if llm_interpretation:
+        parts.append(llm_interpretation)
+    elif definition:
         parts.append(definition)
+
     if verdict:
         parts.append(verdict)
     if implication:
         parts.append(implication)
 
     return " | ".join(parts)
+
+
+def _try_llm_interpretation(metric_key: str, value: Any) -> str:
+    """尝试使用LLM生成指标解读，失败时返回空字符串"""
+    try:
+        from src.core.reporting.metric_interpreter import LLMMetricInterpreter
+        interpreter = LLMMetricInterpreter()
+        return interpreter.interpret(metric_key, value)
+    except Exception:
+        return ""
+
+
 def _metric_implication_sentence(metric_key: str, value: Any) -> str:
     v = _to_float(value)
     if v is None:
