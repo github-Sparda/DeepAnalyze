@@ -25,7 +25,37 @@ REPORT_CSS = """
     border-bottom: 3px solid #3182ce;
     padding-bottom: 12px;
     margin-top: 0;
-    margin-bottom: 24px;
+    margin-bottom: 20px;
+}
+.report-container h2 {
+    font-size: 1.4em;
+    font-weight: 700;
+    color: #1e40af;
+    border-bottom: 3px solid #3b82f6;
+    padding-bottom: 8px;
+    margin-top: 16px;
+    margin-bottom: 12px;
+}
+.report-container h3 {
+    font-size: 1.2em;
+    font-weight: 600;
+    color: #1e293b;
+    margin-top: 12px;
+    margin-bottom: 8px;
+}
+.report-container h4 {
+    font-size: 1.1em;
+    font-weight: 600;
+    color: #475569;
+    margin-top: 10px;
+    margin-bottom: 6px;
+}
+.report-container h5 {
+    font-size: 1em;
+    font-weight: 600;
+    color: #334155;
+    margin-top: 8px;
+    margin-bottom: 4px;
 }
 
 .report-container h2 {
@@ -438,46 +468,75 @@ document.addEventListener('DOMContentLoaded', function() {
         .collapsible-section summary:hover {
             background-color: #f1f5f9;
         }
-        /* 标题层级样式 */
-        .heading-level-1 {
-            font-size: 1.5em;
-            font-weight: 700;
-            color: #1e40af;
-            border-bottom: 3px solid #3b82f6;
-            padding-bottom: 8px;
-            margin-bottom: 4px;
-        }
-        .heading-level-2 {
-            font-size: 1.25em;
-            font-weight: 600;
-            color: #1e293b;
-            border-left: 4px solid #3b82f6;
-            padding-left: 12px;
-            margin: 4px 0;
-        }
-        .heading-level-3 {
-            font-size: 1.1em;
-            font-weight: 600;
-            color: #475569;
-            padding-left: 16px;
-            margin: 4px 0;
-        }
-        .heading-level-4 {
-            font-size: 1em;
-            font-weight: 600;
-            color: #334155;
-            padding: 6px 0;
-            margin: 4px 0;
-        }
-        details.collapsible-section > *:not(summary) {
-            margin-left: 24px;
-            padding: 6px 0;
-        }
-        .collapse-arrow {
-            font-size: 0.7em;
-            color: #64748b;
-            transition: transform 0.2s;
-        }
+/* 标题层级样式 - 用于span.heading-level-N */
+.heading-level-1 {
+    font-size: 1.4em;
+    font-weight: 700;
+    color: #1e40af;
+    border-bottom: 3px solid #3b82f6;
+    padding-bottom: 8px;
+    margin-bottom: 8px;
+    margin-top: 16px;
+    display: block;
+}
+.heading-level-2 {
+    font-size: 1.2em;
+    font-weight: 600;
+    color: #1e293b;
+    border-left: 4px solid #3b82f6;
+    padding-left: 12px;
+    margin: 8px 0;
+    display: block;
+}
+.heading-level-3 {
+    font-size: 1.1em;
+    font-weight: 600;
+    color: #475569;
+    padding-left: 16px;
+    margin: 6px 0;
+    display: block;
+}
+.heading-level-4 {
+    font-size: 1em;
+    font-weight: 600;
+    color: #334155;
+    padding: 4px 0;
+    margin: 4px 0;
+    display: block;
+}
+/* 段落间距控制 */
+.report-container p {
+    margin: 3px 0;
+    line-height: 1.5;
+}
+/* 列表项间距缩小 */
+.report-container li {
+    margin: 2px 0;
+    line-height: 1.4;
+}
+/* 减少连续段落之间的空行 */
+.report-container p + p {
+    margin-top: 2px;
+}
+/* 标题下方内容紧贴标题 */
+.report-container .heading-level-1 + *,
+.report-container .heading-level-2 + *,
+.report-container .heading-level-3 + *,
+.report-container .heading-level-4 + * {
+    margin-top: 4px;
+}
+details.collapsible-section > *:not(summary) {
+    margin-left: 24px;
+    padding: 3px 0;
+}
+details.collapsible-section > summary {
+    padding: 6px 8px;
+}
+.collapse-arrow {
+    font-size: 0.7em;
+    color: #64748b;
+    transition: transform 0.2s;
+}
     `;
     document.head.appendChild(style);
 });
