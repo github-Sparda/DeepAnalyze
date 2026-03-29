@@ -67,12 +67,13 @@ REPORT_CSS = """
     padding-bottom: 8px;
     display: inline;
 }
-/* H1/H2/H3假设标题上方空半行 - 通过details添加 */
-.report-container details:has(.heading-level-1) {
-    margin-top: 24px;
+/* 二级标题上方间距 - 折叠时 */
+.report-container details:has(.heading-level-2):not([open]) {
+    margin-top: 16px;
 }
-.report-container details:has(.heading-level-1):first-of-type {
-    margin-top: 0;
+/* 三级标题上方间距 */
+.report-container details:has(.heading-level-3) {
+    margin-top: 8px;
 }
 .report-container .heading-level-2 {
     font-size: 1.2em;
