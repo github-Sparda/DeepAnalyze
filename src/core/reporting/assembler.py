@@ -3101,7 +3101,7 @@ class ReportAssembler:
                                 lines.append(f"<li>{self._gate_check_label(key)}：{self._bool_zh(checks.get(key))}</li>")
                         lines.append("</ul>")
                         lines.append("")
-                        lines.append("<h5>证据判定检查（证据充分性）</h5>")
+                        lines.append("<h4>证据判定检查（证据充分性）</h4>")
                         lines.append("<ul>")
                         for key, value in checks.items():
                             if key in {"has_dual_path_status", "path_consistency"}:

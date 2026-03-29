@@ -361,184 +361,44 @@ REPORT_CSS = """
 
 REPORT_JAVASCRIPT = """
 document.addEventListener('DOMContentLoaded', function() {
-    // 折叠功能：使用 details/summary 原生HTML折叠元素
-    const container = document.querySelector('.report-container');
-    if (!container) return;
+    // 折叠功能：直接使用原生<details>/<summary>，不额外处理点击
+    // 浏览器原生支持展开/折叠，点击summary即可切换
 
-    // 找到所有h2, h3, h4标题
-    const headings = container.querySelectorAll('h2, h3, h4');
-
-    // 要默认折叠的小节标题关键词
-    const defaultCollapsedKeywords = [
-        '一致性与冲突',
-        '计划产物',
-        '执行事实',
-        '证据摘录',
-        '判定依据',
-        '恢复计划',
-        '校准',
-        '路径对照',
-    ];
-
-    headings.forEach(function(heading) {
-        // 检查是否应该默认折叠
-        const headingText = heading.textContent || '';
-        const shouldCollapse = defaultCollapsedKeywords.some(function(kw) {
-            return headingText.includes(kw);
-        });
-
-        // 创建details元素
-        const details = document.createElement('details');
-        details.className = 'collapsible-section';
-
-        if (shouldCollapse) {
-            details.open = false;  // 默认折叠
-        } else {
-            details.open = true;  // 默认展开
-        }
-
-        // 创建summary
-        const summary = document.createElement('summary');
-        summary.innerHTML = heading.innerHTML;
+    // 确保所有summary都有良好的样式
+    const summaries = document.querySelectorAll('.report-container summary');
+    summaries.forEach(function(summary) {
+        // 确保有指针样式
         summary.style.cursor = 'pointer';
-        summary.style.listStyle = 'none';
-        summary.style.display = 'flex';
-        summary.style.alignItems = 'center';
-        summary.style.gap = '8px';
+    });
 
-        // 如果已有collapse-arrow则不重复添加
-        const existingArrow = summary.querySelector('.collapse-arrow');
-        if (!existingArrow) {
+    // 为没有箭头的summary添加默认箭头样式
+    const details = document.querySelectorAll('.report-container details');
+    details.forEach(function(detail) {
+        const summary = detail.querySelector('summary');
+        if (summary && !summary.querySelector('.collapse-arrow')) {
+            // 如果summary中没有collapse-arrow，添加一个
             const arrow = document.createElement('span');
             arrow.className = 'collapse-arrow';
-            arrow.textContent = shouldCollapse ? '▶' : '▼';
-            arrow.style.fontSize = '0.7em';
-            arrow.style.color = '#718096';
-            arrow.style.transition = 'transform 0.2s';
+            arrow.style.marginRight = '8px';
+            arrow.style.color = '#64748b';
             summary.insertBefore(arrow, summary.firstChild);
         }
 
-        // 点击时切换箭头方向
-        summary.addEventListener('click', function(e) {
-            e.preventDefault();
-            details.open = !details.open;
-            const arrow = summary.querySelector('.collapse-arrow');
-            if (arrow) {
-                arrow.textContent = details.open ? '▼' : '▶';
+        // 更新箭头状态
+        const arrow = summary.querySelector('.collapse-arrow');
+        if (arrow) {
+            // 初始状态：展开显示▼，折叠显示▶
+            arrow.textContent = detail.hasAttribute('open') ? '▼' : '▶';
+        }
+
+        // 监听toggle事件更新箭头
+        detail.addEventListener('toggle', function() {
+            const currentArrow = this.querySelector('summary .collapse-arrow');
+            if (currentArrow) {
+                currentArrow.textContent = this.hasAttribute('open') ? '▼' : '▶';
             }
         });
-
-        // 替换原标题
-        heading.parentNode.insertBefore(details, heading);
-        details.appendChild(summary);
-
-        // 将标题后的内容移入details（直到下一个同级标题）
-        const parent = heading.parentNode;
-        let next = heading.nextElementSibling;
-        while (next) {
-            if (next.tagName === 'H2' || next.tagName === 'H3' || next.tagName === 'H4' || next.tagName === 'H5') {
-                break;
-            }
-            const toMove = next;
-            next = next.nextElementSibling;
-            details.appendChild(toMove);
-        }
-        // 移除原标题
-        heading.remove();
     });
-
-    // 添加CSS样式
-    const style = document.createElement('style');
-    style.textContent = `
-        .collapsible-section {
-            margin: 12px 0;
-        }
-        .collapsible-section summary {
-            user-select: none;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            padding: 8px 12px;
-            border-radius: 6px;
-            cursor: pointer;
-        }
-        .collapsible-section summary::-webkit-details-marker {
-            display: none;
-        }
-        .collapsible-section summary:hover {
-            background-color: #f1f5f9;
-        }
-/* 标题层级样式 - 用于span.heading-level-N */
-.heading-level-1 {
-    font-size: 1.4em;
-    font-weight: 700;
-    color: #1e40af;
-    border-bottom: 3px solid #3b82f6;
-    padding-bottom: 8px;
-    margin-bottom: 8px;
-    margin-top: 16px;
-    display: block;
-}
-.heading-level-2 {
-    font-size: 1.2em;
-    font-weight: 600;
-    color: #1e293b;
-    border-left: 4px solid #3b82f6;
-    padding-left: 12px;
-    margin: 8px 0;
-    display: block;
-}
-.heading-level-3 {
-    font-size: 1.1em;
-    font-weight: 600;
-    color: #475569;
-    padding-left: 16px;
-    margin: 6px 0;
-    display: block;
-}
-.heading-level-4 {
-    font-size: 1em;
-    font-weight: 600;
-    color: #334155;
-    padding: 4px 0;
-    margin: 4px 0;
-    display: block;
-}
-/* 段落间距控制 */
-.report-container p {
-    margin: 3px 0;
-    line-height: 1.5;
-}
-/* 列表项间距缩小 */
-.report-container li {
-    margin: 2px 0;
-    line-height: 1.4;
-}
-/* 减少连续段落之间的空行 */
-.report-container p + p {
-    margin-top: 2px;
-}
-/* 标题下方内容紧贴标题 */
-.report-container .heading-level-1 + *,
-.report-container .heading-level-2 + *,
-.report-container .heading-level-3 + *,
-.report-container .heading-level-4 + * {
-    margin-top: 4px;
-}
-details.collapsible-section > *:not(summary) {
-    margin-left: 24px;
-    padding: 3px 0;
-}
-details.collapsible-section > summary {
-    padding: 6px 8px;
-}
-.collapse-arrow {
-    font-size: 0.7em;
-    color: #64748b;
-    transition: transform 0.2s;
-}
-    `;
-    document.head.appendChild(style);
 });
 """
 
