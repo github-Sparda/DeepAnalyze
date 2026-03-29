@@ -247,6 +247,55 @@ def _fallback_check_interpretation(item: dict[str, Any]) -> str:
     return "；".join(parts) if parts else check
 
 
+def interpret_metrics_summary(metrics: dict[str, Any], max_length: int = 150) -> str:
+    """
+    解释指标摘要字典，生成可读的自然语言描述
+
+    Args:
+        metrics: 指标字典 {key: value, ...}
+        max_length: 最大长度限制
+
+    Returns:
+        可读的指标摘要描述
+    """
+    if not metrics:
+        return "无指标数据"
+
+    try:
+        interpreter = LLMMetricInterpreter()
+        metrics_str = json.dumps(metrics, ensure_ascii=False, indent=2)
+        messages = [
+            {"role": "system", "content": """你是一个统计分析助手，负责将指标字典转换为简洁的自然语言摘要。
+
+要求：
+- 提取关键指标及其数值
+- 说明整体分析结论
+- 限制在50字以内
+直接输出摘要，不要使用引号或格式。"""},
+            {"role": "user", "content": f"指标数据：{metrics_str}\n\n生成50字以内的简洁摘要："}
+        ]
+        response = interpreter.llm_client.chat(messages, max_tokens=100)
+        return response.strip()[:max_length]
+    except Exception:
+        return _fallback_metrics_summary(metrics, max_length)
+
+
+def _fallback_metrics_summary(metrics: dict, max_length: int = 150) -> str:
+    """指标摘要降级解释"""
+    if not metrics:
+        return "无指标数据"
+
+    parts = []
+    for k, v in list(metrics.items())[:5]:
+        if isinstance(v, float):
+            parts.append(f"{k}={v:.3f}")
+        else:
+            parts.append(f"{k}={v}")
+
+    result = "; ".join(parts)
+    return result[:max_length] + ("..." if len(result) > max_length else "")
+
+
 import json
 
 

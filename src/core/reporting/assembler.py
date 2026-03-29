@@ -20,7 +20,7 @@ from src.core.reporting.narrative import (
     recovery_action_sentence,
     reason_code_sentence,
 )
-from src.core.reporting.metric_interpreter import interpret_check_result
+from src.core.reporting.metric_interpreter import interpret_check_result, interpret_metrics_summary
 from src.core.orchestration.closure import evaluate_evidence_chain_closure
 from src.core.orchestration.depth_research import (
     integrate_multidimensional_evidence,
@@ -3238,10 +3238,10 @@ class ReportAssembler:
                     lines.append("<table border=1 cellpadding=4 cellspacing=0>")
                     lines.append("<thead><tr><th>验证路径</th><th>执行状态</th><th>指标摘要</th></tr></thead><tbody>")
                     lines.append(
-                        f"<tr><td>A</td><td>{pa.get('status','')}</td><td>{json.dumps(pa.get('metrics', {}), ensure_ascii=False)[:220]}</td></tr>"
+                        f"<tr><td>A</td><td>{pa.get('status','')}</td><td>{interpret_metrics_summary(pa.get('metrics', {}))}</td></tr>"
                     )
                     lines.append(
-                        f"<tr><td>B</td><td>{pb.get('status','')}</td><td>{json.dumps(pb.get('metrics', {}), ensure_ascii=False)[:220]}</td></tr>"
+                        f"<tr><td>B</td><td>{pb.get('status','')}</td><td>{interpret_metrics_summary(pb.get('metrics', {}))}</td></tr>"
                     )
                     lines.append("</tbody></table>")
                     lines.append(
