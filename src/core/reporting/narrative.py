@@ -235,7 +235,14 @@ def metric_narrative(metric: dict[str, Any], style_seed: int = 0) -> str:
     value = metric.get("value")
     direction = str(metric.get("direction", "")).strip().lower()
     explain = METRIC_EXPLANATION.get(key, {})
-    display_name = str(metric.get("display_name") or explain.get("name") or key or "指标")
+    display_name_raw = metric.get("display_name", "")
+    explain_name = explain.get("name", "")
+    if display_name_raw and display_name_raw.lower() != key.lower() and display_name_raw != key:
+        display_name = display_name_raw
+    elif explain_name:
+        display_name = explain_name
+    else:
+        display_name = key
     definition = explain.get("definition", "")
     judgement, relation = _eval_threshold(value, threshold)
 

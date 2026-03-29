@@ -3151,7 +3151,8 @@ class ReportAssembler:
                 elif quant_metrics:
                     lines.append("<ul>")
                     for key, value in quant_metrics.items():
-                        lines.append(f"<li>{key}：{value}</li>")
+                        metric_dict = {"name": key, "value": value}
+                        lines.append(f"<li>{metric_narrative(metric_dict)}</li>")
                     lines.append("</ul>")
                 else:
                     lines.append("- 无可用定量指标。")
