@@ -331,21 +331,54 @@ REPORT_CSS = """
 
 REPORT_JAVASCRIPT = """
 document.addEventListener('DOMContentLoaded', function() {
-    // 标题折叠功能
-    const headings = document.querySelectorAll('.report-container h2, .report-container h3');
+    // 标题折叠功能 - 使用 nextElementSibling 控制内容显示
+    const headings = document.querySelectorAll('.report-container h2');
     headings.forEach(function(heading) {
-        if (heading.tagName === 'H2') {
-            heading.addEventListener('click', function() {
-                this.classList.toggle('collapsed');
-                const next = this.nextElementSibling;
-                if (next && next.classList) {
-                    next.classList.toggle('collapsed');
+        heading.addEventListener('click', function() {
+            this.classList.toggle('collapsed');
+
+            // 找到下一个兄弟元素作为内容容器
+            let sibling = this.nextElementSibling;
+            while (sibling) {
+                // 如果遇到下一个 h2/h3，停止
+                if (sibling.tagName === 'H2' || sibling.tagName === 'H3') {
+                    break;
                 }
-            });
-        }
+
+                if (sibling.classList && sibling.classList.contains('section-content')) {
+                    // 切换内容的折叠状态
+                    if (this.classList.contains('collapsed')) {
+                        sibling.style.display = 'none';
+                    } else {
+                        sibling.style.display = '';
+                    }
+                    break;
+                }
+                sibling = sibling.nextElementSibling;
+            }
+        });
+
+        // 初始化：添加折叠标记但保持默认展开
+        heading.innerHTML = '<span class="collapse-icon">▼</span> ' + heading.innerHTML;
     });
 
-    // 自动为指标添加颜色类
+    // CSS样式
+    const style = document.createElement('style');
+    style.textContent = `
+        .collapse-icon {
+            font-size: 0.7em;
+            margin-right: 8px;
+            color: #718096;
+            transition: transform 0.2s;
+            display: inline-block;
+        }
+        h2.collapsed .collapse-icon {
+            transform: rotate(-90deg);
+        }
+    `;
+    document.head.appendChild(style);
+
+    // 指标颜色类
     const metricElements = document.querySelectorAll('[data-metric-status]');
     metricElements.forEach(function(el) {
         const status = el.getAttribute('data-metric-status');

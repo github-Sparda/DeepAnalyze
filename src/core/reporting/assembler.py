@@ -1209,12 +1209,12 @@ class ReportAssembler:
             display = title or Path(rel).name
             lines.append(
                 f"<div class=\"appendix-item\" data-hypothesis=\"{hypothesis}\">"
-                f"<div><strong>{display}</strong>（fallback path: <code>{rel}</code>）</div>"
+                f"<div><strong>{display}</strong>（备选路径: <code>{rel}</code>）</div>"
                 "</div>"
             )
 
         if remaining_visuals:
-            lines.append("<h3>Visualization (remaining)</h3>")
+            lines.append("<h3>可视化附件（正文未引用的）</h3>")
             for item in remaining_visuals:
                 rel = self._normalize_relative_path(session_root, str(item.get("relative_path", "")))
                 hyp = binding_map.get(rel, "ALL")
@@ -1547,12 +1547,24 @@ class ReportAssembler:
             "failed": "未闭环（不可恢复）",
             "skipped": "已跳过",
         }
+        phase_label = {
+            "analyze_results": "分析结果生成",
+            "evidence_curation": "证据整理",
+            "execution_guard": "执行监控",
+            "finalize_run": "运行终结",
+            "generate_report": "报告生成",
+            "generate_visualizations": "可视化生成",
+            "parallel_generation": "并行生成",
+            "plan_analysis": "分析规划",
+            "report_outline": "报告大纲",
+        }
         lines = ["## 步骤级闭环摘要", "<ul>"]
         for row in payloads:
-            phase = str(row.get("phase", "")).strip() or "unknown"
+            phase = str(row.get("phase", "")).strip()
+            phase_disp = phase_label.get(phase, phase) if phase else "未知步骤"
             status = str(row.get("status", "")).strip().lower()
-            label = status_label.get(status, status or "unknown")
-            detail = f"<li><strong>{phase}</strong>：{label}"
+            label = status_label.get(status, status or "未知状态")
+            detail = f"<li><strong>{phase_disp}</strong>：{label}"
             failed_checks = row.get("failed_checks", []) if isinstance(row.get("failed_checks"), list) else []
             if failed_checks:
                 detail += f"；问题：{'；'.join([str(x) for x in failed_checks[:4]])}"
@@ -1682,8 +1694,14 @@ class ReportAssembler:
             'partial': '⚠️',
             'failed': '❌'
         }.get(overall_status, '❓')
-        
-        lines.append(f"- 整体状态: {status_emoji} {overall_status}")
+        overall_status_zh = {
+            'complete': '已完成',
+            'partial': '部分完成',
+            'failed': '失败',
+            'incomplete': '未完成'
+        }.get(overall_status, overall_status)
+
+        lines.append(f"- 整体状态: {status_emoji} {overall_status_zh}")
         lines.append(f"- 完整度评分: {closure_result.get('summary', {}).get('average_completeness_score', 0):.2f}")
         lines.append(f"- 冲突数量: {closure_result.get('summary', {}).get('conflict_count', 0)}")
         lines.append(f"- 完整假设数: {closure_result.get('summary', {}).get('complete_hypotheses', 0)}")
@@ -3076,16 +3094,19 @@ class ReportAssembler:
                 lines.append("")
                 lines.append("#### 执行事实（产物与状态）")
                 if path_entry:
+                    overall = path_entry.get('overall', 'unknown')
+                    overall_zh = {'complete': '已完成', 'partial': '部分完成', 'failed': '失败', 'unknown': '未知'}.get(overall, overall)
                     lines.append(
                         "路径执行闭环："
-                        f"总体={path_entry.get('overall', 'unknown')}；"
+                        f"总体={overall_zh}；"
                         f"成功路径={path_entry.get('path_success', 0)}/{path_entry.get('path_total', 0)}；"
                         f"部分成功={path_entry.get('path_partial', 0)}；"
                         f"失败={path_entry.get('path_failed', 0)}。"
                     )
                 matrix_status = str(matrix_entry.get("status", "")).strip() if isinstance(matrix_entry, dict) else ""
                 if matrix_status:
-                    lines.append(f"统一状态判定：{matrix_status}。")
+                    matrix_status_zh = {'consistent': '一致', 'inconsistent': '不一致', 'unknown': '未知'}.get(matrix_status, matrix_status)
+                    lines.append(f"统一状态判定：{matrix_status_zh}。")
                 gate_status_value = str(gate_entry.get("gate_status", "")).lower() if isinstance(gate_entry, dict) else ""
                 if gate_status_value == "pass" and isinstance(path_entry, dict) and str(path_entry.get("overall", "")).lower() == "complete":
                     lines.append("本假设当前已形成闭环：计划路径已执行完成，证据门槛已通过，可以进入综合讨论。")
@@ -3175,12 +3196,12 @@ class ReportAssembler:
                         missing,
                         quant_metrics,
                         (
-                            "validated"
+                            "已验证"
                             if str(gate_entry.get("gate_status", "")).lower() == "pass"
-                            else "inconclusive"
+                            else "待验证"
                         )
                         if isinstance(gate_entry, dict) and gate_entry
-                        else str(contrast_entry.get("status", "inconclusive")) if isinstance(contrast_entry, dict) else "inconclusive",
+                        else str(contrast_entry.get("status", "待验证")) if isinstance(contrast_entry, dict) else "待验证",
                         quant_evaluations,
                         gate_entry if isinstance(gate_entry, dict) else {},
                         contrast_entry if isinstance(contrast_entry, dict) else {},
@@ -3247,9 +3268,13 @@ class ReportAssembler:
                         f"<tr><td>B</td><td>{pb.get('status','')}</td><td>{interpret_metrics_summary(pb.get('metrics', {}))}</td></tr>"
                     )
                     lines.append("</tbody></table>")
+                    consistency = contrast_entry.get('consistency', 'unknown')
+                    consistency_zh = {'consistent': '一致', 'inconsistent': '不一致', 'unknown': '未知'}.get(consistency, consistency)
+                    status = contrast_entry.get('status', 'inconclusive')
+                    status_zh = {'validated': '已验证', 'inconclusive': '待验证', 'failed': '失败'}.get(status, status)
                     lines.append(
-                        f"一致性判定：{contrast_entry.get('consistency','unknown')}；"
-                        f"状态：{contrast_entry.get('status','inconclusive')}。"
+                        f"一致性判定：{consistency_zh}；"
+                        f"状态：{status_zh}。"
                     )
                     if contrast_entry.get("conflict_reason"):
                         lines.append(f"冲突说明：{contrast_entry.get('conflict_reason')}")
