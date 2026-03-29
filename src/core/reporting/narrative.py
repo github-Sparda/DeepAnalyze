@@ -93,6 +93,39 @@ METRIC_EXPLANATION: dict[str, dict[str, str]] = {
         "name": "簇间分离度",
         "definition": "不同簇之间的可分离程度",
     },
+    "tested_features": {
+        "name": "检验特征数",
+        "definition": "本次分析中实际检验的特征总数",
+    },
+    "max_abs_log2_fold_change": {
+        "name": "最大绝对 Log2 Fold Change",
+        "definition": "处理组相对对照组最大变化倍数的对数尺度（log2），|log2FC|>1 表示显著变化",
+    },
+    "mean_abs_log2_fold_change": {
+        "name": "平均绝对 Log2 Fold Change",
+        "definition": "所有特征 log2FC 绝对值的平均，反映整体变化幅度",
+    },
+    "max_abs_fold_change": {
+        "name": "最大绝对 Fold Change",
+        "definition": "处理组相对对照组最大倍数变化，FC>2 表示上调，FC<0.5 表示下调",
+    },
+    "mean_abs_fold_change": {
+        "name": "平均绝对 Fold Change",
+        "definition": "所有特征 FC 绝对值的平均，反映整体倍数变化水平",
+    },
+    "max_abs_mean_diff": {
+        "name": "最大绝对均值差",
+        "definition": "处理组与对照组最大绝对均值差，反映绝对差异大小",
+    },
+    "mean_abs_mean_diff": {
+        "name": "平均绝对均值差",
+        "definition": "所有特征均值差异绝对值的平均，反映整体差异水平",
+    },
+    "top_features": {
+        "name": "Top 特征列表",
+        "definition": "按统计显著性或效应量排序的前列特征",
+    },
+
 }
 
 GATE_RULE_TYPE_EXPLANATION: dict[str, str] = {
