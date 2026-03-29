@@ -406,7 +406,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const parent = heading.parentNode;
         let next = heading.nextElementSibling;
         while (next) {
-            if (next.tagName === 'H2' || next.tagName === 'H3' || next.tagName === 'H4') {
+            if (next.tagName === 'H2' || next.tagName === 'H3' || next.tagName === 'H4' || next.tagName === 'H5') {
                 break;
             }
             const toMove = next;
@@ -460,6 +460,13 @@ document.addEventListener('DOMContentLoaded', function() {
             font-weight: 600;
             color: #475569;
             padding-left: 16px;
+            margin: 4px 0;
+        }
+        .heading-level-4 {
+            font-size: 1em;
+            font-weight: 600;
+            color: #334155;
+            padding: 6px 0;
             margin: 4px 0;
         }
         details.collapsible-section > *:not(summary) {

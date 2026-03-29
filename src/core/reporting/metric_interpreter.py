@@ -722,11 +722,11 @@ def wrap_headings_with_details(html_content: str) -> str:
         return any(kw in title_text for kw in default_collapsed_keywords)
 
     # 标题层级class映射
-    heading_class = {'h2': 'heading-level-1', 'h3': 'heading-level-2', 'h4': 'heading-level-3'}
+    heading_class = {'h2': 'heading-level-1', 'h3': 'heading-level-2', 'h4': 'heading-level-3', 'h5': 'heading-level-4'}
 
-    # 处理 h2, h3, h4
-    for tag in ['h2', 'h3', 'h4']:
-        pattern = rf'(<{tag}>([^<]*)</{tag}>)\s*(.*?)(?=(?:<h[234]>)|$)'
+    # 处理 h2, h3, h4, h5
+    for tag in ['h2', 'h3', 'h4', 'h5']:
+        pattern = rf'(<{tag}>([^<]*)</{tag}>)\s*(.*?)(?=(?:<h[2345]>)|$)'
 
         def replacer(m):
             title = m.group(2)

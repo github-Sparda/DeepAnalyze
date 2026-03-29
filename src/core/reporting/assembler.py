@@ -827,19 +827,19 @@ class ReportAssembler:
 
         lines: list[str] = []
         if common:
-            lines.append("通用步骤：")
+            lines.append("<h5>通用步骤</h5>")
             lines.append("<ol>")
             for item in common[:8]:
                 lines.append(f"<li>{item}{self._step_io_hint(item, step_map or {})}</li>")
             lines.append("</ol>")
         if path_a:
-            lines.append("验证路径 A：")
+            lines.append("<h5>验证路径 A</h5>")
             lines.append("<ol>")
             for item in path_a[:8]:
                 lines.append(f"<li>{item}{self._step_io_hint(item, step_map or {})}</li>")
             lines.append("</ol>")
         if path_b:
-            lines.append("验证路径 B：")
+            lines.append("<h5>验证路径 B</h5>")
             lines.append("<ol>")
             for item in path_b[:8]:
                 lines.append(f"<li>{item}{self._step_io_hint(item, step_map or {})}</li>")
@@ -2522,7 +2522,7 @@ class ReportAssembler:
             metric_block = ""
             if quant_evaluations:
                 metric_lines = "".join([f"<li>{x}</li>" for x in quant_evaluations[:4]])
-                metric_block = f"<p>关键数值与阈值判定如下：</p><ul>{metric_lines}</ul>"
+                metric_block = f"<h5>关键数值与阈值判定</h5><ul>{metric_lines}</ul>"
             paragraphs: list[str] = []
             paragraphs.extend([f"<p>依据：{x}</p>" for x in self._split_readable_paragraph(evidence_sentence)])
             if metric_block:
@@ -3094,14 +3094,14 @@ class ReportAssembler:
                     checks = gate_entry.get("checks", {}) if isinstance(gate_entry.get("checks"), dict) else {}
                     if checks:
                         lines.append("")
-                        lines.append("前置条件检查（执行可用性）：")
+                        lines.append("<h5>前置条件检查（执行可用性）</h5>")
                         lines.append("<ul>")
                         for key in ["has_dual_path_status", "path_consistency"]:
                             if key in checks:
                                 lines.append(f"<li>{self._gate_check_label(key)}：{self._bool_zh(checks.get(key))}</li>")
                         lines.append("</ul>")
                         lines.append("")
-                        lines.append("证据判定检查（证据充分性）：")
+                        lines.append("<h5>证据判定检查（证据充分性）</h5>")
                         lines.append("<ul>")
                         for key, value in checks.items():
                             if key in {"has_dual_path_status", "path_consistency"}:
