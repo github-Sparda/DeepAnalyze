@@ -20,7 +20,11 @@ from src.core.reporting.narrative import (
     recovery_action_sentence,
     reason_code_sentence,
 )
-from src.core.reporting.metric_interpreter import interpret_check_result, interpret_metrics_summary
+from src.core.reporting.metric_interpreter import (
+    interpret_check_result,
+    interpret_metrics_summary,
+    NarrativeGenerator,
+)
 from src.core.orchestration.closure import evaluate_evidence_chain_closure
 from src.core.orchestration.depth_research import (
     integrate_multidimensional_evidence,
@@ -2408,7 +2412,7 @@ class ReportAssembler:
         evidence_sources = evidence_sources or []
         quant_text = ""
         if quant_evaluations:
-            quant_text = "关键数值见本节“定量结果（指标与证据）”。"
+            quant_text = "关键数值见本节'定量结果（指标与证据）'。"
         elif quant_metrics:
             quant_text = "已提取到定量指标，但阈值判定信息不完整。"
         gate_status = str(gate_entry.get("gate_status", "")).lower()
@@ -2417,15 +2421,9 @@ class ReportAssembler:
         reason_code = str(gate_entry.get("reason_code", "")).strip() or str(contrast_entry.get("conflict_category", "")).strip()
         recovery_action = str(gate_entry.get("recovery_action", "")).strip()
         conflict_reason = str(contrast_entry.get("conflict_reason", "")).strip()
-        gate_text = (
-            f"判定规则说明：{gate_rule_type_sentence(gate_rule_type)} "
-            f"判定状态说明：{gate_status_sentence(gate_status)}"
-        )
-        if failed_checks:
-            gate_text += " 未通过项包括：" + "；".join([failed_check_sentence(str(x)) for x in failed_checks[:5]]) + "。"
-        reason_text = reason_code_sentence(reason_code)
-        if reason_text:
-            gate_text += f" 原因解释：{reason_text}。"
+        gate_text = narrative_gen.generate_judgment_narrative(gate_rule_type, gate_status, failed_checks, reason_code)
+        if not gate_text:
+            gate_text = gate_status_sentence(gate_status)
         rule_type = str(gate_entry.get("gate_rule_type", "")).strip()
         conflict_input: list[dict[str, Any]] = []
         if isinstance(quant_metrics, dict):

@@ -296,6 +296,230 @@ def _fallback_metrics_summary(metrics: dict, max_length: int = 150) -> str:
     return result[:max_length] + ("..." if len(result) > max_length else "")
 
 
+class NarrativeGenerator:
+    """
+    报告写作自然语言生成器
+
+    将结构化数据转换为流畅、易读的中文报告文本。
+    """
+
+    def __init__(self, llm_client=None):
+        self._llm_client = llm_client
+
+    @property
+    def llm_client(self):
+        if self._llm_client is None:
+            from src.core.orchestration.llm import LLMClient
+            self._llm_client = LLMClient()
+        return self._llm_client
+
+    def generate_hypothesis_conclusion(
+        self,
+        hyp_id: str,
+        hyp_text: str,
+        quant_metrics: dict | None,
+        quant_evaluations: list | None,
+        gate_entry: dict | None,
+        evidence_sources: list | None,
+    ) -> str:
+        """
+        生成假设结论段落
+
+        Args:
+            hyp_id: 假设ID
+            hyp_text: 假设文本
+            quant_metrics: 定量指标
+            quant_evaluations: 定量评估（已解释的指标列表）
+            gate_entry: 门限条目
+            evidence_sources: 证据来源
+
+        Returns:
+            自然语言段落
+        """
+        try:
+            messages = [
+                {"role": "system", "content": """你是一个专业的生物统计学报告撰写助手，负责将分析结果转换为流畅、易读的中文报告。
+
+要求：
+- 不要使用生硬的模板句式（如"依据："、"关键数值见本节"）
+- 将定量指标融入流畅的叙述中
+- 突出关键发现和数据意义
+- 限制在200字以内
+直接输出报告段落，不要使用引号或格式标记。"""},
+                {"role": "user", "content": f"""假设：{hyp_text}
+定量评估：{quant_evaluations[:3] if quant_evaluations else '无'}
+门限状态：{gate_entry.get('gate_status', '') if gate_entry else ''}
+门限规则：{gate_entry.get('gate_rule_type', '') if gate_entry else ''}
+证据来源：{evidence_sources[:2] if evidence_sources else '无'}
+
+请撰写一段流畅的假设验证结论（100字以内）："""}
+            ]
+            response = self.llm_client.chat(messages, max_tokens=200)
+            return response.strip()
+        except Exception:
+            return self._fallback_hypothesis_conclusion(hyp_id, hyp_text, quant_evaluations)
+
+    def generate_metric_reference(
+        self,
+        quant_evaluations: list,
+        max_items: int = 4,
+    ) -> str:
+        """
+        生成指标参考段落，替代"关键数值见本节"
+
+        Args:
+            quant_evaluations: 定量评估列表
+            max_items: 最大显示条目数
+
+        Returns:
+            自然语言指标参考
+        """
+        if not quant_evaluations:
+            return ""
+
+        try:
+            items_text = "\n".join([f"- {item}" for item in quant_evaluations[:max_items]])
+            messages = [
+                {"role": "system", "content": """你是一个专业的统计分析报告撰写助手。
+
+将指标列表转换为流畅的叙述性参考。不要说"关键数值见本节"，而是直接用自然语言引用关键数据。
+
+要求：
+- 直接引用关键数值
+- 用通俗语言解释数值意义
+- 限制在80字以内
+直接输出，不要使用引号。"""},
+                {"role": "user", "content": f"关键指标：\n{items_text}\n\n生成自然语言引用（60字以内）："}
+            ]
+            response = self.llm_client.chat(messages, max_tokens=100)
+            return response.strip()
+        except Exception:
+            return self._fallback_metric_reference(quant_evaluations, max_items)
+
+    def generate_judgment_narrative(
+        self,
+        gate_rule_type: str,
+        gate_status: str,
+        failed_checks: list | None,
+        reason_code: str | None,
+    ) -> str:
+        """
+        生成判定叙述，替代"判定规则说明：XXX 判定状态说明：YYY"
+
+        Args:
+            gate_rule_type: 门限规则类型
+            gate_status: 门限状态
+            failed_checks: 失败检查列表
+            reason_code: 原因代码
+
+        Returns:
+            自然语言判定叙述
+        """
+        try:
+            messages = [
+                {"role": "system", "content": """你是一个专业的统计分析报告撰写助手。
+
+将判定规则和状态信息转换为流畅的叙述性语言。不要说"判定规则说明"这种生硬的话。
+
+要求：
+- 直接说明判定结果
+- 用自然语言解释规则和状态
+- 如果有失败检查，说明原因
+- 限制在100字以内
+直接输出，不要使用引号。"""},
+                {"role": "user", "content": f"""判定规则：{gate_rule_type}
+判定状态：{gate_status}
+失败检查：{failed_checks[:2] if failed_checks else '无'}
+原因代码：{reason_code or '无'}
+
+生成自然语言判定叙述（80字以内）："""}
+            ]
+            response = self.llm_client.chat(messages, max_tokens=120)
+            return response.strip()
+        except Exception:
+            return self._fallback_judgment_narrative(gate_status)
+
+    def generate_missing_analysis(
+        self,
+        hyp_text: str,
+        missing: list,
+        evidence_sources: list | None,
+    ) -> str:
+        """
+        生成缺失分析叙述，替代"针对XXX的分析尚未形成足够证据"
+
+        Args:
+            hyp_text: 假设文本
+            missing: 缺失产物
+            evidence_sources: 证据来源
+
+        Returns:
+            自然语言缺失叙述
+        """
+        try:
+            messages = [
+                {"role": "system", "content": """你是一个专业的统计分析报告撰写助手。
+
+将分析缺失信息转换为建设性的建议性语言。不要说"尚未形成足够证据"这种消极表达。
+
+要求：
+- 用积极的语言说明下一步
+- 指出具体需要补充的内容
+- 限制在80字以内
+直接输出，不要使用引号。"""},
+                {"role": "user", "content": f"""假设：{hyp_text}
+缺失产物：{', '.join(missing[:3]) if missing else '无'}
+证据来源：{evidence_sources[:2] if evidence_sources else '无'}
+
+生成建议性叙述（60字以内）："""}
+            ]
+            response = self.llm_client.chat(messages, max_tokens=100)
+            return response.strip()
+        except Exception:
+            missing_str = "、" .join(missing[:2]) if missing else "关键产物"
+            return f"当前分析尚需补充{missing_str}，建议完善后再进行评估。"
+
+    def _fallback_hypothesis_conclusion(
+        self,
+        hyp_id: str,
+        hyp_text: str,
+        quant_evaluations: list | None,
+    ) -> str:
+        """假设结论降级"""
+        if quant_evaluations:
+            summary = "；".join(str(e)[:30] for e in quant_evaluations[:2])
+            return f"{hyp_text}。{summary}。"
+        return f"{hyp_text}。相关定量分析已完成。"
+
+    def _fallback_metric_reference(
+        self,
+        quant_evaluations: list,
+        max_items: int = 4,
+    ) -> str:
+        """指标参考降级"""
+        if not quant_evaluations:
+            return ""
+        items = "、".join(str(e)[:25] for e in quant_evaluations[:max_items])
+        return f"关键指标包括：{items}。"
+
+    def _fallback_judgment_narrative(self, gate_status: str) -> str:
+        """判定叙述降级"""
+        if gate_status == "passed":
+            return "本假设通过验证。"
+        elif gate_status == "failed":
+            return "本假设未通过验证。"
+        return "本假设尚在评估中。"
+
+    def _fallback_missing_narrative(
+        self,
+        missing: list,
+        evidence_sources: list | None,
+    ) -> str:
+        """缺失叙述降级"""
+        missing_str = "、" .join(missing[:2]) if missing else "关键产物"
+        return f"当前分析尚需补充{missing_str}，建议完善后再进行评估。"
+
+
 import json
 
 
