@@ -77,3 +77,5 @@ class OrchestrationState(TypedDict, total=False):
      llm_degradation_events: list[dict[str, Any]]
      document_manifest: dict[str, Any]
      config: dict[str, Any]
+     supervisor_context: dict[str, Any]
+     supervisor_validation: dict[str, Any]

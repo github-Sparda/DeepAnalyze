@@ -19,6 +19,14 @@ from . import viz_network
 from . import viz_comparison
 from . import viz_top_features
 from . import viz_embedding
+from .statistics_runner import StatisticsRunner
+from .clustering_runner import ClusteringRunner
+from .dim_reduction_runner import DimReductionRunner
+from .manifold_runner import ManifoldRunner
+from .discriminative_runner import DiscriminativeRunner
+from .generative_runner import GenerativeRunner
+from .optimization_runner import OptimizationRunner
+from .regression_runner import RegressionRunner
 
 __all__ = [
     "data_profile",
@@ -42,4 +50,12 @@ __all__ = [
     "viz_comparison",
     "viz_top_features",
     "viz_embedding",
+    "StatisticsRunner",
+    "ClusteringRunner",
+    "DimReductionRunner",
+    "ManifoldRunner",
+    "DiscriminativeRunner",
+    "GenerativeRunner",
+    "OptimizationRunner",
+    "RegressionRunner",
 ]

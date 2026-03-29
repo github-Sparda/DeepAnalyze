@@ -91,6 +91,15 @@ from .closure import (
     load_phase_closure_map,
     persist_phase_closure,
 )
+from .supervisor import PhaseSupervisor, SupervisorContext
+from src.api.config import (
+    SUPERVISOR_ENABLED,
+    SUPERVISOR_WAIT_STRATEGY,
+    SUPERVISOR_POLL_INTERVAL,
+    SUPERVISOR_MAX_WAIT,
+    SUPERVISOR_MAX_RETRIES,
+    SUPERVISOR_SEMANTIC_CHECK,
+)
 from .depth_research import (
     build_depth_delta,
     build_research_digest,
@@ -3273,6 +3282,59 @@ def _run_node(name: str, func, config: dict[str, Any]):
     return wrapper
 
 
+def _run_supervisor(
+    state: OrchestrationState,
+    phase_id: str,
+    config: dict[str, Any],
+    check_type: str = "output",
+) -> dict[str, Any]:
+    _supervisor_enabled = config.get("supervisor_enabled", SUPERVISOR_ENABLED)
+    if not _supervisor_enabled:
+        return {}
+
+    session_dir = Path(state.get("session_dir", ""))
+
+    supervisor_config = {
+        "supervisor_wait_strategy": config.get("supervisor_wait_strategy", SUPERVISOR_WAIT_STRATEGY),
+        "supervisor_poll_interval": config.get("supervisor_poll_interval", SUPERVISOR_POLL_INTERVAL),
+        "supervisor_max_wait": config.get("supervisor_max_wait", SUPERVISOR_MAX_WAIT),
+        "supervisor_max_retries": config.get("supervisor_max_retries", SUPERVISOR_MAX_RETRIES),
+        "supervisor_semantic_check": config.get("supervisor_semantic_check", SUPERVISOR_SEMANTIC_CHECK),
+    }
+
+    def state_getter() -> OrchestrationState:
+        return state
+
+    context = SupervisorContext.from_config(
+        phase_id=phase_id,
+        session_dir=session_dir,
+        config=supervisor_config,
+        state_getter=state_getter,
+    )
+
+    supervisor = PhaseSupervisor(context, state_getter)
+
+    if check_type == "input":
+        validation = supervisor.validate_input()
+    else:
+        validation = supervisor.validate_output()
+
+    if not validation["valid"]:
+        validation = supervisor.analyze_mismatch(validation)
+
+    supervisor_context = {
+        "phase_id": phase_id,
+        "validation": dict(validation),
+        "check_type": check_type,
+    }
+    state["supervisor_context"] = supervisor_context
+
+    return {
+        "supervisor_validation": validation,
+        "supervisor_context": supervisor_context,
+    }
+
+
 def create_graph(llm: LLMClient, config: dict[str, Any]):
     graph = StateGraph(OrchestrationState)
 
@@ -3885,13 +3947,16 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
             error_dir = artifact_dir(session_dir, plan_id or "run", "execution_guard")
             write_json(error_dir / "error.json", error_payload)
             write_text(error_dir / "trace.txt", "\n".join([f.get("output", "") for f in failures]))
-        return {
+        supervisor_result = _run_supervisor(state, "execution_guard", config, "output")
+        result = {
             "execution_retry_requested": requested,
             "execution_retry_count": next_retry,
             "execution_retry_exhausted": exhausted,
             "execution_errors": failures,
             "rollback_performed": requested,
         }
+        result.update(supervisor_result)
+        return result
 
     def code_repair(state: OrchestrationState) -> OrchestrationState:
         if not state.get("config", {}).get("role_guard_enabled", ROLE_GUARD_ENABLED):
@@ -4306,7 +4371,8 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
             CUSTOM_LINE_PROMO_MIN_RUNS,
             CUSTOM_LINE_PROMO_MIN_SUCCESS,
         )
-        return {
+        supervisor_result = _run_supervisor(state, "analyze_results", config, "output")
+        result = {
             "docs_analysis_results": analysis_text,
             "docs_analysis_history": history,
             "errors": errors,
@@ -4324,6 +4390,8 @@ def create_graph(llm: LLMClient, config: dict[str, Any]):
             "plan_json": effective_plan_json if "effective_plan_json" in locals() else state.get("plan_json", {}),
             "llm_degradation_events": llm_events,
         }
+        result.update(supervisor_result)
+        return result
 
     def evidence_curation(state: OrchestrationState) -> OrchestrationState:
         session_dir = Path(state.get("session_dir", ""))

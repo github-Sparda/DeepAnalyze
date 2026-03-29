@@ -104,8 +104,30 @@ PROMPTS = {
         "zh": "基于分析结果提出新的可验证假设。",
     },
     "report_outline": {
-        "en": "Draft a report outline based on analysis results. Use numbered sections.",
-        "zh": "基于分析结果撰写报告大纲，使用编号章节。",
+        "en": (
+            "Draft a report outline based on analysis results. Use numbered sections. "
+            "The outline MUST include the following sections: "
+            "1. Abstract (summary of background, methods, results, conclusions), "
+            "2. Introduction/Background, "
+            "3. Methods (data description, preprocessing, statistical methods), "
+            "4. Results, "
+            "5. Discussion (biological interpretation, limitations), "
+            "6. Conclusions, "
+            "7. Limitations (data limitations, analysis limitations, generalizability), "
+            "8. Data and Code Availability."
+        ),
+        "zh": (
+            "基于分析结果撰写报告大纲，使用编号章节。"
+            "大纲必须包含以下章节："
+            "1. 摘要（背景、方法、结果、结论的总结），"
+            "2. 引言/背景，"
+            "3. 方法（数据描述、预处理、统计方法），"
+            "4. 结果，"
+            "5. 讨论（生物学意义、局限性），"
+            "6. 结论，"
+            "7. 局限性（数据局限性、分析局限性、泛化性），"
+            "8. 数据与代码可用性。"
+        ),
     },
     "report": {
         "en": (

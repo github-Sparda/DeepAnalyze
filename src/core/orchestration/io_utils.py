@@ -63,6 +63,19 @@ def record_node_log(
     timestamp = int(time.time() * 1000)
     path = log_dir / f"{node_name}_{timestamp}.json"
     write_json(path, payload)
+
+    node_index_path = Path(data_sessions_active_dir) / WORKSPACE_DIRS["log"] / "nodes" / "node_execution_index.json"
+    node_index = load_json(node_index_path, [])
+    node_index.append({
+        "node": node_name,
+        "path": str(path),
+        "timestamp": timestamp,
+        "status": payload.get("status", "unknown"),
+        "duration_sec": payload.get("duration_sec"),
+        "error": payload.get("error"),
+    })
+    save_json(node_index_path, node_index)
+
     return path
 
 
