@@ -690,11 +690,67 @@ class NarrativeGenerator:
         evidence_sources: list | None,
     ) -> str:
         """缺失叙述降级"""
-        missing_str = "、" .join(missing[:2]) if missing else "关键产物"
+        missing_str = "、".join(missing[:2]) if missing else "关键产物"
         return f"当前分析尚需补充{missing_str}，建议完善后再进行评估。"
 
 
-import json
+def wrap_headings_with_details(html_content: str) -> str:
+    """
+    将HTML中的标题转换为可折叠的details元素
+
+    Args:
+        html_content: HTML内容
+
+    Returns:
+        转换后的HTML
+    """
+    import re
+
+    # 要默认折叠的小节标题关键词
+    default_collapsed_keywords = [
+        '一致性与冲突',
+        '计划产物',
+        '执行事实',
+        '证据摘录',
+        '判定依据',
+        '恢复计划',
+        '校准',
+        '路径对照',
+    ]
+
+    def make_collapsed(title_text: str) -> bool:
+        return any(kw in title_text for kw in default_collapsed_keywords)
+
+    def heading_to_details(match, tag):
+        title = match.group(1)
+        content = match.group(2) if match.group(2) else ''
+        collapsed = make_collapsed(title)
+        arrow = '▶' if collapsed else '▼'
+        open_attr = '' if collapsed else ' open'
+        return f'<details class="collapsible-section"{open_attr}><summary>{arrow} {title}</summary>{content}</details>'
+
+    # 处理 h2, h3, h4
+    for tag in ['h2', 'h3', 'h4']:
+        # 匹配标题及其后续内容（直到下一个同级或更高级标题）
+        pattern = rf'(<{tag}>([^<]*)</{tag}>)\s*(.*?)(?=(?:<h[234]>)|$)'
+        content = re.DOTALL
+
+        def replacer(m):
+            title = m.group(2)
+            inner = m.group(3) if len(m.groups()) > 2 else ''
+            collapsed = make_collapsed(title)
+            arrow = '▶' if collapsed else '▼'
+            open_attr = '' if collapsed else ' open'
+            return f'<details class="collapsible-section"{open_attr}><summary>{arrow} {title}</summary>{inner}</details>'
+
+        html_content = re.sub(
+            rf'(<{tag}>([^<]*)</{tag}>)\s*(.*?)(?=(?:<h[234]>)|$)',
+            replacer,
+            html_content,
+            flags=re.DOTALL | re.IGNORECASE
+        )
+
+    return html_content
 
 
 def interpret_metric(metric_key: str, value: Any, context: dict | None = None) -> str:

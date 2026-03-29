@@ -418,7 +418,11 @@ class ReportManager:
     def _export_to_html(self, content: str, metadata: Dict[str, Any], output_path: str) -> str:
         """导出为HTML"""
         from src.core.reporting.report_styles import get_report_styles
+        from src.core.reporting.metric_interpreter import wrap_headings_with_details
         css, js = get_report_styles()
+
+        html_content = self._markdown_to_html(content)
+        html_content = wrap_headings_with_details(html_content)
 
         html_template = f"""
 <!DOCTYPE html>
@@ -442,7 +446,7 @@ class ReportManager:
             </div>
         </header>
         <div class="content">
-            {self._markdown_to_html(content)}
+            {html_content}
         </div>
     </div>
     <script>

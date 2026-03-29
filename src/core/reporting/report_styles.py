@@ -331,73 +331,109 @@ REPORT_CSS = """
 
 REPORT_JAVASCRIPT = """
 document.addEventListener('DOMContentLoaded', function() {
-    // 标题折叠功能 - 使用 nextElementSibling 控制内容显示
-    const headings = document.querySelectorAll('.report-container h2');
+    // 折叠功能：使用 details/summary 原生HTML折叠元素
+    const container = document.querySelector('.report-container');
+    if (!container) return;
+
+    // 找到所有h2, h3, h4标题
+    const headings = container.querySelectorAll('h2, h3, h4');
+
+    // 要默认折叠的小节标题关键词
+    const defaultCollapsedKeywords = [
+        '一致性与冲突',
+        '计划产物',
+        '执行事实',
+        '证据摘录',
+        '判定依据',
+        '恢复计划',
+        '校准',
+        '路径对照',
+    ];
+
     headings.forEach(function(heading) {
-        heading.addEventListener('click', function() {
-            this.classList.toggle('collapsed');
-
-            // 找到下一个兄弟元素作为内容容器
-            let sibling = this.nextElementSibling;
-            while (sibling) {
-                // 如果遇到下一个 h2/h3，停止
-                if (sibling.tagName === 'H2' || sibling.tagName === 'H3') {
-                    break;
-                }
-
-                if (sibling.classList && sibling.classList.contains('section-content')) {
-                    // 切换内容的折叠状态
-                    if (this.classList.contains('collapsed')) {
-                        sibling.style.display = 'none';
-                    } else {
-                        sibling.style.display = '';
-                    }
-                    break;
-                }
-                sibling = sibling.nextElementSibling;
-            }
+        // 检查是否应该默认折叠
+        const headingText = heading.textContent || '';
+        const shouldCollapse = defaultCollapsedKeywords.some(function(kw) {
+            return headingText.includes(kw);
         });
 
-        // 初始化：添加折叠标记但保持默认展开
-        heading.innerHTML = '<span class="collapse-icon">▼</span> ' + heading.innerHTML;
+        // 创建details元素
+        const details = document.createElement('details');
+        details.className = 'collapsible-section';
+
+        if (shouldCollapse) {
+            details.open = false;  // 默认折叠
+        } else {
+            details.open = true;  // 默认展开
+        }
+
+        // 创建summary
+        const summary = document.createElement('summary');
+        summary.innerHTML = heading.innerHTML;
+        summary.style.cursor = 'pointer';
+        summary.style.listStyle = 'none';
+        summary.style.display = 'flex';
+        summary.style.alignItems = 'center';
+        summary.style.gap = '8px';
+
+        // 添加折叠箭头
+        const arrow = document.createElement('span');
+        arrow.className = 'collapse-arrow';
+        arrow.textContent = shouldCollapse ? '▶' : '▼';
+        arrow.style.fontSize = '0.7em';
+        arrow.style.color = '#718096';
+        arrow.style.transition = 'transform 0.2s';
+
+        summary.insertBefore(arrow, summary.firstChild);
+
+        // 点击时切换箭头方向
+        summary.addEventListener('click', function(e) {
+            e.preventDefault();
+            details.open = !details.open;
+            arrow.textContent = details.open ? '▼' : '▶';
+        });
+
+        // 替换原标题
+        heading.parentNode.insertBefore(details, heading);
+        details.appendChild(summary);
+
+        // 将标题后的内容移入details（直到下一个同级标题）
+        const parent = heading.parentNode;
+        let next = heading.nextElementSibling;
+        while (next) {
+            if (next.tagName === 'H2' || next.tagName === 'H3' || next.tagName === 'H4') {
+                break;
+            }
+            const toMove = next;
+            next = next.nextElementSibling;
+            details.appendChild(toMove);
+        }
+        // 移除原标题
+        heading.remove();
     });
 
-    // CSS样式
+    // 添加CSS样式
     const style = document.createElement('style');
     style.textContent = `
-        .collapse-icon {
-            font-size: 0.7em;
-            margin-right: 8px;
-            color: #718096;
-            transition: transform 0.2s;
-            display: inline-block;
+        .collapsible-section {
+            margin: 8px 0;
         }
-        h2.collapsed .collapse-icon {
-            transform: rotate(-90deg);
+        .collapsible-section summary {
+            user-select: none;
+        }
+        .collapsible-section summary::-webkit-details-marker {
+            display: none;
+        }
+        .collapsible-section > summary:hover {
+            background-color: #f7fafc;
+            border-radius: 4px;
+        }
+        details.collapsible-section > *:not(summary) {
+            margin-left: 20px;
+            padding: 4px 0;
         }
     `;
     document.head.appendChild(style);
-
-    // 指标颜色类
-    const metricElements = document.querySelectorAll('[data-metric-status]');
-    metricElements.forEach(function(el) {
-        const status = el.getAttribute('data-metric-status');
-        if (status === 'pass' || status === 'positive') {
-            el.classList.add('metric-positive');
-        } else if (status === 'fail' || status === 'negative') {
-            el.classList.add('metric-negative');
-        } else if (status === 'warning') {
-            el.classList.add('metric-warning');
-        } else if (status === 'error' || status === 'conflict') {
-            el.classList.add('metric-error');
-        }
-    });
-
-    // 高亮重要结论
-    const conclusions = document.querySelectorAll('[data-conclusion]');
-    conclusions.forEach(function(el) {
-        el.classList.add('conclusion-highlight');
-    });
 });
 """
 
