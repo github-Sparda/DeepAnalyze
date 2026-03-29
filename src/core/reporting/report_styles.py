@@ -65,31 +65,41 @@ REPORT_CSS = """
     color: #1e40af;
     border-bottom: 3px solid #3b82f6;
     padding-bottom: 8px;
-    display: block;
+    display: inline;
 }
 .report-container .heading-level-2 {
     font-size: 1.2em;
     font-weight: 600;
     color: #1e293b;
-    display: block;
+    display: inline;
 }
 .report-container .heading-level-3 {
     font-size: 1.1em;
     font-weight: 600;
     color: #475569;
-    display: block;
+    display: inline;
 }
 .report-container .heading-level-4 {
     font-size: 1em;
     font-weight: 600;
     color: #334155;
-    display: block;
+    display: inline;
 }
 
-/* 折叠箭头 */
+/* 折叠箭头 - 左侧放大样式 */
 .report-container .collapse-arrow {
-    margin-right: 8px;
-    color: #64748b;
+    margin-right: 10px;
+    color: #3b82f6;
+    font-size: 1.2em;
+    display: inline-block;
+    vertical-align: middle;
+}
+
+/* summary行内布局 */
+.report-container summary {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
 }
 
 /* ===== 折叠功能 ===== */
@@ -353,28 +363,26 @@ document.addEventListener('DOMContentLoaded', function() {
     // 使用原生details/summary折叠
     const details = document.querySelectorAll('.report-container details');
     details.forEach(function(detail) {
-        // 添加自定义箭头（如果summary中没有）
         const summary = detail.querySelector('summary');
         if (summary) {
             let arrow = summary.querySelector('.collapse-arrow');
             if (!arrow) {
                 arrow = document.createElement('span');
                 arrow.className = 'collapse-arrow';
-                arrow.style.marginRight = '8px';
                 summary.insertBefore(arrow, summary.firstChild);
             }
             // 初始箭头
-            arrow.textContent = detail.hasAttribute('open') ? '▼' : '▶';
+            arrow.textContent = detail.hasAttribute('open') ? '▾' : '▸';
 
             // 点击事件
             summary.addEventListener('click', function(e) {
                 e.preventDefault();
                 if (detail.hasAttribute('open')) {
                     detail.removeAttribute('open');
-                    arrow.textContent = '▶';
+                    arrow.textContent = '▸';
                 } else {
                     detail.setAttribute('open', '');
-                    arrow.textContent = '▼';
+                    arrow.textContent = '▾';
                 }
             });
         }
