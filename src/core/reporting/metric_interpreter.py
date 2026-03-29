@@ -192,6 +192,64 @@ class LLMMetricInterpreter:
         return " | ".join(parts)
 
 
+def interpret_check_result(item: dict[str, Any]) -> str:
+    """
+    解释检查结果项，生成可读的自然语言描述
+
+    Args:
+        item: 包含 check, passed, detail 等字段的字典
+
+    Returns:
+        可读的解释字符串
+    """
+    check_name = item.get("check", "")
+    passed = item.get("passed")
+    detail = item.get("detail", {})
+
+    try:
+        interpreter = LLMMetricInterpreter()
+        messages = [
+            {"role": "system", "content": """你是一个专业的统计分析助手，负责解释检查结果。
+
+对于每个检查项，你需要：
+1. 说明这是什么检查（如显著性检验、效应量检验等）
+2. 解释检查是否通过
+3. 解读具体数值的含义
+
+请用简洁的中文直接输出，不要使用引号或格式标记。"""},
+            {"role": "user", "content": f"""检查项：{check_name}
+是否通过：{'通过' if passed else '未通过'}
+详细信息：{json.dumps(detail, ensure_ascii=False, indent=2)}
+
+请生成30字以内的简洁解释："""}
+        ]
+        response = interpreter.llm_client.chat(messages, max_tokens=128)
+        return response.strip()
+    except Exception:
+        return _fallback_check_interpretation(item)
+
+
+def _fallback_check_interpretation(item: dict[str, Any]) -> str:
+    """检查结果降级解释"""
+    check = str(item.get("check", ""))
+    passed = item.get("passed")
+    detail = item.get("detail", {})
+
+    parts = []
+    if passed is not None:
+        parts.append("通过" if passed else "未通过")
+
+    if isinstance(detail, dict):
+        value = detail.get("value")
+        if value is not None:
+            parts.append(f"值={value}")
+
+    return "；".join(parts) if parts else check
+
+
+import json
+
+
 def interpret_metric(metric_key: str, value: Any, context: dict | None = None) -> str:
     """便捷函数：使用LLM解释单个指标"""
     interpreter = LLMMetricInterpreter()

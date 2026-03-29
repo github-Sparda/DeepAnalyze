@@ -20,6 +20,7 @@ from src.core.reporting.narrative import (
     recovery_action_sentence,
     reason_code_sentence,
 )
+from src.core.reporting.metric_interpreter import interpret_check_result
 from src.core.orchestration.closure import evaluate_evidence_chain_closure
 from src.core.orchestration.depth_research import (
     integrate_multidimensional_evidence,
@@ -3222,9 +3223,8 @@ class ReportAssembler:
                             if not isinstance(item, dict):
                                 continue
                             check_name = failed_check_sentence(str(item.get("check", "")))
-                            lines.append(
-                                f"<li>{check_name} 当前结果：{self._bool_zh(item.get('passed'))}；细节={json.dumps(item.get('detail', {}), ensure_ascii=False)}</li>"
-                            )
+                            interpretation = interpret_check_result(item)
+                            lines.append(f"<li>{check_name}：{interpretation}</li>")
                         lines.append("</ul>")
                 lines.append(
                     f"分析来源：自动提取证据 + 规则化解释。"
