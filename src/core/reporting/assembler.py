@@ -791,8 +791,9 @@ class ReportAssembler:
                     status = str(payload.get("status", "")).strip()
                     output = str(payload.get("output", "")).strip()
                     output_name = Path(output).name if output else "未标注"
+                    status_zh = {"ok": "正常", "complete": "已完成", "failed": "失败", "incomplete": "未完成"}.get(status.lower(), status)
                     if status or output:
-                        return f"（输入：上一步产物；输出：{output_name}；状态：{status or 'unknown'}）"
+                        return f"（输入：上一步产物；输出：{output_name}；状态：{status_zh}）"
                 return "（输入：上一步产物；输出：见执行事实）"
         return ""
 
@@ -1365,6 +1366,21 @@ class ReportAssembler:
         rows = payload.get("hypotheses", []) if isinstance(payload, dict) else []
         if not rows:
             return ""
+
+        def _zh_status(s: str) -> str:
+            mapping = {
+                "pass": "通过",
+                "ok": "正常",
+                "complete": "已完成",
+                "failed": "失败",
+                "incomplete": "未完成",
+                "partial": "部分",
+                "validated": "已验证",
+                "inconclusive": "待验证",
+                "skipped": "已跳过",
+            }
+            return mapping.get(str(s).strip().lower(), s)
+
         lines = ["## 假设闭环矩阵", "<table border=1 cellpadding=4 cellspacing=0>"]
         lines.append(
             "<thead><tr><th>假设</th><th>基础证据</th><th>路径闭环</th><th>证据判定</th><th>最终状态</th><th>缺失产物</th><th>说明</th></tr></thead><tbody>"
@@ -1372,15 +1388,16 @@ class ReportAssembler:
         for row in rows:
             missing = ", ".join(row.get("missing_artifacts", []) or [])
             reason = row.get("reason", "")
-            base_status = row.get("base_status", "")
-            path_status = row.get("path_status", "")
-            gate_status = row.get("gate_status", "")
+            base_status = _zh_status(row.get("base_status", ""))
+            path_status = _zh_status(row.get("path_status", ""))
+            gate_status = _zh_status(row.get("gate_status", ""))
+            final_status = _zh_status(row.get("status", ""))
             lines.append(
                 f"<tr><td>{row.get('hypothesis','')}</td>"
                 f"<td>{base_status}</td>"
                 f"<td>{path_status}</td>"
                 f"<td>{gate_status}</td>"
-                f"<td>{row.get('status','')}</td>"
+                f"<td>{final_status}</td>"
                 f"<td>{missing}</td>"
                 f"<td>{reason}</td></tr>"
             )
